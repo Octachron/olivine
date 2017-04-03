@@ -1,0 +1,6 @@
+#directory "_build";;
+#directory "_build/src";;
+#directory "_build/src/c_headers";;
+#require "xmlm";;
+#load_rec "enkindler.cma";;
+
