@@ -54,8 +54,8 @@ let rec pp_num_expr ppf = function
 type 'a constexpr =
   | Lit of 'a
   | Var of name
-
-
+  | Null_terminated
+  | Math_expr
 
 
 (*
@@ -74,6 +74,7 @@ type typexpr =
   | Const of typexpr
   | Name of name
   | Ptr of typexpr
+  | String
   | Array of int constexpr option * typexpr
   | FunPtr of fn
   | Enum of constructor list
@@ -100,6 +101,8 @@ let const f ppf () = fp ppf f
 let pp_constexp pp ppf = function
   | Lit n -> fp ppf "%a" pp n
   | Var name -> fp ppf "%s" name
+  | Null_terminated -> fp ppf "%s" "null-terminated"
+  | Math_expr -> fp ppf "%s" "math-expr"
 
 let pp_bitfield ppf (name,int) =
   fp ppf "%d:%s" int name
@@ -132,6 +135,7 @@ let rec pp ppf = function
   | Handle h ->
     fp ppf "Handle@ @[{parent:%a; dispatchable:%b}@]"
       Fmt.(option string) h.parent h.dispatchable
+  | String -> fp ppf "string"
 
 and pp_field ppf (name, t) =
   fp ppf "%s:%a" name pp t

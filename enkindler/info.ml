@@ -133,21 +133,55 @@ module Typed = struct
 
   let require_opt = find "requires"
 
+  let is_prefix s s' =
+    let exception X in
+    try
+      String.iteri (fun i x -> if x <> s'.[i] then raise X) s
+    ; true
+    with X -> false
+
+  let len_info s =
+    let lens = String.split_on_char ',' s in
+    let len = function
+      | "null-terminated" -> Ctype.Null_terminated
+      | s when is_prefix "latexmath" s -> Ctype.Math_expr
+      | s -> Ctype.Var s in
+    List.map len lens
+
+  let array_refine node =
+    match node%?("len") with
+    | None -> fun x -> x
+    | Some s ->
+      let lens = len_info s in
+      let rec refine l q = match l, q with
+        | [Ctype.Null_terminated] , Ctype.(Const Ptr Name "char") -> Ctype.String
+        | len :: l' , Ctype.(Ptr x | Const Ptr x) ->
+          Ctype.Array (Some len, refine l' x)
+        | [], ty -> ty
+        | _ -> assert false
+      in
+      refine lens
+
+  let refine node t =
+    array_refine node t
+
+  let map2 f (x,y) = (x,f y)
+
   let register name entity spec  =
     { spec with entities = N.add name entity spec.entities }
 
   let typedef spec node =
     let s = flatten node.children in
-    let name, ty = parse Parser.typedef s in
+    let name, ty = map2 (refine node) @@ parse Parser.typedef s in
     register name (Type ty) spec
 
   let structure spec node =
     let name = node%("name") in
     let field fields = function
-      | Node { name = "member"; children; _ } ->
+      | Node ({ name = "member"; children; _ } as n) ->
         let s = flatten children in
         let name, s = parse Parser.field s in
-        (name, s) :: fields
+        (name, refine n s) :: fields
       | _ -> fields in
     let fields = (List.rev @@ List.fold_left field [] node.children) in
     let is_private = match node%?("returnedonly") with
@@ -308,14 +342,14 @@ module Typed = struct
 
 
   let proto n =
-    parse Parser.field @@ flatten n.children
+     parse Parser.field @@ flatten n.children
 
   let arg l = function
     | Data s -> raise @@ Type_error ("expected function arg, got data: " ^ s )
     | Node {name="implicitexternsyncparams"; _ } ->
       (* TODO *) l
     | Node ({ name = "param"; _ } as n) ->
-      (parse Parser.field @@ flatten n.children) :: l
+      (map2 (refine n) @@ parse Parser.field @@ flatten n.children) :: l
     | Node n -> raise @@ Type_error ("expected param node, got "^ n.name ^ " node")
 
 
@@ -426,6 +460,8 @@ let read filename =
   Typed.typecheck @@ normalize @@ snd @@ tree source
 
 let () =
-  if Array.length Sys.argv > 1 then
-    let tree = read Sys.argv.(1) in
-    Typed.pp stdout tree
+  if Array.length Sys.argv > 2 then
+    let info = read Sys.argv.(1) in
+    let query = Sys.argv.(2) in
+    Typed.pp_entity stdout @@ (query, Typed.N.find query info.entities)
+(*    Typed.pp stdout tree *)
