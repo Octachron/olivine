@@ -1,6 +1,4 @@
 
-
-
 let fp = Format.fprintf
 let stdout = Format.std_formatter
 
@@ -35,11 +33,12 @@ let pp_tag_end (name,_) ppf = fp ppf "@,</%a>@," pp_name name
 type xml =
   | Node of node
   | Data of string
-and node = { name: string;
-           namespace:string;
-           attributes: string M.t;
-           children: xml list
-         }
+and node = {
+  name: string;
+  namespace:string;
+  attributes: string M.t;
+  children: xml list
+}
 
 let to_tag ({name; namespace; attributes; _ }: node): tag
     = {name = {name;namespace}; attributes }
@@ -161,6 +160,15 @@ module Typed = struct
         | _ -> assert false
       in
       refine lens
+
+  let result_refine (s,e) ty =
+    let open Ctype in
+    let sum =String.split_on_char ',' in
+    match s, e, ty with
+      | None, _, _ | _, None, _  -> ty
+      | Some s, Some e, Name "VkResult" -> Result { ok = sum s; bad = sum e }
+      | _ -> ty
+
 
   let refine node t =
     array_refine node t
@@ -355,9 +363,11 @@ module Typed = struct
 
   let command spec = function
     | Data s -> raise @@ Type_error ("expected command node, got data"^ s)
-    | Node { name="command";
-             children = Node ({ name = "proto"; _ } as p) :: args; _ } ->
+    | Node ( { name="command";
+             children = Node ({ name = "proto"; _ } as p) :: args; _ } as n) ->
+      let r = n%?("successcodes"), n%?("errorcodes") in
       let name, return = proto p in
+      let return = result_refine r return in
       register name
         (Fn { Ctype.return; name; args = List.rev @@ List.fold_left arg [] args })
         spec

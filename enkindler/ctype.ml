@@ -87,6 +87,7 @@ type typexpr =
         values: (name * int) list
       }
   | Handle of { parent: name option; dispatchable:bool }
+  | Result of { ok: name list; bad: name list }
 and field = name * typexpr
 and fn = { name:name; return: typexpr; args: field list }
 
@@ -136,6 +137,10 @@ let rec pp ppf = function
     fp ppf "Handle@ @[{parent:%a; dispatchable:%b}@]"
       Fmt.(option string) h.parent h.dispatchable
   | String -> fp ppf "string"
+  | Result {ok;bad} ->
+    let ppl = pp_list (const "@ | ") Fmt.string in
+    fp ppf "@[either@ [ok:%a]@ [bad:%a]@]"
+      ppl ok ppl bad
 
 and pp_field ppf (name, t) =
   fp ppf "%s:%a" name pp t
