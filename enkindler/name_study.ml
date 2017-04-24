@@ -16,6 +16,27 @@ let path name =
     name |> split_on_pred (fun x -> Char.lowercase_ascii x <> x)
     |> List.map String.uncapitalize_ascii
 
+let remove_prefix prefix name =
+  let rec remove_prefix name prefix current =
+    match prefix, current with
+    | [] , l -> l
+    | x :: q, y :: q' when x = y -> remove_prefix name q q'
+    | x :: _, _ -> name in
+  remove_prefix name prefix name
+
+let snake ppf () = Fmt.pf ppf "_"
+
+let pp_module ppf = function
+  | [] -> assert false
+  | a :: q ->
+    Fmt.pf ppf "%s_%a" (String.capitalize_ascii a)
+      (Fmt.list ~sep:snake Fmt.string) q
+
+let pp_constr ppf = pp_module ppf
+
+let pp_type ppf =
+  Fmt.list ~sep:snake Fmt.string ppf
+
 module N = Misc.StringMap
 
 type nametree =
@@ -54,8 +75,10 @@ let nametree x =
 let rec pp_nametree ppf = function
   | Obj _ -> ()
   | Node (_,m) ->
-    let bs = List.filter (fun (n,m) -> cardinal m > 5 ) (N.bindings m) in
-    Fmt.pf ppf "@[<v 2>%a@]" (Ctype.pp_list (Ctype.const "@;") pp_branch) bs
+    let bs = List.filter (fun (_n,m) -> cardinal m > 5 ) (N.bindings m)
+    in
+    Fmt.pf ppf "@[<v 2>%a@]"
+      (Ctype.pp_list (Ctype.const "@;") pp_branch) bs
 and pp_branch ppf (name, m) =
     Fmt.pf ppf "%s(%d):@;@[%a@]" name (cardinal m) pp_nametree m
 
