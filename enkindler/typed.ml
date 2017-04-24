@@ -92,7 +92,8 @@ let array_refine node =
   | Some s ->
     let lens = len_info s in
     let rec refine l q = match l, q with
-      | [Ctype.Null_terminated] , Ctype.(Const Ptr Name "char") -> Ctype.String
+      | [Ctype.Null_terminated] , Ctype.(Const Ptr Name "char")
+        -> Ctype.String
       | len :: l' , Ctype.(Ptr x | Const Ptr x) ->
         Ctype.Array (Some len, refine l' x)
       | [], ty -> ty
@@ -154,7 +155,8 @@ let bitmask spec node =
 let handle spec node =
   let h, name =
     match node.Xml.children with
-    | Node h  ::  _ :: Node { name ="name"; children = [Data name]; _ } :: _ ->
+    | Node h  ::  _ ::
+      Node { name ="name"; children = [Data name]; _ } :: _ ->
       h, name
     | _  -> raise @@ Type_error "Handle type name expected" in
   let d =
