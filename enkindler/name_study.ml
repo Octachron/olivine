@@ -9,25 +9,64 @@ let split_on_pred pred s =
       analyze start (curr + 1) in
   analyze 0 0
 
+let split_camel_case s =
+  let mx = String.length s in
+  let sub first after = String.sub s first (after-first) in
+  let protect k l start n =
+    if n >= mx then
+      if start < n then
+        List.rev @@ sub start mx :: l
+      else l
+    else k l start n in
+  let rec lower acc start n =
+    let c = s.[n] in
+    if Char.lowercase_ascii c <> c then
+      protect capital (sub start n :: acc) n (n+1)
+    else
+      protect lower acc start (n+1)
+  and capital acc start n =
+    let c = s.[n] in
+    if Char.uppercase_ascii c = c then
+      protect upper acc start (n+1)
+    else
+      protect lower acc start (n+1)
+  and upper acc start n =
+    let c = s.[n] in
+    if Char.uppercase_ascii c <> c then
+      protect lower (sub start n :: acc) n (n+1)
+    else
+      protect upper acc start (n+1) in
+  protect capital [] 0 1
+
+let clean = function
+  | "" :: "vk" :: q -> q
+  | "" :: q -> q
+  | "vk" :: q -> q
+  | p -> p
+
 let path name =
+  let path =
   if String.contains name '_' then
-    name |> String.split_on_char '_' |> List.map String.lowercase_ascii
+    name
+    |> String.split_on_char '_'
   else
-    name |> split_on_pred (fun x -> Char.lowercase_ascii x <> x)
-    |> List.map String.uncapitalize_ascii
+    name |> split_camel_case
+  in
+  path |> List.map String.lowercase_ascii |> clean
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =
     match prefix, current with
     | [] , l -> l
     | x :: q, y :: q' when x = y -> remove_prefix name q q'
-    | x :: _, _ -> name in
+    | _ :: _, _ -> name in
   remove_prefix name prefix name
 
 let snake ppf () = Fmt.pf ppf "_"
 
 let pp_module ppf = function
   | [] -> assert false
+  | [a] -> Fmt.pf ppf "%s" (String.capitalize_ascii a)
   | a :: q ->
     Fmt.pf ppf "%s_%a" (String.capitalize_ascii a)
       (Fmt.list ~sep:snake Fmt.string) q
@@ -36,6 +75,8 @@ let pp_constr ppf = pp_module ppf
 
 let pp_type ppf =
   Fmt.list ~sep:snake Fmt.string ppf
+
+let pp_var ppf = pp_type ppf
 
 module N = Misc.StringMap
 
