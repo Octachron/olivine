@@ -1,5 +1,15 @@
 let sep ppf () = Fmt.pf ppf "\n"
 
+module S = Misc.StringSet
+module M = Misc.StringMap
+
+type gen =
+  { generator: string -> gen -> gen;
+    map: Typed.entity M.t;
+    current: S.t }
+
+let remove name g = { g with current = S.remove name g.current }
+
 module Enum = struct
 
   let contiguous_range =
@@ -61,7 +71,8 @@ end
 module Typexp = struct
   let rec pp ppf = function
     | Ctype.Const t -> pp ppf t
-    | Ctype.Name n -> Fmt.pf ppf "%s" n
+    | Ctype.Name n ->
+      Fmt.pf ppf "%a" Name_study.pp_type (Name_study.path n)
     | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" pp typ
     | Ctype.String -> Fmt.pf ppf "string"
     | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" pp typ
@@ -73,6 +84,16 @@ module Typexp = struct
 end
 
 module Record = struct
+
+  let rec check_typ  p = function
+    | Ctype.Ptr t | Const t -> check_typ p t
+    | Array(_,t) -> check_typ p t
+    | Name t ->
+      if S.mem t p.current then p.generator t p else p
+    | _ -> p
+
+  let check_fields = List.fold_left
+      (fun acc (_,t) -> check_typ acc t )
 
   let field name ppf (field_name,typ)=
     let field_name =
@@ -88,21 +109,41 @@ module Record = struct
     Fmt.list ~sep (field name) ppf fields;
     Fmt.pf ppf "\n  let () = Ctype.seal t\n"
 
-  let make ppf name fields =
+  let make ppf p name fields =
+    let p = check_fields p fields in
     let name = Name_study.path name in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     def ppf name fields;
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "let %a = %a.t\n"
-      Name_study.pp_var name Name_study.pp_module name
+      Name_study.pp_var name Name_study.pp_module name;
+    p
 
 end
 
 
 module Bitset = struct
-  let make ppf name =
+
+  let field ppf (name, value) =
+    Fmt.pf ppf "  let %s = make_index %d\n" name value
+
+  let value ppf (name,value) =
+    Fmt.pf ppf "  let %s = of_int %d\n" name value
+
+  let values ppf (fields,values) =
+    List.iter (field ppf) fields;
+    List.iter (value ppf) values
+
+  let make ppf p name field_name =
+    let fields = match M.find field_name p.map with
+      | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
+      | _ -> [], [] in
     let name = Name_study.path name in
-    Fmt.pf ppf "module %a = Bitset.Make()\n" Name_study.pp_module name
+    Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
+    Fmt.pf ppf "  include Bitset.Make()\n";
+    values ppf fields;
+    Fmt.pf ppf "end\n";
+    p
 end
 
 module Handle = struct
@@ -118,24 +159,43 @@ let rec last = function
 
 let is_bits name = last name = "bits"
 
-let make_type ppf name = function
-  | Ctype.Const _ | Name _ | Ptr _ | String | Array (_,_)
-  | Result _ -> ()
 
-  | FunPtr _ -> Fmt.(pf stderr) "@{<red> FunPtr not implemented@}@."
-  | Union _ -> Fmt.(pf stderr) "@{<red> Union not implemented@}@."
-  | Bitset _ -> Bitset.make ppf name
-  | Bitfields _ -> Fmt.(pf stderr)
-                     "@{<red> Bitfields not implemented@}@."
-  | Handle _ ->  Handle.make ppf name
+let make_type ppf p name = function
+  | Ctype.Const _ | Name _ | Ptr _ | String | Array (_,_)
+  | Result _ -> p
+
+  | FunPtr _ ->
+    Fmt.(pf stderr) "@{<red> FunPtr not implemented@}@."; p
+  | Union _ ->
+    Fmt.(pf stderr) "@{<red> Union not implemented@}@."; p
+  | Bitset { field_type; _ } ->
+    Bitset.make ppf (remove field_type p) name field_type
+  | Bitfields _ -> p (* see Bitset *)
+  | Handle _ ->  Handle.make ppf name; p
   | Enum constrs ->
     if not @@ is_bits @@ Name_study.path name then
       Enum.make Enum.Std ppf name constrs
+    ; p
   | Record r ->
-    Record.make ppf name r.fields
+    Record.make ppf p name r.fields
 
-let make ppf (name,obj)=
+let make_ideal ppf name p =
+  let p = remove name p in
+  let obj = M.find name p.map in
   match obj with
-  | Typed.Type t -> make_type ppf name t
-  | Fn _f -> ()
-  | Const _c -> ()
+  | Typed.Type t -> make_type ppf p name t
+  | Fn _f -> p
+  | Const _c -> p
+
+let gen ppf map =
+  let current = S.of_list @@ List.map fst @@ M.bindings map in
+  { generator = make_ideal ppf; current; map}
+
+let make_all ppf map =
+  let g = gen ppf map in
+  let rec loop g =
+    if g.current = S.empty then
+      ()
+    else
+      loop @@ g.generator (S.choose g.current) g in
+  loop g
