@@ -110,7 +110,12 @@ module Handle = struct
     Fmt.pf ppf "module %a = Handle.Make()\n" Name_study.pp_module name
 end
 
+let rec last = function
+  | [] -> raise @@ Invalid_argument "last []"
+  | [a] -> a
+  | _ :: q -> last q
 
+let is_bits name = last name = "bits"
 
 let make_type ppf name = function
   | Ctype.Const _ | Name _ | Ptr _ | String | Array (_,_)
@@ -123,7 +128,8 @@ let make_type ppf name = function
                      "@{<red> Bitfields not implemented@}@."
   | Handle _ ->  Handle.make ppf name
   | Enum constrs ->
-    Enum.make Enum.Std ppf name constrs
+    if not @@ is_bits @@ Name_study.path name then
+      Enum.make Enum.Std ppf name constrs
   | Record r ->
     Record.make ppf name r.fields
 
