@@ -97,16 +97,31 @@ module Record = struct
 
 end
 
+
+module Bitset = struct
+  let make ppf name =
+    let name = Name_study.path name in
+    Fmt.pf ppf "module %a = Bitset.Make()\n" Name_study.pp_module name
+end
+
+module Handle = struct
+  let make ppf name =
+    let name = Name_study.path name in
+    Fmt.pf ppf "module %a = Handle.Make()\n" Name_study.pp_module name
+end
+
+
+
 let make_type ppf name = function
   | Ctype.Const _ | Name _ | Ptr _ | String | Array (_,_)
   | Result _ -> ()
 
   | FunPtr _ -> Fmt.(pf stderr) "@{<red> FunPtr not implemented@}@."
   | Union _ -> Fmt.(pf stderr) "@{<red> Union not implemented@}@."
-  | Bitset _ -> Fmt.(pf stderr) "@{<red> Bitset not implemented@}@."
-  | Bitfields _ -> Fmt.(pf stderr) "@{<red> Bitset not implemented@}@."
-  | Handle _ ->  Fmt.(pf stderr) "@{<red> Handle@}@."
-
+  | Bitset _ -> Bitset.make ppf name
+  | Bitfields _ -> Fmt.(pf stderr)
+                     "@{<red> Bitfields not implemented@}@."
+  | Handle _ ->  Handle.make ppf name
   | Enum constrs ->
     Enum.make Enum.Std ppf name constrs
   | Record r ->
