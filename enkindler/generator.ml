@@ -88,7 +88,13 @@ module Typexp = struct
       failwith "Not_implemented"
 end
 
-module Record = struct
+module Structured = struct
+
+  type kind = Union | Record
+
+  let pp_kind ppf = function
+    | Union -> Fmt.pf ppf "union"
+    | Record -> Fmt.pf ppf "structure"
 
   let rec check_typ  p = function
     | Ctype.Ptr t | Const t -> check_typ p t
@@ -107,17 +113,20 @@ module Record = struct
       Name_study.pp_var field_name Name_study.pp_var field_name
       Typexp.pp typ
 
-  let def ppf name fields =
+  let def kind ppf name fields =
     Fmt.pf ppf "  type t\n";
-    Fmt.pf ppf "  let t: t structure typ = structure \"%a\"\n"
-      Name_study.pp_type name;
+    Fmt.pf ppf "  let t: t %a typ = %a \"%a\"\n"
+      pp_kind kind
+      pp_kind kind
+      Name_study.pp_type name
+    ;
     Fmt.list ~sep (field name) ppf fields;
     Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
 
-  let make ppf p name fields =
+  let make kind ppf p name fields =
     let p = check_fields p fields in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
-    def ppf name fields;
+    def kind ppf name fields;
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "let %a = %a.t\n\
                 type %a = %a.t\n"
@@ -192,8 +201,8 @@ end
 module Funptr = struct
 
   let make ppf p tyname (fn:Ctype.fn) =
-    let p = Record.check_fields p fn.args in
-    let p = Record.check_typ p fn.return in
+    let p = Structured.check_fields p fn.args in
+    let p = Structured.check_typ p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
@@ -227,8 +236,8 @@ let make_type ppf p name = function
   | Result _ -> p
   | Name t -> alias ppf name t; p
   | FunPtr fn -> Funptr.make ppf p name fn
-  | Union _ ->
-    Fmt.(pf stderr) "@{<red> Union not implemented@}@."; p
+  | Union fields ->
+    Structured.(make Record) ppf p name fields
   | Bitset { field_type = Some ft; _ } ->
     Bitset.make ppf (remove ft p) name (Some ft)
   | Bitset { field_type = None; _ } ->
@@ -248,10 +257,12 @@ let make_type ppf p name = function
       Enum.make Enum.Std ppf name constrs
     ; p
   | Record r ->
-    Record.make ppf p name r.fields
+    Structured.(make Record) ppf p name r.fields
 
 let right_sys name =
-  not @@ List.exists ( fun (x,_) -> x = "android" || x = "win32" ) name
+  let check =
+    function "android" | "mir" | "win32" -> true | _ -> false in
+  not @@ List.exists ( fun (x,_) -> check x ) name
 
 let make_ideal ppf name p =
   let name' = Name_study.path name in

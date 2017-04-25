@@ -138,6 +138,19 @@ let structure spec node =
   let ty = Ctype.Record {fields; is_private} in
   register name (Type ty) spec
 
+
+let union spec node =
+  let name = node%("name") in
+  let field fields = function
+    | Xml.Node ({ name = "member"; children; _ } as n) ->
+      let s = flatten children in
+      let name, s = parse Parser.field s in
+      (name, refine n s) :: fields
+    | _ -> fields in
+  let fields = (List.rev @@ List.fold_left field [] node.children) in
+  let ty = Ctype.Union fields in
+  register name (Type ty) spec
+
 let bitmask spec node =
   let name, ty = parse Parser.typedef @@ flatten node.Xml.children in
   let ty =
@@ -193,12 +206,12 @@ let types spec =
          [ "category" $= "bitmask"], bitmask spec;
          [ "category" $=$ ["basetype";"funcpointer"]], typedef spec;
          [ "category" $= "struct"], structure spec;
+         [ "category" $= "union"], union spec;
          [ "category" $= "handle"], handle spec;
          [ "category" $= "enum"], enum spec;
          [ "requires", any ], require spec;
        ]
     spec
-
 
 let vendorid = function
   | Xml.Data _ -> raise @@ Type_error "VendorId: unexpected data"
@@ -297,34 +310,42 @@ let proto n =
   parse Parser.field @@ flatten n.Xml.children
 
 let arg l = function
-  | Xml.Data s -> raise @@ Type_error ("expected function arg, got data: " ^ s )
+  | Xml.Data s -> raise @@
+    Type_error ("expected function arg, got data: " ^ s )
   | Node {name="implicitexternsyncparams"; _ } ->
     (* TODO *) l
   | Node ({ name = "param"; _ } as n) ->
     (map2 (refine n) @@ parse Parser.field @@ flatten n.children) :: l
-  | Node n -> raise @@ Type_error ("expected param node, got "^ n.name ^ " node")
+  | Node n -> raise @@
+    Type_error ("expected param node, got "^ n.name ^ " node")
 
 
 let command spec = function
-  | Xml.Data s -> raise @@ Type_error ("expected command node, got data"^ s)
+  | Xml.Data s -> raise @@
+    Type_error ("expected command node, got data"^ s)
   | Node ( { name="command";
-             children = Node ({ name = "proto"; _ } as p) :: args; _ } as n) ->
+             children = Node ({ name = "proto"; _ } as p) :: args;
+             _ } as n) ->
     let r = n%?("successcodes"), n%?("errorcodes") in
     let name, return = proto p in
     let return = result_refine r return in
     register name
-      (Fn { Ctype.return; name; args = List.rev @@ List.fold_left arg [] args })
+      (Fn { Ctype.return; name;
+            args = List.rev @@ List.fold_left arg [] args })
       spec
-  | Node n -> raise @@ Type_error ("expected command node, got "^ n.name ^ " node")
+  | Node n -> raise @@
+    Type_error ("expected command node, got "^ n.name ^ " node")
 
 let section spec x =
   match x with
   | Xml.Data _ -> spec
   | Node ({name;children; _ } as n) ->
     match name with
-    | "tags" -> { spec with tags = List.map short_tag children @ spec.tags }
+    | "tags" -> { spec with tags =
+                              List.map short_tag children @ spec.tags }
     | "vendorids" ->
-      { spec with vendor_ids= List.map vendorid children @ spec.vendor_ids }
+      { spec with vendor_ids=
+                    List.map vendorid children @ spec.vendor_ids }
     | "types" -> List.fold_left types spec children
     | "enums" ->
       enums spec n
