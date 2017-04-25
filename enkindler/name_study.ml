@@ -68,16 +68,25 @@ let remove_prefix prefix name =
 
 let snake ppf () = Fmt.pf ppf "_"
 
-let pp_module ppf = function
-  | [] -> assert false
-  | [a] -> Fmt.pf ppf "%s" (String.capitalize_ascii a)
-  | a :: q ->
-    Fmt.pf ppf "%s_%a" (String.capitalize_ascii a)
-      (Fmt.list ~sep:snake Fmt.string) q
+let escape_word s =
+    begin match s.[0] with
+      | '0'..'9' -> "n" ^ s
+      | _ -> s
+    end
 
 let escape = function
-  | ["type"] -> ["typ"]
+  | ["module"] -> ["module'"]
+  | ["type"] -> ["type'"]
+  | ["object"] -> ["object'"]
+  | s :: q -> escape_word s :: q
   | p -> p
+
+let pp_module ppf = function
+  | [] -> assert false
+  | [a] -> Fmt.pf ppf "%s" ( String.capitalize_ascii @@ escape_word a)
+  | a :: q ->
+    Fmt.pf ppf "%s_%a" (String.capitalize_ascii @@ escape_word a)
+      (Fmt.list ~sep:snake Fmt.string) q
 
 let pp_constr ppf = pp_module ppf
 

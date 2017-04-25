@@ -21,6 +21,8 @@ module type S = sig
 
   val singleton: index -> t
   val of_list: index list -> t
+
+  val of_int: int -> t
 end
 
 module Make(): S = struct
@@ -49,4 +51,6 @@ module Make(): S = struct
   let singleton k = 1 lsl k
   let of_list =
     List.fold_left ( fun acc x -> acc + singleton x) empty
+
+  let of_int n = n
 end

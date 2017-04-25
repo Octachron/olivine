@@ -2,5 +2,5 @@ B _build/**
 S src/**
 S src
 S _build/**
-PKG xmlm fmt integers
+PKG xmlm fmt integers ctypes.foreign
 FLG -w A-44-42-45-4-41-48-6-40-30@8

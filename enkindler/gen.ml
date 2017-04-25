@@ -8,5 +8,4 @@ let () =
   let info = read Sys.argv.(1) in
   let output = Format.formatter_of_out_channel
     @@ open_out Sys.argv.(2) in
-  List.iter (Generator.make output)
-  @@ Misc.StringMap.bindings info.entities
+  Generator.make_all output info.entities

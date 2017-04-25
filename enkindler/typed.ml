@@ -4,9 +4,9 @@ module M = Xml.Map
 open Xml.Infix
 
 type entity =
-  | Fn of Ctype.fn
-  | Type of Ctype.typexpr
   | Const of Ctype.num_expr
+  | Type of Ctype.typexpr
+  | Fn of Ctype.fn
 
 type vendor_id = { name: string; id: int; comment: string }
 type short_tag = { name: string; author:string; contact: string}

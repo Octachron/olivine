@@ -5,6 +5,10 @@ true: strict_sequence
 true: safe_string
 true: short_paths
 true: strict_formats
-<enkindler/*>: package(xmlm), package(fmt), package(integers)
-<enkindler/cshard/*>: package(integers)
+true: thread
+<enkindler/*>: package(xmlm), package(fmt), package(ctypes)
+<enkindler/cshard/*>: package(ctypes)
 <enkindler> or <enkindler/cshard>: include
+<lib>: include
+<lib/*>: package(ctypes.foreign), thread
+"vk.cma": package(ctypes.foreign), thread

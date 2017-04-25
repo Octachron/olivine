@@ -78,7 +78,6 @@ type typexpr =
   | Array of int constexpr option * typexpr
   | FunPtr of fn
   | Enum of constructor list
-  | Record of {is_private:bool; fields: field list}
   | Union of field list
   | Bitset of { implementation:name; field_type: name}
   | Bitfields of
@@ -88,6 +87,8 @@ type typexpr =
       }
   | Handle of { parent: name option; dispatchable:bool }
   | Result of { ok: name list; bad: name list }
+  | Record of {is_private:bool; fields: field list}
+
 and field = name * typexpr
 and fn = { name:name; return: typexpr; args: field list }
 

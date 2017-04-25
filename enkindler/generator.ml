@@ -49,11 +49,12 @@ module Enum = struct
       | (_, Ctype.Abs n as c) ->
         Fmt.pf ppf "    | %d -> %a" n (pp_constr name impl) c
       | _ -> () in
-    Fmt.list ~sep constr ppf constrs
+    Fmt.list ~sep constr ppf constrs;
+    Fmt.pf ppf "\n    | _ -> assert false\n"
 
   let view ppf () =
     Fmt.pf ppf
-      "\n  let view = Ctype.view ~write:to_int ~read:of_int int\n"
+       "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
 
   let make impl ppf name constrs =
     let name = Name_study.path name in
@@ -63,8 +64,10 @@ module Enum = struct
     of_int impl ppf name constrs;
     view ppf ();
     Fmt.pf ppf "end\n";
-    Fmt.pf ppf "let %a = %a.view\n"
+    Fmt.pf ppf "let %a = %a.view\n\
+               type %a = %a.t\n"
       Name_study.pp_var name Name_study.pp_module name
+      Name_study.pp_type name Name_study.pp_module name
 
 end
 
@@ -73,6 +76,8 @@ module Typexp = struct
     | Ctype.Const t -> pp ppf t
     | Ctype.Name n ->
       Fmt.pf ppf "%a" Name_study.pp_type (Name_study.path n)
+    | Ctype.Ptr (Name n) ->
+      Fmt.pf ppf "(ptr %a)" Name_study.pp_type  (Name_study.path n)
     | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" pp typ
     | Ctype.String -> Fmt.pf ppf "string"
     | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" pp typ
@@ -98,8 +103,8 @@ module Record = struct
   let field name ppf (field_name,typ)=
     let field_name =
       Name_study.(remove_prefix name @@ path field_name) in
-    Fmt.pf ppf "  let %a = field \"%a\" %a"
-      Name_study.pp_var field_name Name_study.pp_type name
+    Fmt.pf ppf "  let %a = field t \"%a\" %a"
+      Name_study.pp_var field_name Name_study.pp_var field_name
       Typexp.pp typ
 
   let def ppf name fields =
@@ -107,7 +112,7 @@ module Record = struct
     Fmt.pf ppf "  let t: t structure typ = structure \"%a\"\n"
       Name_study.pp_type name;
     Fmt.list ~sep (field name) ppf fields;
-    Fmt.pf ppf "\n  let () = Ctype.seal t\n"
+    Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
 
   let make ppf p name fields =
     let p = check_fields p fields in
@@ -115,7 +120,9 @@ module Record = struct
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     def ppf name fields;
     Fmt.pf ppf "end\n";
-    Fmt.pf ppf "let %a = %a.t\n"
+    Fmt.pf ppf "let %a = %a.t\n\
+                type %a = %a.t\n"
+      Name_study.pp_type name Name_study.pp_module name
       Name_study.pp_var name Name_study.pp_module name;
     p
 
@@ -143,13 +150,21 @@ module Bitset = struct
     Fmt.pf ppf "  include Bitset.Make()\n";
     values ppf fields;
     Fmt.pf ppf "end\n";
+    Fmt.pf ppf "type %a = %a.t\n"
+      Name_study.pp_type name Name_study.pp_module name;
     p
 end
 
 module Handle = struct
   let make ppf name =
     let name = Name_study.path name in
-    Fmt.pf ppf "module %a = Handle.Make()\n" Name_study.pp_module name
+    Fmt.pf ppf
+      "module %a = Handle.Make()\n\
+       type %a = %a.t\n\
+       let %a = %a.view\n"
+      Name_study.pp_module name
+      Name_study.pp_type name Name_study.pp_module name
+      Name_study.pp_type name Name_study.pp_module name
 end
 
 let rec last = function
@@ -192,6 +207,7 @@ let gen ppf map =
   { generator = make_ideal ppf; current; map}
 
 let make_all ppf map =
+  Fmt.pf ppf "open PosixTypes\nopen Ctypes\nopen Foreign\n";
   let g = gen ppf map in
   let rec loop g =
     if g.current = S.empty then

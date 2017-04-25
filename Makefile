@@ -13,6 +13,12 @@ info:  _tags enkindler/*
 gen:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
+lib/vk.ml: _tags enkindler/*
+	./gen specs/vk.xml lib/vk.ml
+
+vk.cma: _tags lib/*
+	$(CCO) $@
+
 term: enkindler.cma
 
 enkindler.cma: _tags enkindler/*
