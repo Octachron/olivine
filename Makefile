@@ -1,13 +1,16 @@
 CC=ocamlbuild
 CCO=$(CC) -use-ocamlfind -use-menhir
 
-all: info base
+all: info gen base
 
 base: c/base.c
 	gcc c/base.c -o base
 
 
 info:  _tags enkindler/*
+	$(CCO) $@.native && mv $@.native $@
+
+gen:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
 term: enkindler.cma
