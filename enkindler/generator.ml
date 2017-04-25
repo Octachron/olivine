@@ -142,7 +142,22 @@ module Bitset = struct
     List.iter (field ppf) fields;
     List.iter (value ppf) values
 
-  let make ppf p name field_name =
+  let rec bitname = function
+    | ("flags", "Flags") :: q ->
+      ("flag", "Flag") :: ("bits", "Bits") :: q
+    | [] -> raise @@ Invalid_argument "bitname []"
+    | a :: q -> a :: bitname q
+
+  let resume ppf name =
+    Fmt.pf ppf "type %a = %a.t\n"
+      Name_study.pp_type name Name_study.pp_module name;
+    Fmt.pf ppf "let %a = %a.view\n"
+      Name_study.pp_var name Name_study.pp_module name;
+    Fmt.pf ppf "let %a = %a.index_view\n"
+      Name_study.pp_var (bitname name)
+      Name_study.pp_module name
+
+  let make_with_bits ppf p name field_name =
     let fields = match M.find field_name p.map with
       | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
       | _ -> [], [] in
@@ -150,11 +165,17 @@ module Bitset = struct
     Fmt.pf ppf "  include Bitset.Make()\n";
     values ppf fields;
     Fmt.pf ppf "end\n";
-    Fmt.pf ppf "type %a = %a.t\n"
-      Name_study.pp_type name Name_study.pp_module name;
-    Fmt.pf ppf "let %a = %a.view\n"
-      Name_study.pp_var name Name_study.pp_module name;
+    resume ppf name;
     p
+
+  let make ppf p name = function
+    | Some field_info -> make_with_bits ppf p name field_info
+    | None ->
+      Fmt.pf ppf "module %a = Bitset.Make()\n"
+        Name_study.pp_module name;
+      resume ppf name;
+      p
+
 end
 
 module Handle = struct
@@ -188,7 +209,13 @@ let rec last = function
   | [a] -> a
   | _ :: q -> last q
 
-let is_bits name = last name = "bits"
+let rec remove_bits = function
+  | [] -> raise @@ Invalid_argument "last []"
+  | ("flag", f ) :: ("bits", _ ) :: q -> ("flags", f ^ "s") :: q
+  | a :: q -> a :: remove_bits q
+
+
+let is_bits name = fst @@ last name = "bits"
 
 let alias ppf name origin =
   Fmt.pf ppf "let %a = view (fun x -> x) (fun x -> x) %a\n"
@@ -202,9 +229,19 @@ let make_type ppf p name = function
   | FunPtr fn -> Funptr.make ppf p name fn
   | Union _ ->
     Fmt.(pf stderr) "@{<red> Union not implemented@}@."; p
-  | Bitset { field_type; _ } ->
-    Bitset.make ppf (remove field_type p) name field_type
-  | Bitfields _ -> p (* see Bitset *)
+  | Bitset { field_type = Some ft; _ } ->
+    Bitset.make ppf (remove ft p) name (Some ft)
+  | Bitset { field_type = None; _ } ->
+    Bitset.make ppf p name None
+  | Bitfields _ ->
+    let set = "Vk" ^ (Name_study.original @@ remove_bits name) in
+    begin
+    try
+      p.generator set p
+    with Not_found ->
+      Fmt.pf Fmt.stderr "Not found %s\n%!" set;
+      raise Not_found
+    end
   | Handle _ ->  Handle.make ppf name; p
   | Enum constrs ->
     if not @@ is_bits name then
@@ -214,7 +251,7 @@ let make_type ppf p name = function
     Record.make ppf p name r.fields
 
 let right_sys name =
-  not @@ List.exists ((=) "android") name
+  not @@ List.exists ( fun (x,_) -> x = "android" || x = "win32" ) name
 
 let make_ideal ppf name p =
   let name' = Name_study.path name in

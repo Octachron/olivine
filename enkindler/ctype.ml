@@ -79,7 +79,7 @@ type typexpr =
   | FunPtr of fn
   | Enum of constructor list
   | Union of field list
-  | Bitset of { implementation:name; field_type: name}
+  | Bitset of { implementation:name; field_type: name option}
   | Bitfields of
       {
         fields: (name * int) list;
@@ -125,8 +125,8 @@ let rec pp ppf = function
   | Union fields ->
     fp ppf "@[[%a]@]" (pp_list (const "@ ||") pp_field) fields
   | Bitset {implementation; field_type} ->
-    fp ppf "Bitset@[@ {implementation:%s;@ field_type:%s}@]"
-      implementation field_type
+    fp ppf "Bitset@[@ {implementation:%s;@ field_type:(%a)}@]"
+      implementation Fmt.(option string)  field_type
  | Bitfields {fields; values} ->
     let bitfields = pp_list (const ";@ ") pp_bitfield in
 

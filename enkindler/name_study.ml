@@ -1,3 +1,4 @@
+
 let split_on_pred pred s =
   let len = String.length s in
   let rec analyze start curr =
@@ -43,10 +44,17 @@ let split_camel_case s =
       protect capital [] 0 1
 
 let clean = function
-  | "" :: "vk" :: q -> q
-  | "" :: q -> q
-  | "vk" :: q -> q
+  | ("",_) :: ("vk",_) :: q -> q
+  | ("",_) :: q -> q
+  | ("vk",_) :: q -> q
   | p -> p
+
+let lower s = String.lowercase_ascii s, s
+
+let original path =
+  let b = Buffer.create 20 in
+  List.iter (fun (_, s) -> Buffer.add_string b s) path;
+  Buffer.contents b
 
 let path name =
   let path =
@@ -56,37 +64,37 @@ let path name =
   else
     name |> split_camel_case
   in
-  path |> List.map String.lowercase_ascii |> clean
+  path |> List.map lower |> clean
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =
     match prefix, current with
     | [] , l -> l
-    | x :: q, y :: q' when x = y -> remove_prefix name q q'
+    | (x,_) :: q, (y,_) :: q' when x = y -> remove_prefix name q q'
     | _ :: _, _ -> name in
   remove_prefix name prefix name
 
 let snake ppf () = Fmt.pf ppf "_"
 
-let escape_word s =
+let escape_word (s,_) =
     begin match s.[0] with
       | '0'..'9' -> "n" ^ s
       | _ -> s
     end
 
 let escape = function
-  | ["module"] -> ["module'"]
-  | ["type"] -> ["type'"]
-  | ["object"] -> ["object'"]
-  | s :: q -> escape_word s :: q
-  | p -> p
+  | ["module", _ ] -> [ "module'"]
+  | ["type", _  ] -> [ "type'"]
+  | ["object", _] -> [ "object'" ]
+  | s :: q -> escape_word s :: List.map fst q
+  | p -> List.map fst p
 
 let pp_module ppf = function
   | [] -> assert false
   | [a] -> Fmt.pf ppf "%s" ( String.capitalize_ascii @@ escape_word a)
   | a :: q ->
     Fmt.pf ppf "%s_%a" (String.capitalize_ascii @@ escape_word a)
-      (Fmt.list ~sep:snake Fmt.string) q
+      (Fmt.list ~sep:snake Fmt.string) (List.map fst q)
 
 let pp_constr ppf = pp_module ppf
 
@@ -102,7 +110,7 @@ type nametree =
   | Node of (int * nametree N.t)
 
 let locate name obj nametree =
-  let path = path name in
+  let path = List.map fst @@ path name in
   let rec locate nametree = function
     | [] -> assert false
     | [a] -> N.add a (Obj obj) nametree
@@ -142,7 +150,7 @@ and pp_branch ppf (name, m) =
 
 
 let count_names e =
-  let add_name m n =
+  let add_name m (n,_) =
     let count = try 1 + N.find n m with Not_found -> 1 in
     N.add n count m in
   let add_names k _ m =

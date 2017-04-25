@@ -143,7 +143,8 @@ let bitmask spec node =
   let ty =
     match ty with
     | Ctype.Name n ->
-      Ctype.Bitset { implementation=n; field_type = node%("requires") }
+      Ctype.Bitset { implementation=n;
+                     field_type = node%?("requires") }
     | _ -> raise @@ Type_error "Bitmask expected" in
   register name (Type ty) spec
 
