@@ -62,12 +62,13 @@ module Typexp = struct
   let rec pp ppf = function
     | Ctype.Const t -> pp ppf t
     | Ctype.Name n -> Fmt.pf ppf "%s" n
-    | Ctype.Ptr typ -> Fmt.pf ppf "(ptr @@ %a)" pp typ
+    | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" pp typ
     | Ctype.String -> Fmt.pf ppf "string"
-    | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr @@ %a )" pp typ
-    | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _ ->
+    | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" pp typ
+    | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
+    | Ctype.Handle _  ->
       failwith "Anonymous type"
-    | Ctype.Handle _ | Result _ | FunPtr _ ->
+    | Result _ | FunPtr _ ->
       failwith "Not_implemented"
 end
 
