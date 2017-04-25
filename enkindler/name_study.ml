@@ -36,7 +36,11 @@ let split_camel_case s =
       protect lower (sub start n :: acc) n (n+1)
     else
       protect upper acc start (n+1) in
-  protect capital [] 0 1
+  if s = "" then [] else
+    if Char.lowercase_ascii s.[0] = s.[0] then
+      protect lower [] 0 1
+    else
+      protect capital [] 0 1
 
 let clean = function
   | "" :: "vk" :: q -> q
@@ -71,10 +75,14 @@ let pp_module ppf = function
     Fmt.pf ppf "%s_%a" (String.capitalize_ascii a)
       (Fmt.list ~sep:snake Fmt.string) q
 
+let escape = function
+  | ["type"] -> ["typ"]
+  | p -> p
+
 let pp_constr ppf = pp_module ppf
 
-let pp_type ppf =
-  Fmt.list ~sep:snake Fmt.string ppf
+let pp_type ppf p =
+  Fmt.list ~sep:snake Fmt.string ppf (escape p)
 
 let pp_var ppf = pp_type ppf
 
