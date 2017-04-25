@@ -274,7 +274,8 @@ let enums spec x =
       let ty =
         match ty with
         | Type (Ctype.Enum constrs) ->
-          Ctype.Enum (List.fold_left enum_data constrs x.children)
+          Ctype.Enum (List.fold_left enum_data constrs
+                      @@ List.rev x.children)
         | _ -> raise @@ Type_error ("Enum expected, got " ^ n) in
       register n (Type ty) spec
     | Some "bitmask" ->
