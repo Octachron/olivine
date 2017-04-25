@@ -1,4 +1,5 @@
 let sep ppf () = Fmt.pf ppf "\n"
+let arrow ppf () = Fmt.pf ppf "@->"
 
 module S = Misc.StringSet
 module M = Misc.StringMap
@@ -57,7 +58,6 @@ module Enum = struct
        "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
 
   let make impl ppf name constrs =
-    let name = Name_study.path name in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     def impl ppf name constrs;
     to_int impl ppf name constrs;
@@ -116,7 +116,6 @@ module Record = struct
 
   let make ppf p name fields =
     let p = check_fields p fields in
-    let name = Name_study.path name in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     def ppf name fields;
     Fmt.pf ppf "end\n";
@@ -132,10 +131,12 @@ end
 module Bitset = struct
 
   let field ppf (name, value) =
-    Fmt.pf ppf "  let %s = make_index %d\n" name value
+    Fmt.pf ppf "  let %a = make_index %d\n"
+      Name_study.pp_var (Name_study.path name) value
 
   let value ppf (name,value) =
-    Fmt.pf ppf "  let %s = of_int %d\n" name value
+    Fmt.pf ppf "  let %a = of_int %d\n"
+      Name_study.pp_var (Name_study.path name) value
 
   let values ppf (fields,values) =
     List.iter (field ppf) fields;
@@ -145,19 +146,19 @@ module Bitset = struct
     let fields = match M.find field_name p.map with
       | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
       | _ -> [], [] in
-    let name = Name_study.path name in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     Fmt.pf ppf "  include Bitset.Make()\n";
     values ppf fields;
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "type %a = %a.t\n"
       Name_study.pp_type name Name_study.pp_module name;
+    Fmt.pf ppf "let %a = %a.view\n"
+      Name_study.pp_var name Name_study.pp_module name;
     p
 end
 
 module Handle = struct
   let make ppf name =
-    let name = Name_study.path name in
     Fmt.pf ppf
       "module %a = Handle.Make()\n\
        type %a = %a.t\n\
@@ -165,6 +166,20 @@ module Handle = struct
       Name_study.pp_module name
       Name_study.pp_type name Name_study.pp_module name
       Name_study.pp_type name Name_study.pp_module name
+end
+
+module Funptr = struct
+
+  let make ppf p tyname (fn:Ctype.fn) =
+    let p = Record.check_fields p fn.args in
+    let args' = match List.map snd fn.args with
+      | [] -> [Ctype.Name "void"]
+      | l -> l in
+    Fmt.pf ppf "let %a = Foreign.funptr (%a @-> returning %a)\n"
+      Name_study.pp_var tyname
+      (Fmt.list ~sep:arrow Typexp.pp) args'
+      Typexp.pp fn.return;
+    p
 end
 
 let rec last = function
@@ -179,8 +194,7 @@ let make_type ppf p name = function
   | Ctype.Const _ | Name _ | Ptr _ | String | Array (_,_)
   | Result _ -> p
 
-  | FunPtr _ ->
-    Fmt.(pf stderr) "@{<red> FunPtr not implemented@}@."; p
+  | FunPtr fn -> Funptr.make ppf p name fn
   | Union _ ->
     Fmt.(pf stderr) "@{<red> Union not implemented@}@."; p
   | Bitset { field_type; _ } ->
@@ -188,7 +202,7 @@ let make_type ppf p name = function
   | Bitfields _ -> p (* see Bitset *)
   | Handle _ ->  Handle.make ppf name; p
   | Enum constrs ->
-    if not @@ is_bits @@ Name_study.path name then
+    if not @@ is_bits name then
       Enum.make Enum.Std ppf name constrs
     ; p
   | Record r ->
@@ -198,7 +212,7 @@ let make_ideal ppf name p =
   let p = remove name p in
   let obj = M.find name p.map in
   match obj with
-  | Typed.Type t -> make_type ppf p name t
+  | Typed.Type t -> make_type ppf p (Name_study.path name) t
   | Fn _f -> p
   | Const _c -> p
 

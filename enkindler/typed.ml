@@ -194,12 +194,12 @@ let require spec node =
 
 let types spec =
   case [ [ "category" $= "include"], c_include spec;
-         [ "requires", any ], require spec;
+         [ "category" $= "bitmask"], bitmask spec;
          [ "category" $=$ ["basetype";"funcpointer"]], typedef spec;
          [ "category" $= "struct"], structure spec;
-         [ "category" $= "bitmask"], bitmask spec;
          [ "category" $= "handle"], handle spec;
          [ "category" $= "enum"], enum spec;
+         [ "requires", any ], require spec;
        ]
     spec
 

@@ -23,6 +23,7 @@ module type S = sig
   val of_list: index list -> t
 
   val of_int: int -> t
+  val view: t Ctypes.typ  
 end
 
 module Make(): S = struct
@@ -53,4 +54,7 @@ module Make(): S = struct
     List.fold_left ( fun acc x -> acc + singleton x) empty
 
   let of_int n = n
+  let view =
+    let id x = x in
+    Ctypes.view id id Ctypes.int
 end
