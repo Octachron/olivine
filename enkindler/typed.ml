@@ -13,11 +13,6 @@ type short_tag = { name: string; author:string; contact: string}
 type c_include = { name: string; system:bool; provide:string option }
 type require = { from:string; type_name:string }
 
-type ctypes = {
-  typedefs: Ctype.typexpr N.t
-
-}
-
 type spec = {
   vendor_ids: vendor_id list;
   tags: short_tag list;

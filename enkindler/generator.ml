@@ -172,6 +172,7 @@ module Funptr = struct
 
   let make ppf p tyname (fn:Ctype.fn) =
     let p = Record.check_fields p fn.args in
+    let p = Record.check_typ p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
@@ -189,11 +190,15 @@ let rec last = function
 
 let is_bits name = last name = "bits"
 
+let alias ppf name origin =
+  Fmt.pf ppf "let %a = view (fun x -> x) (fun x -> x) %a\n"
+    Name_study.pp_var name
+    Name_study.pp_type (Name_study.path origin)
 
 let make_type ppf p name = function
-  | Ctype.Const _ | Name _ | Ptr _ | String | Array (_,_)
+  | Ctype.Const _  | Ptr _ | String | Array (_,_)
   | Result _ -> p
-
+  | Name t -> alias ppf name t; p
   | FunPtr fn -> Funptr.make ppf p name fn
   | Union _ ->
     Fmt.(pf stderr) "@{<red> Union not implemented@}@."; p
@@ -208,13 +213,20 @@ let make_type ppf p name = function
   | Record r ->
     Record.make ppf p name r.fields
 
+let right_sys name =
+  not @@ List.exists ((=) "android") name
+
 let make_ideal ppf name p =
+  let name' = Name_study.path name in
   let p = remove name p in
-  let obj = M.find name p.map in
-  match obj with
-  | Typed.Type t -> make_type ppf p (Name_study.path name) t
-  | Fn _f -> p
-  | Const _c -> p
+  if right_sys name' then
+    let obj = M.find name p.map in
+    match obj with
+    | Typed.Type t -> make_type ppf p name' t
+    | Fn _f -> p
+    | Const _c -> p
+  else
+    p
 
 let gen ppf map =
   let current = S.of_list @@ List.map fst @@ M.bindings map in
