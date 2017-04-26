@@ -281,7 +281,8 @@ let gen ppf map =
   { generator = make_ideal ppf; current; map}
 
 let make_all ppf map =
-  Fmt.pf ppf "open PosixTypes\nopen Ctypes\nopen Foreign\n";
+  Fmt.pf ppf "open Wayland\nopen Xcb\nopen Xlib\n\
+              \nopen Ctypes\n";
   let g = gen ppf map in
   let rec loop g =
     if g.current = S.empty then
