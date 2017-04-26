@@ -13,10 +13,55 @@ type short_tag = { name: string; author:string; contact: string}
 type c_include = { name: string; system:bool; provide:string option }
 type require = { from:string; type_name:string }
 
+module Extension = struct
+
+  type metadata =
+    { name:string; number:int; supported:string; version : int }
+
+  type enum =
+    { extend:string; name:string; offset:int; upward:bool }
+
+  type bit = { extend:string; name:string; pos:int}
+  type t =
+    { metadata: metadata;
+      types: string list;
+      commands: string list;
+      enums: enum list;
+      bits: bit list }
+
+
+  let pp_metadata ppf (m:metadata) =
+    Fmt.pf ppf
+      "@[<hov>{name=%s;@ number=%d;@ supported=%s;@ version=%d}@]"
+      m.name m.number m.supported m.version
+
+  let pp_enum ppf (e:enum)=
+    Fmt.pf ppf
+      "@[<hov>{name=%s;@ extend=%s;@ offset=%d;@ upward=%b}@]"
+      e.name e.extend e.offset e.upward
+
+  let pp_bit ppf (b:bit)=
+    Fmt.pf ppf
+      "@[<hov>{name=%s;@ extend=%s;@ pos=%d;}@]"
+      b.name b.extend b.pos
+
+  let pp ppf (t:t) =
+    Fmt.pf ppf
+    "@[<hov 2>{ metadata=%a;@ ;types=%a;@ ; commands=%a;@ enums=%a;@ \
+     bits=%a }@]"
+      pp_metadata t.metadata
+      Fmt.(list string) t.types
+      Fmt.(list string) t.commands
+      (Fmt.list pp_enum) t.enums
+      (Fmt.list pp_bit) t.bits
+
+end
+
 type spec = {
   vendor_ids: vendor_id list;
   tags: short_tag list;
   entities: entity N.t;
+  extensions : Extension.t list;
   includes: c_include list;
   requires: require list;
 }
@@ -336,6 +381,61 @@ let command spec = function
   | Node n -> raise @@
     Type_error ("expected command node, got "^ n.name ^ " node")
 
+module Extension_reader = struct
+
+  let int_of_string s =
+    try int_of_string s with
+    | Failure _ -> -1 (**FIXME: constant value *)
+
+  let etype n = n%("name")
+  let command n = n%("name")
+  let enum n: Extension.enum = { Extension.extend = n%("extends");
+                 name = n%("name");
+                 offset = int_of_string @@ n%("offset");
+                 upward = n%?("dir") = Some "+"
+               }
+  let bit n = { Extension.extend = n%("extends");
+                pos = int_of_string @@ n%("bitpos");
+                name = n%("name") }
+
+  let data x (ext:Extension.t) = match x with
+    | Xml.Data _ -> raise @@
+      Type_error "Extension data: unexpected raw data"
+    | Node n ->
+      match n.name with
+      | "type" -> { ext with types = etype n :: ext.types }
+      | "command" -> { ext with commands = command n :: ext.commands }
+      | "enum" when n%??"bitpos" ->
+        { ext with bits = bit n :: ext.bits }
+      | "enum" when n%??"offset" ->
+        { ext with enums = enum n :: ext.enums }
+      | "enum" when n%??"value" || n%??"name" -> (*FIXME*) ext
+      | n ->
+        raise @@ Type_error
+          (Fmt.strf "Extension.data: unexpected node %s: %a"
+             n Extension.pp_metadata ext.metadata
+          )
+
+let extension = function
+  | Xml.Data _ -> raise @@ Type_error "Extension: unexpected data"
+  | Node  ({ name = "extension";
+             children =
+               [Node { name = "require";
+                       children = (Node version) :: _name :: q ;_  }];
+             _ } as n) ->
+    let metadata =
+      { Extension.version = int_of_string (version%("name"));
+        name = n%("name"); supported=n%("supported");
+        number = int_of_string @@ n%("number")
+      }
+    in
+    let start =
+      { Extension.metadata; types = []; commands = []; enums = [];
+        bits = [] } in
+    List.fold_right data q start
+  | Node _ -> raise @@ Type_error "Extension: unexpected node"
+end
+
 let section spec x =
   match x with
   | Xml.Data _ -> spec
@@ -351,6 +451,10 @@ let section spec x =
       enums spec n
     | "commands" ->
       List.fold_left command spec n.children
+    | "extensions" ->
+      { spec with extensions =
+                    spec.extensions @
+                    List.map Extension_reader.extension n.children }
     | _ -> spec
 
 let typecheck tree =
@@ -365,6 +469,7 @@ let typecheck tree =
     entities = N.empty;
     includes = [];
     requires = [];
+    extensions = [];
   } tree
 
 let fp = Fmt.pf
@@ -397,8 +502,10 @@ let pp ppf r =
           includes=@;[@[<v>%a@]@,]@;\
           requires=@;[@[<v>%a@]@,]@;\
           entities =@ [@[<v>%a@]]@;\
+          extensions=@ @[<hov 2>%a@]@;\
           }@]@."
     (Fmt.list pp_vendorid) r.vendor_ids (Fmt.list pp_short_tag) r.tags
     (Fmt.list pp_include) r.includes
     (Fmt.list pp_required) r.requires
     Fmt.(list @@ pp_entity ) (N.bindings r.entities)
+    (Fmt.list Extension.pp) r.extensions

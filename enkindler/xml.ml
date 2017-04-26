@@ -48,6 +48,8 @@ let find n node = match get n node with
 module Infix = struct
   let (%) n x = get x n
   let (%?) n x = find x n
+  let (%??) n x = M.mem (name x) n.attributes
+
 end
 
 let tree =
