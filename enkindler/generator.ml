@@ -3,13 +3,19 @@ let arrow ppf () = Fmt.pf ppf "@->"
 
 module S = Misc.StringSet
 module M = Misc.StringMap
+module Ls = Set.Make(struct
+    type t = string list
+    let compare: t -> t -> int= compare
+  end)
 
 type gen =
   { generator: string -> gen -> gen;
     map: Typed.entity M.t;
+    result_set: Ls.t;
     current: S.t }
 
 let remove name g = { g with current = S.remove name g.current }
+let add_result set g = { g with result_set = Ls.add set g.result_set }
 
 module Enum = struct
 
@@ -71,6 +77,86 @@ module Enum = struct
 
 end
 
+module Either = struct
+
+  let map g =
+    match M.find "VkResult" g.map with
+    | Typed.Type Ctype.Enum constrs ->
+      let m = M.empty in
+      List.fold_left
+        (fun m (x,n) -> match n with
+           | Ctype.Abs n -> M.add x n m
+           | _ -> m) m constrs
+    | _ -> assert false
+
+
+  let atoms_of_name name =
+    let open Name_study in
+    S.of_list @@ List.map fst
+    @@ remove_prefix ["error", ""]
+    @@ path name
+
+  let atoms names =
+    List.fold_left (fun set x -> S.union set @@ atoms_of_name x )
+      S.empty names
+
+  let composite_path ok errors  =
+    S.elements @@ S.union (atoms ok) (atoms errors)
+
+  let composite_name ok errors =
+    String.concat "_" @@ composite_path ok errors
+
+  let pp_result ppf (ok,errors) =
+    Fmt.pf ppf "%s" @@ composite_name ok errors
+
+  let side_name constrs =
+    List.map (fun x -> x, "") @@ S.elements @@ atoms
+    @@ constrs
+
+  let find name m =
+    try M.find name m with
+    | Not_found ->
+      Fmt.(pf stderr) "not found: %s\n%!" name;
+      List.iter (fun (name,id) -> Fmt.(pf stderr) "%s:%d\n%!" name id)
+      @@ M.bindings m;
+      raise Not_found
+
+  let view m ppf constrs =
+    let name = side_name constrs in
+    let constrs =
+      List.map (fun name -> name, Ctype.Abs (find name m)) constrs in
+    Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
+    Enum.(of_int Poly) ppf name constrs;
+    Enum.(to_int Poly) ppf name constrs;
+    Fmt.pf ppf "end\n"
+
+  let make g ppf ok errors =
+    if Ls.mem (ok @ errors) g.result_set then
+      g
+    else
+      begin
+        let m = map g in
+        if not @@ Ls.mem ok g.result_set then
+            view m ppf ok;
+        if not @@ Ls.mem errors g.result_set then
+            view m ppf errors;
+        let name = List.map (fun x -> (x,""))
+            @@ composite_path ok errors in
+        let ok_name = side_name ok in
+        let error_name = side_name errors in
+        Fmt.pf ppf
+          "let %a = Vk__result.view \n\
+           ~ok:%a.(of_int,to_int) ~error:%a.(of_int,to_int)\n"
+          Name_study.pp_var name
+          Name_study.pp_module ok_name
+          Name_study.pp_module error_name;
+        add_result (ok @ errors)
+        @@ add_result ok
+        @@ add_result errors
+        @@ g
+      end
+end
+
 module Typexp = struct
   let rec pp ppf = function
     | Ctype.Const t -> pp ppf t
@@ -84,8 +170,11 @@ module Typexp = struct
     | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
     | Ctype.Handle _  ->
       failwith "Anonymous type"
-    | Result _ | FunPtr _ ->
-      failwith "Not_implemented"
+    | Result {ok;bad} ->
+      Either.pp_result ppf (ok,bad)
+    | FunPtr _ ->
+      failwith "Not_implemented: funptr"
+
 end
 
 module Structured = struct
@@ -96,15 +185,16 @@ module Structured = struct
     | Union -> Fmt.pf ppf "union"
     | Record -> Fmt.pf ppf "structure"
 
-  let rec check_typ  p = function
-    | Ctype.Ptr t | Const t -> check_typ p t
-    | Array(_,t) -> check_typ p t
+  let rec check_typ ppf p = function
+    | Ctype.Ptr t | Const t -> check_typ ppf p t
+    | Array(_,t) -> check_typ ppf p t
     | Name t ->
       if S.mem t p.current then p.generator t p else p
+    | Result {ok;bad} -> Either.make p ppf ok bad
     | _ -> p
 
-  let check_fields = List.fold_left
-      (fun acc (_,t) -> check_typ acc t )
+  let check_fields ppf = List.fold_left
+      (fun acc (_,t) -> check_typ ppf acc t )
 
   let field name ppf (field_name,typ)=
     let field_name =
@@ -124,7 +214,7 @@ module Structured = struct
     Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
 
   let make kind ppf p name fields =
-    let p = check_fields p fields in
+    let p = check_fields ppf p fields in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     def kind ppf name fields;
     Fmt.pf ppf "end\n";
@@ -201,13 +291,30 @@ end
 module Funptr = struct
 
   let make ppf p tyname (fn:Ctype.fn) =
-    let p = Structured.check_fields p fn.args in
-    let p = Structured.check_typ p fn.return in
+    let p = Structured.check_fields ppf p fn.args in
+    let p = Structured.check_typ ppf p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
     Fmt.pf ppf "let %a = Foreign.funptr (%a @-> returning %a)\n"
       Name_study.pp_var tyname
+      (Fmt.list ~sep:arrow Typexp.pp) args'
+      Typexp.pp fn.return;
+    p
+end
+
+module Fn = struct
+
+  let make ppf p (fn:Ctype.fn) =
+    let p = Structured.check_fields ppf p fn.args in
+    let p = Structured.check_typ ppf p fn.return in
+    let args' = match List.map snd fn.args with
+      | [] -> [Ctype.Name "void"]
+      | l -> l in
+    let name' = Name_study.path fn.name in
+    Fmt.pf ppf "let %a = \n\
+                Foreign.foreign \"%s\" (%a @-> returning %a)\n"
+      Name_study.pp_var name' fn.name
       (Fmt.list ~sep:arrow Typexp.pp) args'
       Typexp.pp fn.return;
     p
@@ -271,14 +378,14 @@ let make_ideal ppf name p =
     let obj = M.find name p.map in
     match obj with
     | Typed.Type t -> make_type ppf p name' t
-    | Fn _f -> p
+    | Fn f -> Fn.make ppf p f
     | Const _c -> p
   else
     p
 
 let gen ppf map =
   let current = S.of_list @@ List.map fst @@ M.bindings map in
-  { generator = make_ideal ppf; current; map}
+  { generator = make_ideal ppf; current; map; result_set = Ls.empty }
 
 let make_all ppf map =
   Fmt.pf ppf "open Wayland\nopen Xcb\nopen Xlib\n\
