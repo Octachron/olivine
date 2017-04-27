@@ -47,8 +47,8 @@ module Extension = struct
 
   let pp ppf (t:t) =
     Fmt.pf ppf
-    "@[<hov 2>{ metadata=%a;@ ;types=%a;@ ; commands=%a;@ enums=%a;@ \
-     bits=%a }@]"
+    "@[<v 2>{metadata=%a;@;types=[%a];@;commands=[%a];@;enums=[%a];@;\
+     bits=[%a]@ }@]"
       pp_metadata t.metadata
       Fmt.(list string) t.types
       Fmt.(list string) t.commands
@@ -392,7 +392,7 @@ module Extension_reader = struct
   let enum n: Extension.enum = { Extension.extend = n%("extends");
                  name = n%("name");
                  offset = int_of_string @@ n%("offset");
-                 upward = n%?("dir") = Some "+"
+                 upward = not ( n%?("dir") = Some "-")
                }
   let bit n = { Extension.extend = n%("extends");
                 pos = int_of_string @@ n%("bitpos");
