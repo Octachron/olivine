@@ -22,6 +22,7 @@ module Extension = struct
     { extend:string; name:string; offset:int; upward:bool }
 
   type bit = { extend:string; name:string; pos:int}
+
   type t =
     { metadata: metadata;
       types: string list;
@@ -54,6 +55,78 @@ module Extension = struct
       Fmt.(list string) t.commands
       (Fmt.list pp_enum) t.enums
       (Fmt.list pp_bit) t.bits
+
+  module Extend = struct
+
+    type bound = {inf:int;sup:int}
+    let all = { inf = max_int; sup = min_int }
+    let add b x = { sup = max x b.sup; inf  = min x b.inf }
+
+    let extrema =
+      List.fold_left add all
+
+    let decorate_enum = function
+      | Ctype.Enum constrs ->
+        let add' b = function
+          | _, Ctype.Abs n -> add b n
+          | _ -> b in
+        List.fold_left add' all constrs, constrs
+      | _ -> raise Not_found
+
+
+    let find decorate m0 x m =
+      try N.find x m with
+      | Not_found ->
+        match N.find x m0 with
+        | Type ty -> decorate ty
+        | _ -> raise Not_found
+
+    let enum m0 =
+      let find = find decorate_enum m0 in
+      let add m (x:enum) =
+        let key = x.extend in
+        let b, l = find key m  in
+        let pos =
+          if x.upward then
+            x.offset + b.sup
+          else
+            b.inf - x.offset in
+        let elt = add b pos, (x.name, Ctype.Abs pos) ::l in
+        N.add key elt m in
+      List.fold_left add N.empty
+
+    let bit m0 =
+      let proj = function
+        | Ctype.Bitfields x -> x.fields, x.values
+        | _ -> raise Not_found in
+      let find = find proj m0 in
+      let add m (x:bit) =
+        let key = x.extend in
+        let fields, vals = find key m in
+        let l = (x.name, x.pos) :: fields, vals in
+        N.add key l m in
+      List.fold_left add N.empty
+
+    let extend m ext =
+      let bits = bit m ext.bits in
+      let enums = enum m ext.enums in
+      let cmp (_,x) (_,y)= compare x y in
+      let sort = List.sort cmp in
+      let rebuild_enum key (_,l) =
+        N.add key (Type(Ctype.Enum (sort l))) in
+      let rebuild_set key (fields,values) =
+        N.add key (Type(Ctype.Bitfields { fields; values })) in
+      m
+      |> N.fold rebuild_enum enums
+      |> N.fold rebuild_set bits
+
+    let all m exts =
+      let exts =
+        let number x = x.metadata.number in
+        List.sort (fun x y -> compare (number x) (number y)) exts in
+      List.fold_left extend m exts
+
+  end
 
 end
 
@@ -146,7 +219,8 @@ let result_refine (s,e) ty =
   let sum =String.split_on_char ',' in
   match s, e, ty with
   | None, _, _ | _, None, _  -> ty
-  | Some s, Some e, Name "VkResult" -> Result { ok = sum s; bad = sum e }
+  | Some s, Some e, Name "VkResult" ->
+    Result { ok = sum s; bad = sum e }
   | _ -> ty
 
 
@@ -436,6 +510,10 @@ let extension = function
   | Node _ -> raise @@ Type_error "Extension: unexpected node"
 end
 
+let extend spec =
+  { spec with
+    entities = Extension.Extend.all spec.entities spec.extensions }
+
 let section spec x =
   match x with
   | Xml.Data _ -> spec
@@ -463,7 +541,7 @@ let typecheck tree =
       List.fold_left section spec children
     | Data _ -> raise @@ Type_error "root: unexpected data"
   in
-  root {
+  extend @@ root {
     vendor_ids = [];
     tags = [];
     entities = N.empty;

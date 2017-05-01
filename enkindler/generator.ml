@@ -32,7 +32,9 @@ module Enum = struct
 
   type implementation = Std | Poly
   let pp_constr name impl ppf (c, _ ) =
-    let name = let open Name_study in
+    let name = match impl with
+      | Poly -> Name_study.path c
+      | Std -> let open Name_study in
       remove_prefix name (path c) in
     match impl with
     | Std -> Fmt.pf ppf "%a" Name_study.pp_constr name
@@ -128,7 +130,7 @@ module Either = struct
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     Enum.(of_int Poly) ppf name constrs;
     Enum.(to_int Poly) ppf name constrs;
-    Fmt.pf ppf "end\n"
+    Fmt.pf ppf "\nend\n"
 
   let make g ppf ok errors =
     if Ls.mem (ok @ errors) g.result_set then
