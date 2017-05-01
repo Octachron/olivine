@@ -168,6 +168,14 @@ module Typexp = struct
     | Ctype.Ptr Name n | Ptr Const Name n ->
       Fmt.pf ppf "(ptr %a)" Name_study.pp_type (Name_study.path dict n)
     | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" (pp dict) typ
+    | Ctype.Option Name n ->
+      Fmt.pf ppf "(option %a)" Name_study.pp_type
+        (Name_study.path dict n)
+    | Ctype.Option (Ptr typ) ->
+      Fmt.pf ppf "(ptr_opt (%a))" (pp dict) typ
+    | Ctype.Option typ -> Fmt.pf ppf "(option (%a))" (pp dict) typ
+
+
     | Ctype.String -> Fmt.pf ppf "string"
     | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" (pp dict) typ
     | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
@@ -189,7 +197,7 @@ module Structured = struct
     | Record -> Fmt.pf ppf "structure"
 
   let rec check_typ dict ppf p = function
-    | Ctype.Ptr t | Const t -> check_typ dict ppf p t
+    | Ctype.Ptr t | Const t | Option t -> check_typ dict ppf p t
     | Array(_,t) -> check_typ dict ppf p t
     | Name t ->
       if S.mem t p.current then p.generator t p else p
@@ -208,6 +216,7 @@ module Structured = struct
 
   let def dict kind ppf name fields =
     Fmt.pf ppf "  type t\n";
+    Fmt.pf ppf "  type %a = t\n" Name_study.pp_type name;
     Fmt.pf ppf "  let t: t %a typ = %a \"%a\"\n"
       pp_kind kind
       pp_kind kind
@@ -343,7 +352,7 @@ let alias dict ppf name origin =
     Name_study.pp_type (Name_study.path dict origin)
 
 let make_type dict ppf p name = function
-  | Ctype.Const _  | Ptr _ | String | Array (_,_)
+  | Ctype.Const _  | Option _ | Ptr _ | String | Array (_,_)
   | Result _ -> p
   | Name t -> alias dict ppf name t; p
   | FunPtr fn -> Funptr.make dict ppf p name fn

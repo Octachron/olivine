@@ -214,6 +214,26 @@ let array_refine node =
     in
     refine lens
 
+let rec optionalize l typ = match l, typ with
+  | false :: q , Ctype.Ptr typ -> Ctype.Ptr (optionalize q typ)
+  | true :: q, Ptr typ -> Option (Ptr (optionalize q typ))
+  | q, Const typ -> Const(optionalize q typ)
+  | q, Option typ -> Option(optionalize q typ)
+  | [true], typ -> (* Fixme: Ctype.Option typ*) typ
+  | [], typ -> typ
+  | _ ->
+    Fmt.(pf stderr) "optionalize: %a\n%!" Fmt.(list bool) l;
+    raise @@ Invalid_argument "optionalize"
+
+let option_refine node =
+  match node%?("optional") with
+  | None -> fun x -> x
+  | Some l ->
+    l
+    |> String.split_on_char ','
+    |> List.map bool_of_string
+    |> optionalize
+
 let result_refine (s,e) ty =
   let open Ctype in
   let sum =String.split_on_char ',' in
@@ -223,9 +243,8 @@ let result_refine (s,e) ty =
     Result { ok = sum s; bad = sum e }
   | _ -> ty
 
-
 let refine node t =
-  array_refine node t
+  option_refine node @@ array_refine node t
 
 let map2 f (x,y) = (x,f y)
 

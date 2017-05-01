@@ -74,6 +74,7 @@ type typexpr =
   | Const of typexpr
   | Name of name
   | Ptr of typexpr
+  | Option of typexpr
   | String
   | Array of int constexpr option * typexpr
   | FunPtr of fn
@@ -114,6 +115,9 @@ let rec pp ppf = function
   | Name n -> fp ppf "%s" n
   | Ptr (Name _ |Ptr _ as ty) -> fp ppf "ptr %a" pp ty
   | Ptr ty -> fp ppf "ptr (%a)" pp ty
+  | Option (Name _ as ty) -> fp ppf "option %a" pp ty
+  | Option (Ptr _ as ty) -> fp ppf "ptr_opt %a" pp ty
+  | Option ty -> fp ppf "option (%a)" pp ty
   | Array(None, ty) -> fp ppf "array (%a)" pp ty
   | Array(Some cexp, ty) -> fp ppf "array[%a](%a)" (pp_constexp Fmt.int) cexp pp ty
   | FunPtr fn -> pp_fn ppf fn
