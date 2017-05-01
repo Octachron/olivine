@@ -1,5 +1,5 @@
 let sep ppf () = Fmt.pf ppf "\n"
-let arrow ppf () = Fmt.pf ppf "@->"
+let arrow ppf () = Fmt.pf ppf "@ @->"
 
 module S = Misc.StringSet
 module M = Misc.StringMap
@@ -31,32 +31,33 @@ module Enum = struct
     | _ -> None
 
   type implementation = Std | Poly
-  let pp_constr name impl ppf (c, _ ) =
+  let pp_constr dict name impl ppf (c, _ ) =
     let name = match impl with
-      | Poly -> Name_study.path c
+      | Poly -> Name_study.path dict c
       | Std -> let open Name_study in
-      remove_prefix name (path c) in
+      remove_prefix name (path dict c) in
     match impl with
     | Std -> Fmt.pf ppf "%a" Name_study.pp_constr name
     | Poly -> Fmt.pf ppf "`%a" Name_study.pp_constr name
 
-  let def impl ppf name constrs =
-    let constr ppf c = Fmt.pf ppf "    | %a" (pp_constr name impl) c in
+  let def dict impl ppf name constrs =
+    let constr ppf c =
+      Fmt.pf ppf "    | %a" (pp_constr dict name impl) c in
     Fmt.pf ppf "  type t =\n%a" (Fmt.list ~sep constr) constrs
 
-  let to_int impl ppf name constrs =
+  let to_int dict impl ppf name constrs =
     Fmt.pf ppf "\n  let to_int = function\n";
     let constr ppf = function
       | (_, Ctype.Abs n as c) ->
-        Fmt.pf ppf "    | %a -> %d" (pp_constr name impl) c n
+        Fmt.pf ppf "    | %a -> %d" (pp_constr dict name impl) c n
       | _ -> () in
     Fmt.list ~sep constr ppf constrs
 
-  let of_int impl ppf name constrs =
+  let of_int dict impl ppf name constrs =
     Fmt.pf ppf "\n  let of_int = function\n";
     let constr ppf = function
       | (_, Ctype.Abs n as c) ->
-        Fmt.pf ppf "    | %d -> %a" n (pp_constr name impl) c
+        Fmt.pf ppf "    | %d -> %a" n (pp_constr dict name impl) c
       | _ -> () in
     Fmt.list ~sep constr ppf constrs;
     Fmt.pf ppf "\n    | _ -> assert false\n"
@@ -65,11 +66,11 @@ module Enum = struct
     Fmt.pf ppf
        "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
 
-  let make impl ppf name constrs =
+  let make dict impl ppf name constrs =
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
-    def impl ppf name constrs;
-    to_int impl ppf name constrs;
-    of_int impl ppf name constrs;
+    def dict impl ppf name constrs;
+    to_int dict impl ppf name constrs;
+    of_int dict impl ppf name constrs;
     view ppf ();
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "let %a = %a.view\n\
@@ -92,27 +93,27 @@ module Either = struct
     | _ -> assert false
 
 
-  let atoms_of_name name =
+  let atoms_of_name dict name =
     let open Name_study in
     S.of_list @@ List.map fst
     @@ remove_prefix ["error", ""]
-    @@ path name
+    @@ path dict name
 
-  let atoms names =
-    List.fold_left (fun set x -> S.union set @@ atoms_of_name x )
+  let atoms dict names =
+    List.fold_left (fun set x -> S.union set @@ atoms_of_name dict x )
       S.empty names
 
-  let composite_path ok errors  =
-    S.elements @@ S.union (atoms ok) (atoms errors)
+  let composite_path dict ok errors  =
+    S.elements @@ S.union (atoms dict ok) (atoms dict errors)
 
-  let composite_name ok errors =
-    String.concat "_" @@ composite_path ok errors
+  let composite_name dict ok errors =
+    String.concat "_" @@ composite_path dict ok errors
 
-  let pp_result ppf (ok,errors) =
-    Fmt.pf ppf "%s" @@ composite_name ok errors
+  let pp_result dict ppf (ok,errors) =
+    Fmt.pf ppf "%s" @@ composite_name dict ok errors
 
-  let side_name constrs =
-    List.map (fun x -> x, "") @@ S.elements @@ atoms
+  let side_name dict constrs =
+    List.map (fun x -> x, "") @@ S.elements @@ atoms dict
     @@ constrs
 
   let find name m =
@@ -123,29 +124,29 @@ module Either = struct
       @@ M.bindings m;
       raise Not_found
 
-  let view m ppf constrs =
-    let name = side_name constrs in
+  let view dict m ppf constrs =
+    let name = side_name dict constrs in
     let constrs =
       List.map (fun name -> name, Ctype.Abs (find name m)) constrs in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
-    Enum.(of_int Poly) ppf name constrs;
-    Enum.(to_int Poly) ppf name constrs;
+    Enum.(of_int dict Poly) ppf name constrs;
+    Enum.(to_int dict Poly) ppf name constrs;
     Fmt.pf ppf "\nend\n"
 
-  let make g ppf ok errors =
+  let make dict g ppf ok errors =
     if Ls.mem (ok @ errors) g.result_set then
       g
     else
       begin
         let m = map g in
         if not @@ Ls.mem ok g.result_set then
-            view m ppf ok;
+            view dict m ppf ok;
         if not @@ Ls.mem errors g.result_set then
-            view m ppf errors;
+            view dict m ppf errors;
         let name = List.map (fun x -> (x,""))
-            @@ composite_path ok errors in
-        let ok_name = side_name ok in
-        let error_name = side_name errors in
+            @@ composite_path dict ok errors in
+        let ok_name = side_name dict ok in
+        let error_name = side_name dict errors in
         Fmt.pf ppf
           "let %a = Vk__result.view \n\
            ~ok:%a.(of_int,to_int) ~error:%a.(of_int,to_int)\n"
@@ -160,20 +161,20 @@ module Either = struct
 end
 
 module Typexp = struct
-  let rec pp ppf = function
-    | Ctype.Const t -> pp ppf t
+  let rec pp dict ppf = function
+    | Ctype.Const t -> pp dict ppf t
     | Ctype.Name n ->
-      Fmt.pf ppf "%a" Name_study.pp_type (Name_study.path n)
-    | Ctype.Ptr (Name n) ->
-      Fmt.pf ppf "(ptr %a)" Name_study.pp_type  (Name_study.path n)
-    | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" pp typ
+      Fmt.pf ppf "%a" Name_study.pp_type (Name_study.path dict n)
+    | Ctype.Ptr Name n | Ptr Const Name n ->
+      Fmt.pf ppf "(ptr %a)" Name_study.pp_type (Name_study.path dict n)
+    | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" (pp dict) typ
     | Ctype.String -> Fmt.pf ppf "string"
-    | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" pp typ
+    | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" (pp dict) typ
     | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
     | Ctype.Handle _  ->
       failwith "Anonymous type"
     | Result {ok;bad} ->
-      Either.pp_result ppf (ok,bad)
+      Either.pp_result dict ppf (ok,bad)
     | FunPtr _ ->
       failwith "Not_implemented: funptr"
 
@@ -187,38 +188,38 @@ module Structured = struct
     | Union -> Fmt.pf ppf "union"
     | Record -> Fmt.pf ppf "structure"
 
-  let rec check_typ ppf p = function
-    | Ctype.Ptr t | Const t -> check_typ ppf p t
-    | Array(_,t) -> check_typ ppf p t
+  let rec check_typ dict ppf p = function
+    | Ctype.Ptr t | Const t -> check_typ dict ppf p t
+    | Array(_,t) -> check_typ dict ppf p t
     | Name t ->
       if S.mem t p.current then p.generator t p else p
-    | Result {ok;bad} -> Either.make p ppf ok bad
+    | Result {ok;bad} -> Either.make dict p ppf ok bad
     | _ -> p
 
-  let check_fields ppf = List.fold_left
-      (fun acc (_,t) -> check_typ ppf acc t )
+  let check_fields dict ppf = List.fold_left
+      (fun acc (_,t) -> check_typ dict ppf acc t )
 
-  let field name ppf (field_name,typ)=
+  let field dict name ppf (field_name,typ)=
     let field_name =
-      Name_study.(remove_prefix name @@ path field_name) in
+      Name_study.(remove_prefix name @@ path dict field_name) in
     Fmt.pf ppf "  let %a = field t \"%a\" %a"
       Name_study.pp_var field_name Name_study.pp_var field_name
-      Typexp.pp typ
+      (Typexp.pp dict) typ
 
-  let def kind ppf name fields =
+  let def dict kind ppf name fields =
     Fmt.pf ppf "  type t\n";
     Fmt.pf ppf "  let t: t %a typ = %a \"%a\"\n"
       pp_kind kind
       pp_kind kind
       Name_study.pp_type name
     ;
-    Fmt.list ~sep (field name) ppf fields;
+    Fmt.list ~sep (field dict name) ppf fields;
     Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
 
-  let make kind ppf p name fields =
-    let p = check_fields ppf p fields in
+  let make dict kind ppf p name fields =
+    let p = check_fields dict ppf p fields in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
-    def kind ppf name fields;
+    def dict kind ppf name fields;
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "let %a = %a.t\n\
                 type %a = %a.t\n"
@@ -231,17 +232,17 @@ end
 
 module Bitset = struct
 
-  let field ppf (name, value) =
+  let field dict ppf (name, value) =
     Fmt.pf ppf "  let %a = make_index %d\n"
-      Name_study.pp_var (Name_study.path name) value
+      Name_study.pp_var (Name_study.path dict name) value
 
-  let value ppf (name,value) =
+  let value dict ppf (name,value) =
     Fmt.pf ppf "  let %a = of_int %d\n"
-      Name_study.pp_var (Name_study.path name) value
+      Name_study.pp_var (Name_study.path dict name) value
 
-  let values ppf (fields,values) =
-    List.iter (field ppf) fields;
-    List.iter (value ppf) values
+  let values dict ppf (fields,values) =
+    List.iter (field dict ppf) fields;
+    List.iter (value dict ppf) values
 
   let rec bitname = function
     | ("flags", "Flags") :: q ->
@@ -258,19 +259,19 @@ module Bitset = struct
       Name_study.pp_var (bitname name)
       Name_study.pp_module name
 
-  let make_with_bits ppf p name field_name =
+  let make_with_bits dict ppf p name field_name =
     let fields = match M.find field_name p.map with
       | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
       | _ -> [], [] in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     Fmt.pf ppf "  include Bitset.Make()\n";
-    values ppf fields;
+    values dict ppf fields;
     Fmt.pf ppf "end\n";
     resume ppf name;
     p
 
-  let make ppf p name = function
-    | Some field_info -> make_with_bits ppf p name field_info
+  let make dict ppf p name = function
+    | Some field_info -> make_with_bits dict ppf p name field_info
     | None ->
       Fmt.pf ppf "module %a = Bitset.Make()\n"
         Name_study.pp_module name;
@@ -292,33 +293,34 @@ end
 
 module Funptr = struct
 
-  let make ppf p tyname (fn:Ctype.fn) =
-    let p = Structured.check_fields ppf p fn.args in
-    let p = Structured.check_typ ppf p fn.return in
+  let make dict ppf p tyname (fn:Ctype.fn) =
+    let p = Structured.check_fields dict ppf p fn.args in
+    let p = Structured.check_typ dict ppf p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
-    Fmt.pf ppf "let %a = Foreign.funptr (%a @-> returning %a)\n"
+    Fmt.pf ppf "@[<hov> let %a = Foreign.funptr@ \
+                (%a@ @->@ returning %a)@]@."
       Name_study.pp_var tyname
-      (Fmt.list ~sep:arrow Typexp.pp) args'
-      Typexp.pp fn.return;
+      (Fmt.list ~sep:arrow @@ Typexp.pp dict) args'
+      (Typexp.pp dict) fn.return;
     p
 end
 
 module Fn = struct
 
-  let make ppf p (fn:Ctype.fn) =
-    let p = Structured.check_fields ppf p fn.args in
-    let p = Structured.check_typ ppf p fn.return in
+  let make dict ppf p (fn:Ctype.fn) =
+    let p = Structured.check_fields dict ppf p fn.args in
+    let p = Structured.check_typ dict ppf p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
-    let name' = Name_study.path fn.name in
-    Fmt.pf ppf "let %a = \n\
-                Foreign.foreign \"%s\" (%a @-> returning %a)\n"
+    let name' = Name_study.path dict fn.name in
+    Fmt.pf ppf "@[<hov>let %a = \n\
+                Foreign.foreign@ \"%s\"@ (%a@ @->@ returning %a)@]@."
       Name_study.pp_var name' fn.name
-      (Fmt.list ~sep:arrow Typexp.pp) args'
-      Typexp.pp fn.return;
+      (Fmt.list ~sep:arrow @@ Typexp.pp dict) args'
+      (Typexp.pp dict) fn.return;
     p
 end
 
@@ -335,22 +337,22 @@ let rec remove_bits = function
 
 let is_bits name = fst @@ last name = "bits"
 
-let alias ppf name origin =
+let alias dict ppf name origin =
   Fmt.pf ppf "let %a = view (fun x -> x) (fun x -> x) %a\n"
     Name_study.pp_var name
-    Name_study.pp_type (Name_study.path origin)
+    Name_study.pp_type (Name_study.path dict origin)
 
-let make_type ppf p name = function
+let make_type dict ppf p name = function
   | Ctype.Const _  | Ptr _ | String | Array (_,_)
   | Result _ -> p
-  | Name t -> alias ppf name t; p
-  | FunPtr fn -> Funptr.make ppf p name fn
+  | Name t -> alias dict ppf name t; p
+  | FunPtr fn -> Funptr.make dict ppf p name fn
   | Union fields ->
-    Structured.(make Record) ppf p name fields
+    Structured.(make dict Union) ppf p name fields
   | Bitset { field_type = Some ft; _ } ->
-    Bitset.make ppf (remove ft p) name (Some ft)
+    Bitset.make dict ppf (remove ft p) name (Some ft)
   | Bitset { field_type = None; _ } ->
-    Bitset.make ppf p name None
+    Bitset.make dict ppf p name None
   | Bitfields _ ->
     let set = "Vk" ^ (Name_study.original @@ remove_bits name) in
     begin
@@ -363,36 +365,38 @@ let make_type ppf p name = function
   | Handle _ ->  Handle.make ppf name; p
   | Enum constrs ->
     if not @@ is_bits name then
-      Enum.make Enum.Std ppf name constrs
+      Enum.make dict Enum.Std ppf name constrs
     ; p
   | Record r ->
-    Structured.(make Record) ppf p name r.fields
+    Structured.(make dict Record) ppf p name r.fields
 
 let right_sys name =
   let check =
     function "android" | "mir" | "win32" -> true | _ -> false in
   not @@ List.exists ( fun (x,_) -> check x ) name
 
-let make_ideal ppf name p =
-  let name' = Name_study.path name in
+let make_ideal dict ppf name p =
+  let name' = Name_study.path dict name in
   let p = remove name p in
   if right_sys name' then
     let obj = M.find name p.map in
     match obj with
-    | Typed.Type t -> make_type ppf p name' t
-    | Fn f -> Fn.make ppf p f
+    | Typed.Type t -> make_type dict ppf p name' t
+    | Fn f -> Fn.make dict ppf p f
     | Const _c -> p
   else
     p
 
-let gen ppf map =
+let gen dict ppf map =
   let current = S.of_list @@ List.map fst @@ M.bindings map in
-  { generator = make_ideal ppf; current; map; result_set = Ls.empty }
+  { generator = make_ideal dict ppf;
+    current; map;
+    result_set = Ls.empty }
 
-let make_all ppf map =
+let make_all dict ppf map =
   Fmt.pf ppf "open Wayland\nopen Xcb\nopen Xlib\n\
               \nopen Ctypes\n";
-  let g = gen ppf map in
+  let g = gen dict ppf map in
   let rec loop g =
     if g.current = S.empty then
       ()

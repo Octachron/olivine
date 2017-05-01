@@ -1,4 +1,70 @@
 
+module Dict = struct
+  type t =
+    | End of bool
+    | Node of { word_end:bool; forest: t array }
+
+  let empty = End false
+
+  let pos = function
+    | 'A'..'Z' as c -> Some(Char.code c - Char.code 'A')
+    | 'a'..'z' as c -> Some(26 + Char.code c - Char.code 'a')
+    | _ -> None
+
+  let make_node () = Array.make 52 empty
+
+  let rec add_sub word start stop tree =
+    if start >= stop then
+      match tree with
+      | End _  -> End true
+      | Node r -> Node { r with word_end = true }
+    else
+      match pos word.[start] with
+      | None -> tree
+      | Some c ->
+        match tree with
+        | End word_end ->
+          let forest = make_node () in
+          forest.(c) <- add_sub word (start+1) stop empty;
+          Node { word_end; forest }
+        | Node a ->
+          let t' = add_sub word (start+1) stop a.forest.(c) in
+          a.forest.(c) <- t'; Node a
+
+  let add word tree = add_sub word 0 (String.length word) tree
+
+  let read_char char = function
+    | End _ -> None
+    | Node a ->
+      match pos char with
+      | None -> None
+      | Some p ->
+        match a.forest.(p) with
+        | End false -> None
+        | x -> Some x
+
+  let is_word_end (End t | Node {word_end = t; _ }) = t
+  let is_terminal = function
+    | End t -> t
+    | Node _ -> false
+
+  let rec read_subword w current stop t =
+    if current = stop then
+      if is_word_end t then
+        Some current
+      else None
+    else if is_terminal t then
+      Some current
+    else
+      match read_char w.[current] t with
+      | None -> None
+      | Some t -> read_subword w (current+1) stop t
+
+  let read_word_all w start t =
+    read_subword w start (String.length w) t
+
+end
+
 let split_on_pred pred s =
   let len = String.length s in
   let rec analyze start curr =
@@ -43,6 +109,28 @@ let split_camel_case s =
     else
       protect capital [] 0 1
 
+let split_sticky_camel_case dict s =
+  let mx = String.length s in
+  let sub first after = String.sub s first (after-first) in
+  let rec lower acc start n =
+    let c = s.[n] in
+    if Char.lowercase_ascii c <> c then
+      capital (sub start n :: acc) n
+    else if n + 1 < mx then
+      lower acc start (n+1)
+    else
+      sub start (n+1) :: acc
+  and capital acc start =
+    let word_stop, n =
+    match Dict.read_word_all s start dict with
+    | Some stop -> true, stop
+    | None -> false, start+1 in
+    let stop = n = mx in
+    if stop then sub start n :: acc
+    else if word_stop then capital ( sub start n :: acc ) n
+    else lower acc start n in
+  List.rev @@ capital [] 0
+
 let clean = function
   | ("",_) :: ("vk",_) :: q -> q
   | ("",_) :: q -> q
@@ -56,13 +144,13 @@ let original path =
   List.iter (fun (_, s) -> Buffer.add_string b s) path;
   Buffer.contents b
 
-let path name =
+let path dict name =
   let path =
   if String.contains name '_' then
     name
     |> String.split_on_char '_'
   else
-    name |> split_camel_case
+    name |> split_sticky_camel_case dict
   in
   path |> List.map lower |> clean
 
@@ -109,8 +197,8 @@ type nametree =
   | Obj of Typed.entity
   | Node of (int * nametree N.t)
 
-let locate name obj nametree =
-  let path = List.map fst @@ path name in
+let locate dict name obj nametree =
+  let path = List.map fst @@ path dict name in
   let rec locate nametree = function
     | [] -> assert false
     | [a] -> N.add a (Obj obj) nametree
@@ -132,8 +220,8 @@ let cardinal = function
   | Obj _ -> 1
   | Node (n, _ ) -> n
 
-let nametree x =
-  let m = N.fold locate x N.empty in
+let nametree dict x =
+  let m = N.fold (locate dict) x N.empty in
   let c = N.fold (fun _ c s -> s + cardinal c ) m 0 in
   Node(c,m)
 
@@ -149,10 +237,10 @@ and pp_branch ppf (name, m) =
     Fmt.pf ppf "%s(%d):@;@[%a@]" name (cardinal m) pp_nametree m
 
 
-let count_names e =
+let count_names dict e =
   let add_name m (n,_) =
     let count = try 1 + N.find n m with Not_found -> 1 in
     N.add n count m in
   let add_names k _ m =
-    List.fold_left add_name m (path k) in
+    List.fold_left add_name m (path dict k) in
   N.fold add_names e N.empty

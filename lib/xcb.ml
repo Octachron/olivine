@@ -8,3 +8,6 @@ let xcb_connection_t: connection typ =
 
 let xcb_window_t: window typ =
   Ctypes.structure "xcb_window_t"
+
+let xcb_visualid_t: window typ =
+  Ctypes.structure "xcb_window_t"
