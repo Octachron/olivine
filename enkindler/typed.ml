@@ -88,9 +88,9 @@ module Extension = struct
         let b, l = find key m  in
         let pos =
           if x.upward then
-            x.offset + b.sup
+            x.offset + b.sup + 1
           else
-            b.inf - x.offset in
+            b.inf - x.offset - 1 in
         let elt = add b pos, (x.name, Ctype.Abs pos) ::l in
         N.add key elt m in
       List.fold_left add N.empty
