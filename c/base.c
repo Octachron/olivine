@@ -14,4 +14,8 @@ VkInstanceCreateInfo instanceCreateInfo = {
   2,    // uint32_t enabledExtensionNameCount;
   extensionNames, // const char* const* ppEnabledExtensionNames;
 };
+
+ VkInstance c;
+ VkResult r = VkCreateInstance(&instanceCreateInfo, NULL, &c);
+
 }

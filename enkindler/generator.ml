@@ -381,7 +381,8 @@ let make_type dict ppf p name = function
 
 let right_sys name =
   let check =
-    function "android" | "mir" | "win32" -> true | _ -> false in
+    function "xlib" | "xcb" | "wl" |
+             "android" | "mir" | "win32" -> true | _ -> false in
   not @@ List.exists ( fun (x,_) -> check x ) name
 
 let make_ideal dict ppf name p =

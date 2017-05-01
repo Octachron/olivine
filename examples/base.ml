@@ -15,7 +15,7 @@ let layers = Ctypes.allocate_n ~count:0 Ctypes.string
 let extensions = Ctypes.allocate_n ~count:0 Ctypes.string
 
 let () =
-  let _info =
+  let info =
     make Vk.instance_create_info
       Vk.Instance_create_info.[
         s_type $= Vk.Structure_type.Instance_create_info;
@@ -26,5 +26,14 @@ let () =
         pp_enabled_layer_names $= layers;
         enabled_extension_count $= Unsigned.UInt32.of_int 0;
         pp_enabled_extension_names $= extensions;
-      ] in
-  ()
+      ] in () (*
+  let instance = Ctypes.allocate Vk.instance 0 in
+  match Vk.create_instance
+          (Ctypes.addr info)
+          None
+          instance with
+  | Ok `Success ->
+    ()
+  | Error _ ->
+    Format.eprintf "Error when creating instance\n"
+*)
