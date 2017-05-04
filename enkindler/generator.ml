@@ -10,6 +10,7 @@ module Ls = Set.Make(struct
 
 type gen =
   { generator: string -> gen -> gen;
+    main_map: Typed.entity M.t;
     map: Typed.entity M.t;
     result_set: Ls.t;
     current: S.t }
@@ -83,7 +84,7 @@ end
 module Either = struct
 
   let map g =
-    match M.find "VkResult" g.map with
+    match M.find "VkResult" g.main_map with
     | Typed.Type Ctype.Enum constrs ->
       let m = M.empty in
       List.fold_left
@@ -398,6 +399,13 @@ let right_sys name =
     (List.exists @@ fun w -> check (Name_study.canon w) )
     Name_study.[name.prefix;name.postfix;name.main]
 
+
+let extension exts name =
+  match name.Name_study.postfix with
+  | (a,_) :: _ when S.mem a exts  ->
+    Some a
+  | _ -> None
+
 let make_ideal dict ppf name p =
   let name' = Name_study.make dict name in
   let p = remove name p in
@@ -410,10 +418,11 @@ let make_ideal dict ppf name p =
   else
     p
 
-let gen dict ppf map =
+
+let gen dict ppf main_map map =
   let current = S.of_list @@ List.map fst @@ M.bindings map in
   { generator = make_ideal dict ppf;
-    current; map;
+    current; map; main_map;
     result_set = Ls.empty }
 
 
@@ -421,18 +430,33 @@ let preambule =
   "open Ctypes\n\
    let libvulkan = Dl.dlopen ~filename:\"libvulkan.so\" ~flags:Dl.[RTLD_NOW]\n\
    let foreign = Foreign.foreign ~from:libvulkan\n\
-   \n\
    open Wayland\n\
    open Xlib\n\
   "
 
 
-let make_all dict ppf map =
-  Fmt.string ppf preambule;
-  let g = gen dict ppf map in
+let make_set dict main_map ppf map =
+   let g = gen dict ppf main_map map in
   let rec loop g =
-    if g.current = S.empty then
-      ()
-    else
+    if not (g.current = S.empty) then
       loop @@ g.generator (S.choose g.current) g in
   loop g
+
+
+let pp_extension dict main ppf name m =
+  Fmt.pf ppf "module %a()=struct\n%a\nend\n"
+    Name_study.pp_module (Name_study.make dict name)
+    (make_set dict main) m
+
+let make_all extensions dict ppf map =
+  Fmt.string ppf preambule;
+  let split name obj (major,exts) =
+    match obj, extension extensions (Name_study.make dict name) with
+    | _, None | Typed.(Type _| Const _) , _ -> M.add name obj major, exts
+    | Typed.Fn _, Some ext ->
+      let extmap = try M.find ext exts with Not_found -> M.empty in
+      major, M.add ext (M.add name obj extmap) exts in
+  let major,exts = M.fold split map (M.empty, M.empty) in
+  Fmt.pf ppf "%a\n" (make_set dict major) major;
+  M.iter (pp_extension dict major ppf) exts;
+  Fmt.pf ppf "@."
