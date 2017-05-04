@@ -1,7 +1,7 @@
 CC=ocamlbuild
 CCO=$(CC) -use-ocamlfind -use-menhir
 
-all: info gen base vk.cma baseml
+all: info gen vk.cma base baseml
 
 base: c/base.c
 	gcc -lvulkan c/base.c -o base
