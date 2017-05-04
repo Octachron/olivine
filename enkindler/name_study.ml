@@ -131,18 +131,41 @@ let split_sticky_camel_case dict s =
     else lower acc start n in
   List.rev @@ capital [] 0
 
+
+type word = string * string option
+
+let word x = x, None
+let expand = function
+  | _, Some x -> x
+  | x, None -> x
+
+type role = Prefix | Main | Postfix
+
+type name =
+  { prefix: word list; main: word list; postfix: word list }
+
 let clean = function
   | ("",_) :: ("vk",_) :: q -> q
   | ("",_) :: q -> q
   | ("vk",_) :: q -> q
   | p -> p
 
-let lower s = String.lowercase_ascii s, s
+let lower s =
+  let c =   String.lowercase_ascii s in
+  c,
+  if c = s then None else Some s
 
-let original path =
+let canon w = fst w
+
+let original name =
   let b = Buffer.create 20 in
-  List.iter (fun (_, s) -> Buffer.add_string b s) path;
+  let expand path =
+    List.iter (fun w -> Buffer.add_string b @@ expand w) path in
+  List.iter expand [name.prefix;name.main;List.rev name.postfix];
   Buffer.contents b
+
+module M = Misc.StringMap
+type dict = { words:Dict.t; roles: role M.t}
 
 let path dict name =
   let path =
@@ -150,9 +173,38 @@ let path dict name =
     name
     |> String.split_on_char '_'
   else
-    name |> split_sticky_camel_case dict
+    name |> split_sticky_camel_case dict.words
   in
   path |> List.map lower |> clean
+
+let from_path dict path =
+  let empty = { prefix = []; main = []; postfix = [] } in
+  let rec pre acc = function
+    | [] -> acc
+    | a :: q as l ->
+      begin match M.find (canon a) dict.roles with
+        | exception Not_found -> main acc l
+        | Prefix -> pre { acc with prefix = a :: acc.prefix } q
+        | Main | Postfix -> main acc l
+      end
+  and main acc = function
+    | [] -> acc
+    | a :: q as l ->
+      begin match M.find (canon a) dict.roles with
+        | exception Not_found -> main { acc with main = a :: acc.main } q
+        | Prefix | Main -> main { acc with main = a :: acc.main } q
+        | Postfix -> postfix acc l
+      end
+  and postfix acc = function
+    | [] -> acc
+    | a :: q ->
+      postfix { acc with postfix = a :: acc.postfix } q in
+  let r = pre empty path in
+  {r with prefix = List.rev r.prefix; main = List.rev r.main }
+
+let make dict string = from_path dict @@ path dict @@ string
+let synthetize dict l =
+  l |>  List.map word |> from_path dict
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =
@@ -161,6 +213,12 @@ let remove_prefix prefix name =
     | (x,_) :: q, (y,_) :: q' when x = y -> remove_prefix name q q'
     | _ :: _, _ -> name in
   remove_prefix name prefix name
+
+let remove_context context name =
+  { prefix = remove_prefix context.prefix name.prefix;
+    main = remove_prefix context.main name.main;
+    postfix = remove_prefix context.postfix name.postfix
+  }
 
 let snake ppf () = Fmt.pf ppf "_"
 
@@ -177,7 +235,11 @@ let escape = function
   | s :: q -> escape_word s :: List.map fst q
   | p -> List.map fst p
 
-let pp_module ppf = function
+let flatten name =
+  name.prefix @ name.main @ List.rev name.postfix
+
+let pp_module ppf n =
+  match flatten n with
   | [] -> assert false
   | [a] -> Fmt.pf ppf "%s" ( String.capitalize_ascii @@ escape_word a)
   | a :: q ->
@@ -187,7 +249,7 @@ let pp_module ppf = function
 let pp_constr ppf = pp_module ppf
 
 let pp_type ppf p =
-  Fmt.list ~sep:snake Fmt.string ppf (escape p)
+  Fmt.list ~sep:snake Fmt.string ppf (escape @@ flatten p)
 
 let pp_var ppf = pp_type ppf
 

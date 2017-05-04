@@ -33,9 +33,9 @@ module Enum = struct
   type implementation = Std | Poly
   let pp_constr dict name impl ppf (c, _ ) =
     let name = match impl with
-      | Poly -> Name_study.path dict c
+      | Poly -> Name_study.make dict c
       | Std -> let open Name_study in
-      remove_prefix name (path dict c) in
+      remove_context name (make dict c) in
     match impl with
     | Std -> Fmt.pf ppf "%a" Name_study.pp_constr name
     | Poly -> Fmt.pf ppf "`%a" Name_study.pp_constr name
@@ -109,11 +109,15 @@ module Either = struct
   let composite_name dict ok errors =
     String.concat "_" @@ composite_path dict ok errors
 
+  let composite_nominal dict ok errors =
+    Name_study.synthetize dict @@ composite_path dict ok errors
+
   let pp_result dict ppf (ok,errors) =
     Fmt.pf ppf "%s" @@ composite_name dict ok errors
 
   let side_name dict constrs =
-    List.map (fun x -> x, "") @@ S.elements @@ atoms dict
+    Name_study.synthetize dict
+    @@ S.elements @@ atoms dict
     @@ constrs
 
   let find name m =
@@ -143,8 +147,7 @@ module Either = struct
             view dict m ppf ok;
         if not @@ Ls.mem errors g.result_set then
             view dict m ppf errors;
-        let name = List.map (fun x -> (x,""))
-            @@ composite_path dict ok errors in
+        let name = composite_nominal dict ok errors in
         let ok_name = side_name dict ok in
         let error_name = side_name dict errors in
         Fmt.pf ppf
@@ -164,13 +167,13 @@ module Typexp = struct
   let rec pp dict ppf = function
     | Ctype.Const t -> pp dict ppf t
     | Ctype.Name n ->
-      Fmt.pf ppf "%a" Name_study.pp_type (Name_study.path dict n)
+      Fmt.pf ppf "%a" Name_study.pp_type (Name_study.make dict n)
     | Ctype.Ptr Name n | Ptr Const Name n ->
-      Fmt.pf ppf "(ptr %a)" Name_study.pp_type (Name_study.path dict n)
+      Fmt.pf ppf "(ptr %a)" Name_study.pp_type (Name_study.make dict n)
     | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" (pp dict) typ
     | Ctype.Option Name n ->
       Fmt.pf ppf "(option %a)" Name_study.pp_type
-        (Name_study.path dict n)
+        (Name_study.make dict n)
     | Ctype.Option (Ptr typ) ->
       Fmt.pf ppf "(ptr_opt (%a))" (pp dict) typ
     | Ctype.Option typ -> Fmt.pf ppf "(option (%a))" (pp dict) typ
@@ -209,7 +212,7 @@ module Structured = struct
 
   let field dict name ppf (field_name,typ)=
     let field_name =
-      Name_study.(remove_prefix name @@ path dict field_name) in
+      Name_study.(remove_context name @@ make dict field_name) in
     Fmt.pf ppf "  let %a = field t \"%a\" %a"
       Name_study.pp_var field_name Name_study.pp_var field_name
       (Typexp.pp dict) typ
@@ -243,21 +246,23 @@ module Bitset = struct
 
   let field dict ppf (name, value) =
     Fmt.pf ppf "  let %a = make_index %d\n"
-      Name_study.pp_var (Name_study.path dict name) value
+      Name_study.pp_var (Name_study.make dict name) value
 
   let value dict ppf (name,value) =
     Fmt.pf ppf "  let %a = of_int %d\n"
-      Name_study.pp_var (Name_study.path dict name) value
+      Name_study.pp_var (Name_study.make dict name) value
 
   let values dict ppf (fields,values) =
     List.iter (field dict ppf) fields;
     List.iter (value dict ppf) values
 
-  let rec bitname = function
-    | ("flags", "Flags") :: q ->
-      ("flag", "Flag") :: ("bits", "Bits") :: q
-    | [] -> raise @@ Invalid_argument "bitname []"
-    | a :: q -> a :: bitname q
+  let bitname name =
+    let rec bitname = function
+      | ("flags", _ ) :: q ->
+         ("bits", Some "Bits") :: ("flag", Some "Flag") :: q
+      | [] -> raise @@ Invalid_argument "bitname []"
+      | a :: q -> a :: bitname q in
+    Name_study.{ name with postfix = bitname name.postfix }
 
   let resume ppf name =
     Fmt.pf ppf "type %a = %a.t\n"
@@ -324,9 +329,9 @@ module Fn = struct
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
-    let name' = Name_study.path dict fn.name in
+    let name' = Name_study.make dict fn.name in
     Fmt.pf ppf "@[<hov>let %a = \n\
-                Foreign.foreign@ \"%s\"@ (%a@ @->@ returning %a)@]@."
+                foreign@ \"%s\"@ (%a@ @->@ returning %a)@]@."
       Name_study.pp_var name' fn.name
       (Fmt.list ~sep:arrow @@ Typexp.pp dict) args'
       (Typexp.pp dict) fn.return;
@@ -338,18 +343,24 @@ let rec last = function
   | [a] -> a
   | _ :: q -> last q
 
-let rec remove_bits = function
-  | [] -> raise @@ Invalid_argument "last []"
-  | ("flag", f ) :: ("bits", _ ) :: q -> ("flags", f ^ "s") :: q
-  | a :: q -> a :: remove_bits q
+let remove_bits name =
+  let rec remove_bits = function
+    | [] -> raise @@ Invalid_argument "last []"
+    | ("bits", _ ) :: ("flag", Some f ) ::  q -> ("flags", Some (f ^ "s") ) :: q
+    | ("bits", _ ) :: ("flag", None ) ::  q -> ("flags", Some "flags") :: q
+    | a :: q -> a :: remove_bits q
+  in
+  Name_study.{ name with postfix = remove_bits name.postfix }
 
-
-let is_bits name = fst @@ last name = "bits"
+let is_bits name =
+  match name.Name_study.postfix with
+  | ("bits", _) :: _  -> true
+  | _ -> false
 
 let alias dict ppf name origin =
   Fmt.pf ppf "let %a = view (fun x -> x) (fun x -> x) %a\n"
     Name_study.pp_var name
-    Name_study.pp_type (Name_study.path dict origin)
+    Name_study.pp_type (Name_study.make dict origin)
 
 let make_type dict ppf p name = function
   | Ctype.Const _  | Option _ | Ptr _ | String | Array (_,_)
@@ -381,12 +392,14 @@ let make_type dict ppf p name = function
 
 let right_sys name =
   let check =
-    function "xlib" | "xcb" | "wl" |
+    function "xlib" | "xcb" | "wl" | "khx" |
              "android" | "mir" | "win32" -> true | _ -> false in
-  not @@ List.exists ( fun (x,_) -> check x ) name
+  not @@ List.exists
+    (List.exists @@ fun w -> check (Name_study.canon w) )
+    Name_study.[name.prefix;name.postfix;name.main]
 
 let make_ideal dict ppf name p =
-  let name' = Name_study.path dict name in
+  let name' = Name_study.make dict name in
   let p = remove name p in
   if right_sys name' then
     let obj = M.find name p.map in
@@ -403,9 +416,19 @@ let gen dict ppf map =
     current; map;
     result_set = Ls.empty }
 
+
+let preambule =
+  "open Ctypes\n\
+   let libvulkan = Dl.dlopen ~filename:\"libvulkan.so\" ~flags:Dl.[RTLD_NOW]\n\
+   let foreign = Foreign.foreign ~from:libvulkan\n\
+   \n\
+   open Wayland\n\
+   open Xlib\n\
+  "
+
+
 let make_all dict ppf map =
-  Fmt.pf ppf "open Wayland\nopen Xcb\nopen Xlib\n\
-              \nopen Ctypes\n";
+  Fmt.string ppf preambule;
   let g = gen dict ppf map in
   let rec loop g =
     if g.current = S.empty then
