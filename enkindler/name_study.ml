@@ -7,11 +7,12 @@ module Dict = struct
   let empty = End false
 
   let pos = function
-    | 'A'..'Z' as c -> Some(Char.code c - Char.code 'A')
-    | 'a'..'z' as c -> Some(26 + Char.code c - Char.code 'a')
+    | '0'..'9' as c -> Some( Char.code c - Char.code '0' )
+    | 'A'..'Z' as c -> Some( 10 + Char.code c - Char.code 'A' )
+    | 'a'..'z' as c -> Some( 36 + Char.code c - Char.code 'a' )
     | _ -> None
 
-  let make_node () = Array.make 52 empty
+  let make_node () = Array.make 62 empty
 
   let rec add_sub word start stop tree =
     if start >= stop then
@@ -109,12 +110,16 @@ let split_camel_case s =
     else
       protect capital [] 0 1
 
+let is_num = function
+  | '0' .. '9' -> true
+  | _ -> false
+
 let split_sticky_camel_case dict s =
   let mx = String.length s in
   let sub first after = String.sub s first (after-first) in
   let rec lower acc start n =
     let c = s.[n] in
-    if Char.lowercase_ascii c <> c then
+    if Char.lowercase_ascii c <> c || is_num c then
       capital (sub start n :: acc) n
     else if n + 1 < mx then
       lower acc start (n+1)

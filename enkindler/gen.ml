@@ -8,6 +8,11 @@ let read filename =
   Typed.typecheck @@ Xml.normalize @@ snd @@ Xml.tree source
 
 
+let add_word name dict =
+  let open Name_study in
+  { dict with words = Dict.add name dict.words }
+
+
 let add name dict =
   let open Name_study in
   { words = Dict.add name dict.words;
@@ -37,6 +42,11 @@ let make_dict spec =
   |> add "EXT"
   |> add "KHX"
   |> add "IOS"
+  |> add "1D"
+  |> add "2D"
+  |> add "3D"
+  |> add "UUID"
+  |> add_word "Win32"
   |> add_post "flags"
   |> add_post "flag"
   |> add_post "bits"
