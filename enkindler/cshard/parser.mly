@@ -63,11 +63,11 @@ args:
  ;;
 
 arg:
- | t=typexp n=IDENTIFIER { n, t }
+ | t=typexp n=IDENTIFIER q=post_qualifier { n, q t }
 ;;
 
 field:
- | t=typexp n=name { n, t }
+ | t=typexp n=name p = post_qualifier { n, p t }
 ;;
 
 
@@ -79,6 +79,15 @@ typexp:
 
 unconst:
 | ty = raw_typename q=qualifier { q ty }
+
+post_qualifier:
+  | {fun x -> x}
+  | EOF {fun x -> x}
+  | LSQ RSQ q = post_qualifier { fun x -> Array(None, q x) }
+  | LSQ n = intexp RSQ q = post_qualifier
+  { fun x -> Array(Some n, q x)}
+;;
+
 
 qualifier:
   | {fun x -> x}
