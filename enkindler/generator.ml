@@ -71,7 +71,7 @@ module Enum = struct
 
   let pp dict impl ppf name constrs =
     Fmt.pf ppf
-      "\n  let pp ppf x = Printer.fprintf ppf (match x with \n";
+      "\n  let pp ppf x = Printer.fprintf ppf (match x with\n";
     let constr0 = pp_constr dict name impl in
     let constr ppf c =
       Fmt.pf ppf "    | %a -> \"%a\"" constr0 c constr0 c in
@@ -195,7 +195,7 @@ module Typexp = struct
 
 
     | Ctype.String -> Fmt.pf ppf "string"
-    | Ctype.Array (_,typ) -> Fmt.pf ppf "( ptr (%a) )" (pp dict) typ
+    | Ctype.Array (_,typ) -> pp dict ppf (Ctype.Ptr typ)
     | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
     | Ctype.Handle _  ->
       failwith "Anonymous type"
