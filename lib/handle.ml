@@ -4,7 +4,8 @@ module type S = sig
 end
 module Make() =
 struct
-  type t = int
-  let id x = x
-  let view = Ctypes.view id id Ctypes.int
+  type self
+  type t = self Ctypes.structure Ctypes.ptr Ctypes.typ
+  let t: t = Ctypes.ptr (Ctypes.structure "")
+  let view = t
 end
