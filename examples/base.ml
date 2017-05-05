@@ -14,7 +14,20 @@ let make typ updates =
 let layers = Ctypes.allocate_n ~count:0 Ctypes.string
 let extensions = Ctypes.allocate_n ~count:0 Ctypes.string
 
+let (<?>) x s = match x with
+  | Ok _ -> Format.printf "Success: %s\n" s
+  | Error k ->
+    Format.eprintf "Error %a: %s @."
+      Vk.Result.pp k s; exit 1
+
+let (!) = Ctypes.(!@)
+let (~:) = Unsigned.UInt32.of_int
+let to_int = Unsigned.UInt32.to_int
+
+let debug fmt = Format.printf ("Debug:" ^^ fmt ^^ "@.")
+
 let () =
+  debug "Start";
   let info =
     make Vk.instance_create_info
       Vk.Instance_create_info.[
@@ -26,14 +39,19 @@ let () =
         pp_enabled_layer_names $= layers;
         enabled_extension_count $= Unsigned.UInt32.of_int 0;
         pp_enabled_extension_names $= extensions;
-      ] in () (*
+      ] in
+  debug "Info";
   let instance = Ctypes.allocate Vk.instance 0 in
-  match Vk.create_instance
-          (Ctypes.addr info)
-          None
-          instance with
-  | Ok `Success ->
-    ()
-  | Error _ ->
-    Format.eprintf "Error when creating instance\n"
-*)
+  debug "Instance pointer allocated";
+  Vk.create_instance (Ctypes.addr info) None instance
+  <?> "instance";
+  debug "Instance created";
+  let instance = !instance in
+  let n = 5 in
+  let count = Ctypes.(allocate uint32_t) ~:n in
+  let devices = Ctypes.(allocate_n Vk.physical_device) n in
+  Vk.enumerate_physical_devices instance count devices
+  <?>"physical device";
+  Format.printf "Number of devices: %d \n" (to_int !count)
+
+;; debug "End"
