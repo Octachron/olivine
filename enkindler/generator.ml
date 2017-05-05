@@ -44,7 +44,13 @@ module Enum = struct
   let def dict impl ppf name constrs =
     let constr ppf c =
       Fmt.pf ppf "    | %a" (pp_constr dict name impl) c in
-    Fmt.pf ppf "  type t =\n%a" (Fmt.list ~sep constr) constrs
+    match impl with
+    | Std ->
+      Fmt.pf ppf "  type t =@[<hov 2>%a@]"
+        (Fmt.list ~sep constr) constrs
+    | Poly ->
+      Fmt.pf ppf "  type t =@[<hov 2>[%a]@]"
+        (Fmt.list ~sep constr) constrs
 
   let to_int dict impl ppf name constrs =
     Fmt.pf ppf "\n  let to_int = function\n";
@@ -63,15 +69,23 @@ module Enum = struct
     Fmt.list ~sep constr ppf constrs;
     Fmt.pf ppf "\n    | _ -> assert false\n"
 
+  let pp dict impl ppf name constrs =
+    Fmt.pf ppf
+      "\n  let pp ppf x = Printer.fprintf ppf (match x with \n";
+    let constr0 = pp_constr dict name impl in
+    let constr ppf c =
+      Fmt.pf ppf "    | %a -> \"%a\"" constr0 c constr0 c in
+    Fmt.list ~sep constr ppf constrs;
+    Fmt.pf ppf ")\n"
+
   let view ppf () =
     Fmt.pf ppf
        "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
 
   let make dict impl ppf name constrs =
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
-    def dict impl ppf name constrs;
-    to_int dict impl ppf name constrs;
-    of_int dict impl ppf name constrs;
+    List.iter (fun f -> f dict impl ppf name constrs)
+    [def; to_int; of_int; pp ];
     view ppf ();
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "let %a = %a.view\n\
@@ -331,7 +345,7 @@ module Fn = struct
       | [] -> [Ctype.Name "void"]
       | l -> l in
     let name' = Name_study.make dict fn.name in
-    Fmt.pf ppf "@[<hov>let %a = \n\
+    Fmt.pf ppf "@[<hov>let %a =\n\
                 foreign@ \"%s\"@ (%a@ @->@ returning %a)@]@."
       Name_study.pp_var name' fn.name
       (Fmt.list ~sep:arrow @@ Typexp.pp dict) args'
@@ -386,7 +400,11 @@ let make_type dict ppf p name = function
   | Handle _ ->  Handle.make ppf name; p
   | Enum constrs ->
     if not @@ is_bits name then
-      Enum.make dict Enum.Std ppf name constrs
+      begin
+        let res = Name_study.make dict "VkResult" in
+        let kind = if name=res then Enum.Poly else Enum.Std in
+        Enum.make dict kind ppf name constrs
+      end
     ; p
   | Record r ->
     Structured.(make dict Record) ppf p name r.fields
@@ -432,6 +450,7 @@ let preambule =
    let foreign = Foreign.foreign ~from:libvulkan\n\
    open Wayland\n\
    open Xlib\n\
+   module Printer = Format\n\
   "
 
 

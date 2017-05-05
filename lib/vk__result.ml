@@ -1,7 +1,7 @@
 let view ~ok ~error =
   let read n =
     if n < 0 then
-      Error(fst error ~-n)
+      Error(fst error n)
     else
       Ok(fst ok n) in
   let write = function
