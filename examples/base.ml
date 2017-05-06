@@ -11,8 +11,7 @@ let make typ updates =
   List.iter (fun f -> f str) updates;
   str
 
-let layers = Ctypes.allocate_n ~count:0 Ctypes.string
-let extensions = Ctypes.allocate_n ~count:0 Ctypes.string
+let mk_ptr typ updates = Ctypes.addr @@ make typ updates
 
 let (<?>) x s = match x with
   | Ok _ -> Format.printf "Success: %s\n" s
@@ -25,6 +24,9 @@ let (~:) = Unsigned.UInt32.of_int
 let to_int = Unsigned.UInt32.to_int
 
 let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
+
+let layers = Ctypes.allocate_n ~count:0 Ctypes.string
+let extensions = Ctypes.allocate_n ~count:0 Ctypes.string
 
 let info =
   make Vk.instance_create_info
@@ -98,12 +100,36 @@ let print_queue_property ppf property =
 
 ;; Array.iter (print_queue_property Format.std_formatter)
   queue_family_properties
-(*
+
+let queue_create_info =
+  let open Vk.Device_queue_create_info in
+  mk_ptr t [
+    s_type $= Vk.Structure_type.Device_queue_create_info;
+    p_next $= null;
+    flags $= Vk.Device_queue_create_flags.empty;
+    queue_family_index $= ~:0;
+    queue_count $= ~:1;
+    p_queue_priorities $= Ctypes.(allocate float) 1.
+  ]
+
 let device =
   let d = Ctypes.allocate_n Vk.Device.t 1 in
   let info =
     let open Vk.Device_create_info in
-    make t []
-  Vk.create_device phy_devices.(0)
-*)
+    mk_ptr t [
+      s_type $= Vk.Structure_type.Device_create_info;
+      p_next $= null;
+      flags $= Vk.Device_create_flags.empty;
+      queue_create_info_count $= ~:0;
+      p_queue_create_infos $= queue_create_info;
+      enabled_layer_count $= ~:0;
+      pp_enabled_layer_names $= layers;
+      enabled_extension_count $= ~:0;
+      pp_enabled_extension_names $= extensions;
+      p_enabled_features $= None
+    ] in
+  Vk.create_device phy_devices.(0) info None d
+  <?> "Create logical device";
+  !d
+
 ;; debug "End"
