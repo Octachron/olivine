@@ -27,4 +27,4 @@ enkindler.cma: _tags enkindler/*
 	$(CCO) $@
 
 clean:
-	$(CC) -clean
+	$(CC) -clean; rm lib/vk.ml
