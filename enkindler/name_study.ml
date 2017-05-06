@@ -234,9 +234,11 @@ let escape_word (s,_) =
     end
 
 let escape = function
-  | ["module", _ ] -> [ "module'"]
-  | ["type", _  ] -> [ "type'"]
+  | ["module", _ ] -> [ "module'" ]
+  | ["type", _  ] -> [ "typ" ]
   | ["object", _] -> [ "object'" ]
+  | ["false", _ ] -> [ "false'" ]
+  | ["true", _ ] -> [ "true'" ]
   | s :: q -> escape_word s :: List.map fst q
   | p -> List.map fst p
 

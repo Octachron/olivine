@@ -205,8 +205,8 @@ let array_refine node =
   | Some s ->
     let lens = len_info s in
     let rec refine l q = match l, q with
-      | [Ctype.Null_terminated] , Ctype.(Const Ptr Name "char")
-        -> Ctype.String
+      | [Ctype.Null_terminated] , Ctype.(Const Ptr Name "char") ->
+        Ctype.String
       | len :: l' , Ctype.(Ptr x | Const Ptr x) ->
         Ctype.Array (Some len, refine l' x)
       | [], ty -> ty

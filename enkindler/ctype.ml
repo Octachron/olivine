@@ -54,6 +54,7 @@ let rec pp_num_expr ppf = function
 type 'a constexpr =
   | Lit of 'a
   | Var of name
+  | Const of name
   | Null_terminated
   | Math_expr
 
@@ -106,6 +107,7 @@ let pp_constexp pp ppf = function
   | Var name -> fp ppf "%s" name
   | Null_terminated -> fp ppf "%s" "null-terminated"
   | Math_expr -> fp ppf "%s" "math-expr"
+  | Const name -> fp ppf "%s" name
 
 let pp_bitfield ppf (name,int) =
   fp ppf "%d:%s" int name

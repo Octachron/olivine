@@ -193,8 +193,11 @@ module Typexp = struct
       Fmt.pf ppf "(ptr_opt (%a))" (pp dict) typ
     | Ctype.Option typ -> Fmt.pf ppf "(option (%a))" (pp dict) typ
 
-
     | Ctype.String -> Fmt.pf ppf "string"
+    | Ctype.Array (Some Const n ,typ) ->
+      Fmt.pf ppf "(array %a @@@@ %a)"
+        Name_study.pp_var (Name_study.make dict n)
+        (pp dict) typ
     | Ctype.Array (_,typ) -> pp dict ppf (Ctype.Ptr typ)
     | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
     | Ctype.Handle _  ->
@@ -353,6 +356,22 @@ module Fn = struct
     p
 end
 
+module Const = struct
+  let make ppf p name const =
+    let rec expr ppf =
+      function
+      | Ctype.Float f -> Fmt.pf ppf "%f" f
+      | Int n ->  Fmt.pf ppf "%d" n
+      | UInt64 n -> Fmt.pf ppf "Unsigned.ULLong.of_string \"%s\""
+                      (Unsigned.ULLong.to_string n)
+      | UInt n -> Fmt.pf ppf "Unsigned.UInt.of_string \"%s\""
+                    (Unsigned.UInt.to_string n)
+      | Complement num_expr -> Fmt.pf ppf "~(%a)" expr num_expr
+      | Minus (a,b) -> Fmt.pf ppf "(%a)-(%a)" expr a expr b in
+    Fmt.pf ppf "\nlet %a = %a\n" Name_study.pp_var name expr const;
+    p
+end
+
 let rec last = function
   | [] -> raise @@ Invalid_argument "last []"
   | [a] -> a
@@ -432,7 +451,7 @@ let make_ideal dict ppf name p =
     match obj with
     | Typed.Type t -> make_type dict ppf p name' t
     | Fn f -> Fn.make dict ppf p f
-    | Const _c -> p
+    | Const c -> Const.make ppf p name' c
   else
     p
 
@@ -471,7 +490,8 @@ let make_all extensions dict ppf map =
   Fmt.string ppf preambule;
   let split name obj (major,exts) =
     match obj, extension extensions (Name_study.make dict name) with
-    | _, None | Typed.(Type _| Const _) , _ -> M.add name obj major, exts
+    | _, None | Typed.(Type _| Const _) , _ ->
+      M.add name obj major, exts
     | Typed.Fn _, Some ext ->
       let extmap = try M.find ext exts with Not_found -> M.empty in
       major, M.add ext (M.add name obj extmap) exts in
