@@ -51,7 +51,7 @@ let instance = !instance
 
 let (+@) = Ctypes.(+@)
 
-let devices =
+let phy_devices =
   let n = 2 in
   let count = Ctypes.(allocate uint32_t) ~:n in
   let devices = Ctypes.(allocate_n Vk.physical_device) n in
@@ -76,5 +76,34 @@ let print_property device =
   Format.printf "Device: %s\n"
    (to_string @@ p ^ Vk.Physical_device_properties.device_name)
 
-;; Array.iter print_property devices
+;; Array.iter print_property phy_devices
+
+let phydevice = phy_devices.(0)
+
+let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
+
+let queue_family_properties =
+  let n = Ctypes.(allocate uint32_t) ~:0 in
+  Vk.get_physical_device_queue_family_properties
+    phydevice n (nullptr Vk.Queue_family_properties.t);
+  let properties =
+    Ctypes.allocate_n Vk.Queue_family_properties.t (to_int !n) in
+  Vk.get_physical_device_queue_family_properties
+    phydevice n properties;
+  Array.init (to_int !n) (fun n -> !(properties +@ n))
+
+let print_queue_property ppf property =
+  Format.fprintf ppf "Queue flags: %a \n" Vk.Queue_flags.pp
+    (property ^ Vk.Queue_family_properties.queue_flags)
+
+;; Array.iter (print_queue_property Format.std_formatter)
+  queue_family_properties
+(*
+let device =
+  let d = Ctypes.allocate_n Vk.Device.t 1 in
+  let info =
+    let open Vk.Device_create_info in
+    make t []
+  Vk.create_device phy_devices.(0)
+*)
 ;; debug "End"
