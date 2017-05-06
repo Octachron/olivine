@@ -6,6 +6,7 @@ module type S = sig
 
   val empty: t
   val make_index: int -> index
+  val mem: index -> t -> bool
 
   val union: t -> t -> t
   val (+): t -> t -> t
@@ -39,6 +40,9 @@ module Make(): S = struct
       raise @@ Out_of_bound n
     else
       n
+
+  let mem n x =
+    1 land (x lsr n) = 1
 
   let union = (lor)
   let (+) = union

@@ -274,6 +274,21 @@ module Bitset = struct
     List.iter (field dict ppf) fields;
     List.iter (value dict ppf) values
 
+  let pp dict ppf (fields,_) =
+    let field ppf (name, _) =
+      let name' = Name_study.make dict name in
+      Fmt.pf ppf "if mem %a set then\n\
+                    Printer.fprintf ppf \"%a;@@ \"\n\
+                  else ()"
+        Name_study.pp_var name' Name_study.pp_var name' in
+    let sep ppf () = Fmt.pf ppf ";\n" in
+    Fmt.pf ppf "let pp ppf set=\n\
+                Printer.fprintf ppf \"@@[{\";\n\
+                %a;\n\
+                Printer.fprintf ppf \"}@@]\"\n"
+      (Fmt.list ~sep field) fields
+
+
   let bitname name =
     let rec bitname = function
       | ("flags", _ ) :: q ->
@@ -298,6 +313,7 @@ module Bitset = struct
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     Fmt.pf ppf "  include Bitset.Make()\n";
     values dict ppf fields;
+    pp dict ppf fields;
     Fmt.pf ppf "end\n";
     resume ppf name;
     p
