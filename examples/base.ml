@@ -19,9 +19,33 @@ let (<?>) x s = match x with
     Format.eprintf "Error %a: %s @."
       Vk.Result.pp k s; exit 1
 
+let (<?>*) x s = match x with
+  | Ok x -> Format.printf "Success: %s\n" s; x
+  | Error _ ->
+    Format.eprintf "Error: %s @." s; exit 1
+
 let (!) = Ctypes.(!@)
 let (~:) = Unsigned.UInt32.of_int
 let to_int = Unsigned.UInt32.to_int
+
+open Tsdl
+let () = Sdl.(init Init.(video + events)) <?>* "Sdl init"
+
+let w =
+  Sdl.create_window "Vulkan + SDL test" ~w:512 ~h:512
+    Sdl.Window.(allow_highdpi) <?>* "Window creation"
+
+let () = Sdl.show_window w
+let e = Sdl.Event.create ()
+let rec event_loop e =
+  let open Sdl.Event in
+  if
+    Sdl.poll_event @@ Some e
+    && get e typ = key_down
+    && get e keyboard_keycode = Sdl.K.escape
+  then
+        exit 0
+  else event_loop e
 
 let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
@@ -132,4 +156,5 @@ let device =
   <?> "Create logical device";
   !d
 
+;; event_loop e
 ;; debug "End"

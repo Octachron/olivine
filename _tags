@@ -11,5 +11,5 @@ true: thread
 <enkindler> or <enkindler/cshard>: include
 <lib>: include
 <lib/*>: package(ctypes.foreign), thread
-<examples/*>: package(ctypes.foreign)
+<examples/*>: package(ctypes.foreign), package(tsdl)
 "vk.cma": package(ctypes.foreign), thread
