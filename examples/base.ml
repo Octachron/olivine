@@ -4,7 +4,7 @@ let get, set = Ctypes.(getf,setf)
 let null = Ctypes.null
 
 let ($=) field value str= set str field value
-let ( ^ ) = get
+let ( % ) = get
 
 let make typ updates =
   let str=Ctypes.make typ in
@@ -88,32 +88,35 @@ let to_string carray =
   String.init (A.length carray)
     (fun n -> A.get carray n)
 
+let get_array msg elt f =
+  let n = Ctypes.(allocate uint32_t) ~:0 in
+  msg "count" @@ f n (nullptr elt);
+  let e =
+    Ctypes.allocate_n ~count:(to_int !n) elt in
+  msg "allocation" (f n e);
+  to_array n e
+
+let msg name minor r =
+  r <?> name ^ ":" ^ minor
+
+let silent _minor _r = ()
 
 let extension_properties =
-  let n = Ctypes.(allocate uint32_t) ~:0 in
-  Vk.enumerate_instance_extension_properties "" n
-    (nullptr Vk.extension_properties)
-  <?> "Extension properties number";
-  let e =
-    Ctypes.allocate_n ~count:(to_int !n) Vk.extension_properties in
-  Vk.enumerate_instance_extension_properties "" n e
-  <?> "Extension properties";
-  to_array n e
+  get_array (msg "Extension properties") Vk.extension_properties
+  @@ Vk.enumerate_instance_extension_properties ""
 
 let print_extension_property e =
   let open Vk.Extension_properties in
-  Format.printf "%s\n" (to_string @@ e ^ extension_name)
+  Format.printf "%s\n" (to_string @@ e % extension_name)
 
 ;; Array.iter print_extension_property extension_properties
 
 let phy_devices =
-  let n = 2 in
-  let count = Ctypes.(allocate uint32_t) ~:n in
-  let devices = Ctypes.(allocate_n Vk.physical_device) n in
-  Vk.enumerate_physical_devices instance count devices
-  <?>"physical device";
-  debug "Number of devices: %d \n" (to_int !count);
-  to_array count devices
+  let d =
+    get_array (msg "physical device") Vk.physical_device
+    @@ Vk.enumerate_physical_devices instance in
+  debug "Number of devices: %d \n" (Array.length d);
+  d
 
 let property device =
   let p = Ctypes.make Vk.physical_device_properties in
@@ -125,25 +128,19 @@ let property device =
 let print_property device =
   let p = property device in
   Format.printf "Device: %s\n"
-   (to_string @@ p ^ Vk.Physical_device_properties.device_name)
+   (to_string @@ p % Vk.Physical_device_properties.device_name)
 
 ;; Array.iter print_property phy_devices
 
 let phydevice = phy_devices.(0)
 
 let queue_family_properties =
-  let n = Ctypes.(allocate uint32_t) ~:0 in
-  Vk.get_physical_device_queue_family_properties
-    phydevice n (nullptr Vk.Queue_family_properties.t);
-  let properties =
-    Ctypes.allocate_n Vk.Queue_family_properties.t (to_int !n) in
-  Vk.get_physical_device_queue_family_properties
-    phydevice n properties;
-  to_array n properties
+  get_array silent Vk.queue_family_properties
+  @@ Vk.get_physical_device_queue_family_properties phydevice
 
 let print_queue_property ppf property =
   Format.fprintf ppf "Queue flags: %a \n" Vk.Queue_flags.pp
-    (property ^ Vk.Queue_family_properties.queue_flags)
+    (property % Vk.Queue_family_properties.queue_flags)
 
 ;; Array.iter (print_queue_property Format.std_formatter)
   queue_family_properties
@@ -158,6 +155,16 @@ let queue_create_info =
     queue_count $= ~:1;
     p_queue_priorities $= Ctypes.(allocate float) 1.
   ]
+
+let device_extensions =
+  get_array (msg "device extensions")
+    Vk.extension_properties
+    (Vk.enumerate_device_extension_properties phydevice "")
+
+;; Format.printf "Device extensions:\n@[<v 2>"
+;; Array.iter print_extension_property device_extensions
+;; Format.printf "@]@."
+
 
 let device =
   let d = Ctypes.allocate_n Vk.Device.t 1 in
