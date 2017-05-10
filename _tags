@@ -10,6 +10,9 @@ true: thread
 <enkindler/cshard/*>: package(ctypes)
 <enkindler> or <enkindler/cshard>: include
 <lib>: include
+<sdl>: include
+<sdl/*>: package(tsdl), package(ctypes.foreign)
 <lib/*>: package(ctypes.foreign), thread
 <examples/*>: package(ctypes.foreign), package(tsdl)
 "vk.cma": package(ctypes.foreign), thread
+"libsdlvulkan.so": precious

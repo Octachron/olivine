@@ -3,14 +3,28 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
 
+#define DEBUG printf
+
+/* typedef VkResult (*genSurface)
+(VkInstance,
+ VkXlibSurfaceCreateInfoKHR*,
+ VkAllocationCallbacks*,
+ VkSurfaceKHR*);
+genSurface surface_khr = (genSurface) vkCreateXlibSurfaceKHR;
+*/
+
 VkResult create_surface(VkInstance instance, SDL_Window* w,
 			VkAllocationCallbacks* allocators,
 			VkSurfaceKHR* surface) {
 
+  DEBUG("Start create_surface\n");
   SDL_SysWMinfo info;
   SDL_VERSION(&info.version);
   SDL_bool b = SDL_GetWindowWMInfo(w, &info);
+  DEBUG("Window information acquired \n");
+
   if(b && info.subsystem == SDL_SYSWM_X11) {
+    DEBUG("X11 subsystem identified \n");
 
     VkXlibSurfaceCreateInfoKHR vkInfo;
     vkInfo.sType=VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
@@ -19,6 +33,15 @@ VkResult create_surface(VkInstance instance, SDL_Window* w,
     vkInfo.dpy = info.info.x11.display;
     vkInfo.window = info.info.x11.window;
 
+    /*  if (surface_khr == NULL ) {
+      DEBUG("Acquiring vkCreateXlibSurfaceKHR pointer\n");
+      surface_khr =(genSurface)
+	vkGetInstanceProcAddr(instance, "vkCreateXlibSurfaceKHR");
+      printf("Pointer acquired:%x\n", surface_khr);
+      if (surface_khr == NULL) {
+	return (-7);;
+      }
+      } */
     return vkCreateXlibSurfaceKHR(instance,&vkInfo,allocators,surface);
 
   }
@@ -61,5 +84,4 @@ VkResult create_surface(VkInstance instance, SDL_Window* w,
 #endif
     }
     */
- 
 }
