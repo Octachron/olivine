@@ -192,11 +192,43 @@ let device =
   <?> "Create logical device";
   !d
 
-;; let surface =
+;; let surface_khr =
      let s = Ctypes.allocate_n ~count:1 Vk.surface_khr in
      Vk__sdl.create_surface instance w None s
        <?> "Obtaining surface";
-     s
+     !s
+
+let swap_chain_info =
+  let extent = Vk.Extent_2d.(
+      make t [ width $= ~:512; height $= ~:512 ]
+    ) in
+  let open Vk.Swapchain_create_info_khr in
+  make t [
+    s_type $= Vk.Structure_type.Swapchain_create_info_khr;
+    p_next $= null;
+    flags $= Vk.Swapchain_create_flags_khr.empty;
+    surface $= surface_khr;
+    min_image_count $= ~:1;
+    image_format $= Vk.Format.R32_sfloat;
+    image_color_space $= Vk.Color_space_khr.Extended_srgb_linear_ext;
+    image_extent $= extent ;
+    image_array_layers $= ~: 1;
+    image_usage $= Vk.Image_usage_flags.(
+        of_list [
+          image_usage_color_attachment_bit;
+          image_usage_sampled_bit;
+          image_usage_depth_stencil_attachment_bit
+        ]);
+    image_sharing_mode $= Vk.Sharing_mode.Exclusive;
+    queue_family_index_count $= ~: 1;
+    p_queue_family_indices $= Ctypes.(allocate uint32_t) ~:0;
+    pre_transform $=
+    Vk.Surface_transform_flags_khr.surface_transform_identity_bit_khr;
+    composite_alpha $=
+    Vk.Composite_alpha_flags_khr.composite_alpha_opaque_bit_khr;
+    present_mode $= Vk.Present_mode_khr.Fifo_relaxed;
+    clipped $= ~: Vk.false';
+  ]
 
 ;; event_loop e
 ;; debug "End"
