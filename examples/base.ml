@@ -53,11 +53,16 @@ let layers = Ctypes.allocate_n ~count:0 Ctypes.string
 
 let (+@) = Ctypes.(+@)
 let ( <-@ ) = Ctypes.( <-@ )
-let extensions =
-  let e = Ctypes.allocate_n ~count:2 Ctypes.string in
-  e <-@ "VK_KHR_surface";
-  (e +@ 1) <-@ "VK_KHR_xlib_surface";
-  e
+
+let from_array typ a =
+  let n = Array.length a in
+  let a' = Ctypes.allocate_n ~count:n typ in
+  Array.iteri (fun i x -> (a' +@ i) <-@ x ) a;
+  ~: n, a'
+
+let n_ext, extensions =
+  from_array Ctypes.string
+    [|"VK_KHR_surface"; "VK_KHR_xlib_surface" |]
 
 let info =
   make Vk.instance_create_info
@@ -68,7 +73,7 @@ let info =
       p_application_info $= None;
       enabled_layer_count $= Unsigned.UInt32.of_int 0;
       pp_enabled_layer_names $= layers;
-      enabled_extension_count $= ~:2 ;
+      enabled_extension_count $= n_ext ;
       pp_enabled_extension_names $= extensions;
     ]
 
@@ -168,6 +173,7 @@ let device_extensions =
 
 let device =
   let d = Ctypes.allocate_n Vk.Device.t 1 in
+  let n_ext, exts = from_array Ctypes.string [|"VK_KHR_swapchain"|] in
   let info =
     let open Vk.Device_create_info in
     mk_ptr t [
@@ -178,8 +184,8 @@ let device =
       p_queue_create_infos $= queue_create_info;
       enabled_layer_count $= ~:0;
       pp_enabled_layer_names $= layers;
-      enabled_extension_count $= ~:0;
-      pp_enabled_extension_names $= extensions;
+      enabled_extension_count $= n_ext ;
+      pp_enabled_extension_names $= exts;
       p_enabled_features $= None
     ] in
   Vk.create_device phy_devices.(0) info None d
