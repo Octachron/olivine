@@ -8,15 +8,33 @@ module Ls = Set.Make(struct
     let compare: t -> t -> int= compare
   end)
 
+type submodule =
+  | Type
+  | Subresult
+  | Ext of string
+  | Const
+  | Core
+
+module Outmap =
+  Map.Make(struct type t = submodule let compare = compare end)
+
+type result_info = {
+  set: Ls.t;
+  map: int M.t
+}
+
+let add_result_info set ri =
+  { ri with set = Ls.add set ri.set }
+
 type gen =
   { generator: string -> gen -> gen;
-    main_map: Typed.entity M.t;
     map: Typed.entity M.t;
-    result_set: Ls.t;
+    result_info: result_info;
     current: S.t }
 
 let remove name g = { g with current = S.remove name g.current }
-let add_result set g = { g with result_set = Ls.add set g.result_set }
+let add_result set g =
+  { g with result_info = add_result_info set g.result_info }
 
 module Enum = struct
 
@@ -97,16 +115,12 @@ end
 
 module Either = struct
 
-  let map g =
-    match M.find "VkResult" g.main_map with
-    | Typed.Type Ctype.Enum constrs ->
-      let m = M.empty in
-      List.fold_left
+  let map constrs p =
+    let map = List.fold_left
         (fun m (x,n) -> match n with
            | Ctype.Abs n -> M.add x n m
-           | _ -> m) m constrs
-    | _ -> assert false
-
+           | _ -> m) M.empty constrs in
+    { p with result_info = { p.result_info with map } }
 
   let atoms_of_name dict name =
     let open Name_study in
@@ -138,7 +152,7 @@ module Either = struct
   let find name m =
     try M.find name m with
     | Not_found ->
-      Fmt.(pf stderr) "not found: %s\n%!" name;
+      Fmt.(pf stderr) "Either.find: not found %s\n%!" name;
       List.iter (fun (name,id) -> Fmt.(pf stderr) "%s:%d\n%!" name id)
       @@ M.bindings m;
       raise Not_found
@@ -153,14 +167,20 @@ module Either = struct
     Fmt.pf ppf "\nend\n"
 
   let make dict g ppf ok errors =
-    if Ls.mem (ok @ errors) g.result_set then
+    let m = g.result_info.map in
+    let g = if m = M.empty then
+        g.generator "VkResult" g
+      else
+        g in
+    let set = g.result_info.set in
+    if Ls.mem (ok @ errors) set then
       g
     else
       begin
-        let m = map g in
-        if not @@ Ls.mem ok g.result_set then
+        let m = g.result_info.map in
+        if not @@ Ls.mem ok set then
             view dict m ppf ok;
-        if not @@ Ls.mem errors g.result_set then
+        if not @@ Ls.mem errors set then
             view dict m ppf errors;
         let name = composite_nominal dict ok errors in
         let ok_name = side_name dict ok in
@@ -429,7 +449,7 @@ let make_type dict ppf p name = function
     try
       p.generator set p
     with Not_found ->
-      Fmt.pf Fmt.stderr "Not found %s\n%!" set;
+      Fmt.pf Fmt.stderr "make_type: not found %s\n@." set;
       raise Not_found
     end
   | Handle _ ->  Handle.make ppf name; p
@@ -437,10 +457,14 @@ let make_type dict ppf p name = function
     if not @@ is_bits name then
       begin
         let res = Name_study.make dict "VkResult" in
-        let kind = if name=res then Enum.Poly else Enum.Std in
-        Enum.make dict kind ppf name constrs
+        let is_result = name = res in
+        let kind = if is_result then Enum.Poly else Enum.Std in
+        Enum.make dict kind ppf name constrs;
+        if is_result then
+          Either.map constrs p
+        else p
       end
-    ; p
+    else p
   | Record r ->
     Structured.(make dict Record) ppf p name r.fields
 
@@ -463,20 +487,23 @@ let make_ideal dict ppf name p =
   let name' = Name_study.make dict name in
   let p = remove name p in
   if right_sys name' then
-    let obj = M.find name p.map in
-    match obj with
+    match M.find name p.map with
     | Typed.Type t -> make_type dict ppf p name' t
     | Fn f -> Fn.make dict ppf p f
     | Const c -> Const.make ppf p name' c
+    | exception Not_found ->
+      (Fmt.epr "make ideal: not found %s@." name; exit 2)
   else
     p
 
+let ri_empty = { set = Ls.empty; map = M.empty}
 
-let gen dict ppf main_map map =
+let gen ?(result_info=ri_empty) dict ppf map =
   let current = S.of_list @@ List.map fst @@ M.bindings map in
   { generator = make_ideal dict ppf;
-    current; map; main_map;
-    result_set = Ls.empty }
+    current; map;
+    result_info
+  }
 
 
 let preambule =
@@ -488,19 +515,23 @@ let preambule =
    module Printer = Format\n\
   "
 
-
-let make_set dict main_map ppf map =
-   let g = gen dict ppf main_map map in
+let exec_gen g =
   let rec loop g =
     if not (g.current = S.empty) then
-      loop @@ g.generator (S.choose g.current) g in
-  loop g
+      loop @@ g.generator (S.choose g.current) g
+    else
+      g
+  in
+   loop g
+
+let make_set ?result_info dict ppf map =
+   exec_gen @@ gen ?result_info dict ppf map
 
 
-let pp_extension dict main ppf name m =
+let pp_extension result_info dict ppf name m =
   Fmt.pf ppf "module %a()=struct\n%a\nend\n"
     Name_study.pp_module (Name_study.make dict name)
-    (make_set dict main) m
+    (fun ppx x -> ignore @@ make_set ~result_info dict ppx x) m
 
 let make_all extensions dict ppf map =
   Fmt.string ppf preambule;
@@ -512,6 +543,7 @@ let make_all extensions dict ppf map =
       let extmap = try M.find ext exts with Not_found -> M.empty in
       major, M.add ext (M.add name obj extmap) exts in
   let major,exts = M.fold split map (M.empty, M.empty) in
-  Fmt.pf ppf "%a\n" (make_set dict major) major;
-  M.iter (pp_extension dict major ppf) exts;
+  let g = make_set dict ppf major in
+  Fmt.pf ppf "\n";
+  M.iter (pp_extension g.result_info dict ppf) exts;
   Fmt.pf ppf "@."
