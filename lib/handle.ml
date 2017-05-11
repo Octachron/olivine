@@ -1,11 +1,12 @@
 module type S = sig
   type t
+  val t: t Ctypes.typ
   val view: t Ctypes.typ
 end
-module Make() =
+module Make(): S =
 struct
   type self
-  type t = self Ctypes.structure Ctypes.ptr Ctypes.typ
-  let t: t = Ctypes.ptr (Ctypes.structure "")
+  type t = self Ctypes.structure Ctypes.ptr
+  let t: t Ctypes.typ = Ctypes.ptr (Ctypes.structure "")
   let view = t
 end

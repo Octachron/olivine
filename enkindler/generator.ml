@@ -376,19 +376,27 @@ end
 
 module Funptr = struct
 
+  let pp dict ppf (fn:Ctype.fn) =
+    Fmt.pf ppf "@[(Foreign.funptr @@@@@ @ %a@ @->@ returning %a)@]"
+      (Fmt.list ~sep:arrow @@ Typexp.pp dict)
+      (List.map snd fn.args)
+      (Typexp.pp dict) fn.return
+
   let make dict p tyname (fn:Ctype.fn) =
     let ppf = out p Type in
     let p = Structured.check_fields dict p fn.args in
     let p = Structured.check_typ dict p fn.return in
-    let args' = match List.map snd fn.args with
-      | [] -> [Ctype.Name "void"]
-      | l -> l in
-    Fmt.pf ppf "@[<hov> let %a = Foreign.funptr@ \
-                (%a@ @->@ returning %a)@]@."
-      Name_study.pp_var tyname
-      (Fmt.list ~sep:arrow @@ Typexp.pp dict) args'
-      (Typexp.pp dict) fn.return;
+    begin match List.map snd fn.args with
+    | [] ->
+      Fmt.pf ppf "@[<hov> let %a = ptr void @]@."
+        Name_study.pp_var tyname
+    | args' ->
+      Fmt.pf ppf "@[<hov> let %a = %a@]@."
+        Name_study.pp_var tyname
+        (pp dict) fn
+    end;
     p
+
 end
 
 module Fn = struct
@@ -407,7 +415,24 @@ module Fn = struct
       (Fmt.list ~sep:arrow @@ Typexp.pp dict) args'
       (Typexp.pp dict) fn.return;
     p
+
 end
+
+module DFn = struct
+
+  let make dict p (fn:Ctype.fn) =
+    let ppf = out p Core in
+    let p = Structured.check_fields dict p fn.args in
+    let p = Structured.check_typ dict p fn.return in
+    let name' = Name_study.make dict fn.name in
+    Fmt.pf ppf "@[<hov>let %a =\n\
+                get \"%s\" (%a) @]@."
+      Name_study.pp_var name'
+      fn.name (Funptr.pp dict) fn;
+    p
+
+end
+
 
 module Const = struct
   let make p name const =
@@ -569,7 +594,8 @@ let pp_extension result_info dict out name m =
   in
   let out = { out with map } in
   depend out Core;
-  Fmt.pf ppf "module Make()=struct";
+  Fmt.pf ppf "module Make(D:Vk__dfn.Device)=struct\n\
+               let foreign x = Vk__dfn.get D.x x\n";
   let g = make_set ~result_info dict out m in
   Fmt.pf ppf "\nend@.";
   g.result_info

@@ -232,5 +232,36 @@ let swap_chain_info =
     clipped $= ~: Vk.Consts.false';
   ]
 
+let pf = Vkc.get_device_proc_addr device "vkCreateSwapchainKHR"
+
+;; if pf = null then (debug "Cannot acquire swapchain_create"; exit 2)
+
+;; debug "Acquired swapchain create"
+
+module Manual()= struct 
+let create_swap_chain =
+  let typ = Ctypes.(
+      Vkt.device
+      @->(ptr Vkt.swapchain_create_info_khr)
+      @->(ptr_opt Vkt.allocation_callbacks)
+      @->(ptr Vkt.swapchain_khr)
+      @-> returning
+        Vk.Subresult.device_host_in_khr_lost_memory_native_of_out_success_surface_use_window) in
+  (* let get = Vkc.foreign "vkGetDeviceProcAddr"
+              (Vkt.device @-> Ctypes.string @-> returning typ ) *)
+  Vk__dfn.get device "vkCreateSwapchainKHR" typ
+
+end
+
+module Khr = Vk.Khr.Make(struct let x = device end)
+
+let swap_chain =
+  let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
+  Khr.create_swapchain_khr device (Ctypes.addr swap_chain_info) None s
+  <?> "swap_chain";
+  !s
+
+
+
 ;; event_loop e
 ;; debug "End"
