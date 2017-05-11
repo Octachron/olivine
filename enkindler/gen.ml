@@ -55,6 +55,5 @@ let make_dict spec =
 let () =
   let info = read Sys.argv.(1) in
   let dict, exts = make_dict info in
-  let output = Format.formatter_of_out_channel
-    @@ open_out Sys.argv.(2) in
-  Generator.make_all exts dict output info.entities
+  let root = Sys.argv.(2) in
+  Generator.make_all exts dict root info.entities

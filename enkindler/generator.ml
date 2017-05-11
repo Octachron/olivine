@@ -11,12 +11,16 @@ module Ls = Set.Make(struct
 type submodule =
   | Type
   | Subresult
-  | Ext of string
   | Const
   | Core
 
+type info =
+  { name: string; out: Format.formatter; depends:submodule list }
+
 module Outmap =
   Map.Make(struct type t = submodule let compare = compare end)
+
+type outmap = submodule -> info
 
 type result_info = {
   set: Ls.t;
@@ -26,11 +30,16 @@ type result_info = {
 let add_result_info set ri =
   { ri with set = Ls.add set ri.set }
 
+type out = { map:outmap; atlas:Format.formatter; root:string }
+
 type gen =
   { generator: string -> gen -> gen;
     map: Typed.entity M.t;
     result_info: result_info;
+    out: out;
     current: S.t }
+
+let out p name = (p.out.map name).out
 
 let remove name g = { g with current = S.remove name g.current }
 let add_result set g =
@@ -100,7 +109,8 @@ module Enum = struct
     Fmt.pf ppf
        "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
 
-  let make dict impl ppf name constrs =
+  let make dict impl p name constrs =
+    let ppf = out p Type in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     List.iter (fun f -> f dict impl ppf name constrs)
     [def; to_int; of_int; pp ];
@@ -110,7 +120,7 @@ module Enum = struct
                type %a = %a.t\n"
       Name_study.pp_var name Name_study.pp_module name
       Name_study.pp_type name Name_study.pp_module name
-
+    ; p
 end
 
 module Either = struct
@@ -166,7 +176,8 @@ module Either = struct
     Enum.(to_int dict Poly) ppf name constrs;
     Fmt.pf ppf "\nend\n"
 
-  let make dict g ppf ok errors =
+  let make dict g ok errors =
+    let ppf = out g Subresult in
     let m = g.result_info.map in
     let g = if m = M.empty then
         g.generator "VkResult" g
@@ -237,16 +248,16 @@ module Structured = struct
     | Union -> Fmt.pf ppf "union"
     | Record -> Fmt.pf ppf "structure"
 
-  let rec check_typ dict ppf p = function
-    | Ctype.Ptr t | Const t | Option t -> check_typ dict ppf p t
-    | Array(_,t) -> check_typ dict ppf p t
+  let rec check_typ dict p = function
+    | Ctype.Ptr t | Const t | Option t -> check_typ dict p t
+    | Array(_,t) -> check_typ dict p t
     | Name t ->
       if S.mem t p.current then p.generator t p else p
-    | Result {ok;bad} -> Either.make dict p ppf ok bad
+    | Result {ok;bad} -> Either.make dict p ok bad
     | _ -> p
 
-  let check_fields dict ppf = List.fold_left
-      (fun acc (_,t) -> check_typ dict ppf acc t )
+  let check_fields dict = List.fold_left
+      (fun acc (_,t) -> check_typ dict acc t )
 
   let field dict name ppf (field_name,typ)=
     let field_name =
@@ -266,8 +277,9 @@ module Structured = struct
     Fmt.list ~sep (field dict name) ppf fields;
     Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
 
-  let make dict kind ppf p name fields =
-    let p = check_fields dict ppf p fields in
+  let make dict kind p name fields =
+    let ppf = out p Type in
+    let p = check_fields dict p fields in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     def dict kind ppf name fields;
     Fmt.pf ppf "end\n";
@@ -326,7 +338,8 @@ module Bitset = struct
       Name_study.pp_var (bitname name)
       Name_study.pp_module name
 
-  let make_with_bits dict ppf p name field_name =
+  let make_with_bits dict p name field_name =
+    let ppf = out p Type in
     let fields = match M.find field_name p.map with
       | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
       | _ -> [], [] in
@@ -338,10 +351,12 @@ module Bitset = struct
     resume ppf name;
     p
 
-  let make dict ppf p name = function
-    | Some field_info -> make_with_bits dict ppf p name field_info
+  let make dict p name =
+    let ppf =  out p Type in
+    function
+    | Some field_info -> make_with_bits dict p name field_info
     | None ->
-      Fmt.pf ppf "module %a = Bitset.Make()\n"
+      Fmt.pf (out p Type) "module %a = Bitset.Make()\n"
         Name_study.pp_module name;
       resume ppf name;
       p
@@ -361,9 +376,10 @@ end
 
 module Funptr = struct
 
-  let make dict ppf p tyname (fn:Ctype.fn) =
-    let p = Structured.check_fields dict ppf p fn.args in
-    let p = Structured.check_typ dict ppf p fn.return in
+  let make dict p tyname (fn:Ctype.fn) =
+    let ppf = out p Type in
+    let p = Structured.check_fields dict p fn.args in
+    let p = Structured.check_typ dict p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
@@ -377,9 +393,10 @@ end
 
 module Fn = struct
 
-  let make dict ppf p (fn:Ctype.fn) =
-    let p = Structured.check_fields dict ppf p fn.args in
-    let p = Structured.check_typ dict ppf p fn.return in
+  let make dict p (fn:Ctype.fn) =
+    let ppf = out p Core in
+    let p = Structured.check_fields dict p fn.args in
+    let p = Structured.check_typ dict p fn.return in
     let args' = match List.map snd fn.args with
       | [] -> [Ctype.Name "void"]
       | l -> l in
@@ -393,7 +410,8 @@ module Fn = struct
 end
 
 module Const = struct
-  let make ppf p name const =
+  let make p name const =
+    let ppf = out p Const in
     let rec expr ppf =
       function
       | Ctype.Float f -> Fmt.pf ppf "%f" f
@@ -432,17 +450,17 @@ let alias dict ppf name origin =
     Name_study.pp_var name
     Name_study.pp_type (Name_study.make dict origin)
 
-let make_type dict ppf p name = function
+let make_type dict p name = function
   | Ctype.Const _  | Option _ | Ptr _ | String | Array (_,_)
   | Result _ -> p
-  | Name t -> alias dict ppf name t; p
-  | FunPtr fn -> Funptr.make dict ppf p name fn
+  | Name t -> alias dict (out p Type) name t; p
+  | FunPtr fn -> Funptr.make dict p name fn
   | Union fields ->
-    Structured.(make dict Union) ppf p name fields
+    Structured.(make dict Union) p name fields
   | Bitset { field_type = Some ft; _ } ->
-    Bitset.make dict ppf (remove ft p) name (Some ft)
+    Bitset.make dict (remove ft p) name (Some ft)
   | Bitset { field_type = None; _ } ->
-    Bitset.make dict ppf p name None
+    Bitset.make dict p name None
   | Bitfields _ ->
     let set = "Vk" ^ (Name_study.original @@ remove_bits name) in
     begin
@@ -452,21 +470,21 @@ let make_type dict ppf p name = function
       Fmt.pf Fmt.stderr "make_type: not found %s\n@." set;
       raise Not_found
     end
-  | Handle _ ->  Handle.make ppf name; p
+  | Handle _ ->  Handle.make (out p Type) name; p
   | Enum constrs ->
     if not @@ is_bits name then
       begin
         let res = Name_study.make dict "VkResult" in
         let is_result = name = res in
         let kind = if is_result then Enum.Poly else Enum.Std in
-        Enum.make dict kind ppf name constrs;
+        let p = Enum.make dict kind p name constrs in
         if is_result then
           Either.map constrs p
         else p
       end
     else p
   | Record r ->
-    Structured.(make dict Record) ppf p name r.fields
+    Structured.(make dict Record) p name r.fields
 
 let right_sys name =
   let check =
@@ -483,14 +501,14 @@ let extension exts name =
     Some a
   | _ -> None
 
-let make_ideal dict ppf name p =
+let make_ideal dict name p =
   let name' = Name_study.make dict name in
   let p = remove name p in
   if right_sys name' then
     match M.find name p.map with
-    | Typed.Type t -> make_type dict ppf p name' t
-    | Fn f -> Fn.make dict ppf p f
-    | Const c -> Const.make ppf p name' c
+    | Typed.Type t -> make_type dict p name' t
+    | Fn f -> Fn.make dict p f
+    | Const c -> Const.make p name' c
     | exception Not_found ->
       (Fmt.epr "make ideal: not found %s@." name; exit 2)
   else
@@ -498,13 +516,13 @@ let make_ideal dict ppf name p =
 
 let ri_empty = { set = Ls.empty; map = M.empty}
 
-let gen ?(result_info=ri_empty) dict ppf map =
+let gen ?(result_info=ri_empty) dict out map =
   let current = S.of_list @@ List.map fst @@ M.bindings map in
-  { generator = make_ideal dict ppf;
+  { generator = make_ideal dict;
+    out;
     current; map;
     result_info
   }
-
 
 let preambule =
   "open Ctypes\n\
@@ -524,17 +542,58 @@ let exec_gen g =
   in
    loop g
 
-let make_set ?result_info dict ppf map =
-   exec_gen @@ gen ?result_info dict ppf map
+let make_set ?result_info dict outmap map =
+   exec_gen @@ gen ?result_info dict outmap map
+
+let open_sub atlas root name =
+  Fmt.pf atlas "module %s = Vk__%s@."
+    (String.capitalize_ascii name)
+    (String.uncapitalize_ascii name)
+  ;
+  let file = root ^"/vk__" ^ name ^ ".ml" in
+  let out = open_out file in
+  let ppf = Format.formatter_of_out_channel out in
+  Fmt.string ppf preambule; ppf
+
+let depend (out:out) ty =
+  let info = out.map ty in
+  let depname ppf ty = Fmt.pf ppf "open Vk__%s" (out.map ty).name in
+  List.iter (fun ty -> Fmt.pf info.out "%a\n" depname ty)
+    info.depends
+
+let pp_extension result_info dict out name m =
+  let ppf = open_sub out.atlas out.root name in
+  let map = function
+    | Type | Const | Subresult as s -> out.map s
+    | Core -> { name; out = ppf; depends = [Type; Subresult] }
+  in
+  let out = { out with map } in
+  depend out Core;
+  Fmt.pf ppf "module Make()=struct";
+  let g = make_set ~result_info dict out m in
+  Fmt.pf ppf "\nend@.";
+  g.result_info
 
 
-let pp_extension result_info dict ppf name m =
-  Fmt.pf ppf "module %a()=struct\n%a\nend\n"
-    Name_study.pp_module (Name_study.make dict name)
-    (fun ppx x -> ignore @@ make_set ~result_info dict ppx x) m
+let make_out root =
+  let atlas = Format.formatter_of_out_channel
+    @@ open_out @@ root ^"/vk.ml" in
+  let m =
+    let ($=) x (y,deps) =
+      x,
+      { name = y; out = open_sub atlas root y; depends = deps } in
+    List.fold_left (fun m (k,x) -> Outmap.add k x m) Outmap.empty
+      [ Type $= ("types", [Const]);
+        Const $= ("consts", []);
+        Core $= ("core", [Type; Const;Subresult]);
+        Subresult $= ("subresult", []) ] in
+  let map name = Outmap.find name m in
+  let out = { root; atlas; map } in
+  List.iter (depend out) [Core;Type]; out
 
-let make_all extensions dict ppf map =
-  Fmt.string ppf preambule;
+
+let make_all extensions dict root map =
+  let output = make_out root in
   let split name obj (major,exts) =
     match obj, extension extensions (Name_study.make dict name) with
     | _, None | Typed.(Type _| Const _) , _ ->
@@ -543,7 +602,9 @@ let make_all extensions dict ppf map =
       let extmap = try M.find ext exts with Not_found -> M.empty in
       major, M.add ext (M.add name obj extmap) exts in
   let major,exts = M.fold split map (M.empty, M.empty) in
-  let g = make_set dict ppf major in
-  Fmt.pf ppf "\n";
-  M.iter (pp_extension g.result_info dict ppf) exts;
-  Fmt.pf ppf "@."
+  let g = make_set dict output major in
+  let _ri =
+  M.fold (fun name ext ri ->
+      pp_extension ri dict output name ext) exts g.result_info in
+  List.iter (fun t -> Fmt.pf (out g t) "@.")
+    [Type;Const;Core;Subresult]
