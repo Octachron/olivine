@@ -232,10 +232,10 @@ module Image = struct
 
   let im_format = Vkt.Format.R32_sfloat
 
-  let swap_chain_info =
-    let extent = Vkt.Extent_2d.(
+  let extent = Vkt.Extent_2d.(
         make t [ width $= ~:512; height $= ~:512 ]
-      ) in
+      )
+  let swap_chain_info =
     let open Vkt.Swapchain_create_info_khr in
     make t [
       s_type $= Vkt.Structure_type.Swapchain_create_info_khr;
@@ -383,7 +383,103 @@ module Pipeline = struct
       primitive_restart_enable $= ~:Vk.Consts.false'
     ]
 
-  
+  let to_float x = float @@ Unsigned.UInt32.to_int x
+  let viewport = let open Vkt.Viewport in
+    make t [
+      x $= 0.;
+      y $= 0.;
+      width $= to_float @@ Image.extent%(Vkt.Extent_2d.width);
+      height $= to_float @@ Image.extent%(Vkt.Extent_2d.height);
+      min_depth $= 0.;
+      max_depth $= 1.
+    ]
+
+  let scissor = let open Vkt.Rect_2d in
+    make t [
+      offset $= Vkt.Offset_2d.(make t [ x $= 0l; y $= 0l ] );
+      extent  $= Image.extent
+    ]
+
+  let viewport_state = let open Vkt.Pipeline_viewport_state_create_info in
+    make t [
+      s_type $= Vkt.Structure_type.Pipeline_viewport_state_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_viewport_state_create_flags.empty;
+      viewport_count $= ~: 1;
+      p_viewports $= Ctypes.addr viewport;
+      p_scissors $= Ctypes.addr scissor
+    ]
+
+  let rasterizer = let open Vkt.Pipeline_rasterization_state_create_info in
+    make t [
+      s_type $= Vkt.Structure_type.Pipeline_rasterization_state_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_rasterization_state_create_flags.empty;
+      depth_clamp_enable $= ~: Vk.Consts.false';
+      rasterizer_discard_enable $= ~: Vk.Consts.false';
+      polygon_mode $= Vkt.Polygon_mode.Fill;
+      cull_mode $= Vkt.Cull_mode_flags.(singleton back);
+      front_face $= Vkt.Front_face.Clockwise;
+      depth_bias_enable $=  ~: Vk.Consts.false';
+      depth_bias_constant_factor $= 0.;
+      depth_bias_clamp $= 0.;
+      depth_bias_slope_factor $= 0.;
+      line_width $= 1.
+    ]
+
+  let no_multisampling = let open Vkt.Pipeline_multisample_state_create_info in
+    make t [
+      s_type $= Vkt.Structure_type.Pipeline_multisample_state_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_multisample_state_create_flags.empty;
+      rasterization_samples $= Vkt.Sample_count_flags.n1;
+      sample_shading_enable $= ~: Vk.Consts.false';
+      min_sample_shading $= 1.;
+      p_sample_mask $= nullptr Ctypes.uint32_t;
+      alpha_to_coverage_enable $= ~: Vk.Consts.false';
+      alpha_to_one_enable $= ~: Vk.Consts.false'
+    ]
+
+  let no_blend = let open Vkt.Pipeline_color_blend_attachment_state in
+    make t [
+      blend_enable $= ~: Vk.Consts.false';
+      src_color_blend_factor $= Vkt.Blend_factor.One;
+      dst_color_blend_factor $= Vkt.Blend_factor.Zero;
+      color_blend_op $= Vkt.Blend_op.Add;
+      src_alpha_blend_factor $= Vkt.Blend_factor.One;
+      dst_alpha_blend_factor $= Vkt.Blend_factor.Zero;
+      alpha_blend_op $= Vkt.Blend_op.Add;
+    ]
+
+  let blend_state_info = let open Vkt.Pipeline_color_blend_state_create_info in
+    let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
+    make t [
+      s_type $= Vkt.Structure_type.Pipeline_color_blend_state_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_color_blend_state_create_flags.empty;
+      logic_op_enable $= ~: Vk.Consts.false';
+      logic_op $= Vkt.Logic_op.Copy;
+      attachment_count $= ~: 0;
+      p_attachments $= (Ctypes.addr no_blend);
+      blend_constants $= consts
+    ]
+
+  let no_uniform = let open Vkt.Pipeline_layout_create_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Pipeline_layout_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_layout_create_flags.empty;
+      set_layout_count $= ~:0;
+      p_set_layouts $= nullptr Vkt.descriptor_set_layout;
+      push_constant_range_count $= ~: 0;
+      p_push_constant_ranges $= nullptr Vkt.push_constant_range
+    ]
+
+  let layout =
+    let x = Ctypes.allocate_n Vkt.pipeline_layout 1 in
+    Vkc.create_pipeline_layout device no_uniform None x
+    <?> "Creating pipeline layout";
+    !x
 end
 
 
