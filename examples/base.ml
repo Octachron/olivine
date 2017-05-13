@@ -362,7 +362,7 @@ module Pipeline = struct
   end
 
   let null_input = let open Vkt.Pipeline_vertex_input_state_create_info in
-    make t [
+    mk_ptr t [
       s_type $= Vkt.Structure_type.Pipeline_vertex_input_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_vertex_input_state_create_flags.empty;
@@ -375,7 +375,7 @@ module Pipeline = struct
     ]
 
   let input_assembly = let open Vkt.Pipeline_input_assembly_state_create_info in
-    make t [
+    mk_ptr t [
       s_type $= Vkt.Structure_type.Pipeline_input_assembly_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_input_assembly_state_create_flags.empty;
@@ -401,7 +401,7 @@ module Pipeline = struct
     ]
 
   let viewport_state = let open Vkt.Pipeline_viewport_state_create_info in
-    make t [
+    mk_ptr t [
       s_type $= Vkt.Structure_type.Pipeline_viewport_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_viewport_state_create_flags.empty;
@@ -411,7 +411,7 @@ module Pipeline = struct
     ]
 
   let rasterizer = let open Vkt.Pipeline_rasterization_state_create_info in
-    make t [
+    mk_ptr t [
       s_type $= Vkt.Structure_type.Pipeline_rasterization_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_rasterization_state_create_flags.empty;
@@ -428,7 +428,7 @@ module Pipeline = struct
     ]
 
   let no_multisampling = let open Vkt.Pipeline_multisample_state_create_info in
-    make t [
+    mk_ptr t [
       s_type $= Vkt.Structure_type.Pipeline_multisample_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_multisample_state_create_flags.empty;
@@ -441,7 +441,7 @@ module Pipeline = struct
     ]
 
   let no_blend = let open Vkt.Pipeline_color_blend_attachment_state in
-    make t [
+    mk_ptr t [
       blend_enable $= ~: Vk.Consts.false';
       src_color_blend_factor $= Vkt.Blend_factor.One;
       dst_color_blend_factor $= Vkt.Blend_factor.Zero;
@@ -453,14 +453,14 @@ module Pipeline = struct
 
   let blend_state_info = let open Vkt.Pipeline_color_blend_state_create_info in
     let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
-    make t [
+    mk_ptr t [
       s_type $= Vkt.Structure_type.Pipeline_color_blend_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_color_blend_state_create_flags.empty;
       logic_op_enable $= ~: Vk.Consts.false';
       logic_op $= Vkt.Logic_op.Copy;
-      attachment_count $= ~: 0;
-      p_attachments $= (Ctypes.addr no_blend);
+      attachment_count $= ~: 1;
+      p_attachments $= no_blend;
       blend_constants $= consts
     ]
 
@@ -475,7 +475,7 @@ module Pipeline = struct
       p_push_constant_ranges $= nullptr Vkt.push_constant_range
     ]
 
-  let layout =
+  let simple_layout =
     let x = Ctypes.allocate_n Vkt.pipeline_layout 1 in
     Vkc.create_pipeline_layout device no_uniform None x
     <?> "Creating pipeline layout";
@@ -502,7 +502,7 @@ module Pipeline = struct
       layout $= Vkt.Image_layout.Color_attachment_optimal;
     ]
 
-  let subpass =
+  let my_subpass =
     let null = nullptr Vkt.Attachment_reference.t in
     let open Vkt.Subpass_description in
     mk_ptr t [
@@ -526,15 +526,48 @@ module Pipeline = struct
       attachment_count $= ~: 1;
       p_attachments $= color_attachment;
       subpass_count $= ~: 1;
-      p_subpasses $= subpass;
+      p_subpasses $= my_subpass;
       dependency_count $= ~: 0;
       p_dependencies $= nullptr Vkt.subpass_dependency
     ]
 
-  let render_pass =
+  let simple_render_pass =
     let x = Ctypes.allocate_n Vkt.render_pass 1 in
     Vkc.create_render_pass device render_pass_info None x
     <?> "Creating render pass";
+    !x
+
+  let pipeline_info = let open Vkt.Graphics_pipeline_create_info in
+    let nstages, stages = from_array Vkt.pipeline_shader_stage_create_info
+        Shaders.[| vert_stage; frag_stage |] in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Graphics_pipeline_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_create_flags.empty;
+      stage_count $= nstages;
+      p_stages $= stages;
+      p_vertex_input_state $= null_input;
+      p_input_assembly_state $= input_assembly;
+      p_tessellation_state $= None;
+      p_viewport_state $= Some viewport_state;
+      p_rasterization_state $= rasterizer;
+      p_multisample_state $= Some no_multisampling;
+      p_depth_stencil_state $= None;
+      p_color_blend_state $= Some blend_state_info;
+      p_dynamic_state $= None;
+      layout $= simple_layout;
+      render_pass $= simple_render_pass;
+      subpass $= ~:0;
+      base_pipeline_handle $= Vkt.Pipeline.null;
+      base_pipeline_index $= 0l;
+    ]
+
+  let pipeline =
+    debug "Pipeline creation";
+    let x = Ctypes.allocate_n Vkt.pipeline 1 in
+    Vkc.create_graphics_pipelines device Vkt.Pipeline_cache.null ~:1
+      pipeline_info None x
+    <?> "Graphics pipeline creation";
     !x
 
 end
