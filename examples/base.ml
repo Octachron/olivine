@@ -26,11 +26,6 @@ module Utils = struct
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
 
-  let (<?>*) x s = match x with
-    | Ok x -> Format.printf "SDL:Success: %s@." s; x
-    | Error _ ->
-      Format.eprintf "SDL:Error: %s @." s; exit 1
-
   let (!) = Ctypes.(!@)
   let (~:) = Unsigned.UInt32.of_int
   let to_int = Unsigned.UInt32.to_int
@@ -69,11 +64,17 @@ open Utils
 module Sdl = struct
   (** Sdl related function *)
   open Tsdl
-  let () = Sdl.(init Init.(video + events)) <?>* "Sdl init"
+
+  let (<?>) x s = match x with
+    | Ok x -> Format.printf "SDL:Success: %s@." s; x
+    | Error _ ->
+      Format.eprintf "SDL:Error: %s @." s; exit 1
+
+  let () = Sdl.(init Init.(video + events)) <?> "Sdl init"
 
   let w =
     Sdl.create_window "Vulkan + SDL test" ~w:512 ~h:512
-      Sdl.Window.(allow_highdpi) <?>* "Window creation"
+      Sdl.Window.(allow_highdpi) <?> "Window creation"
 
   let () = Sdl.show_window w
   let e = Sdl.Event.create ()
@@ -302,6 +303,10 @@ module Image = struct
       <?> "Creating image view";
       !v in
     Array.map create images
+end
+
+module Pipeline = struct
+  (** Create a graphical pipeline *)
 end
 
 ;; Sdl.(event_loop e)
