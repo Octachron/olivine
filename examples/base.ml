@@ -214,6 +214,10 @@ module Device = struct
 end
 let device = Device.x
 
+
+(** Once a device has been created, load the KHR extensions *)
+module Khr = Vk.Khr.Make(Device)
+
 module Image = struct
   let surface_khr =
     let s = Ctypes.allocate_n ~count:1 Vkt.surface_khr in
@@ -254,8 +258,6 @@ module Image = struct
       present_mode $= Vkt.Present_mode_khr.Fifo_relaxed;
       clipped $= ~: Vk.Consts.true';
     ]
-
-  module Khr = Vk.Khr.Make(Device)
 
   let swap_chain =
     let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
