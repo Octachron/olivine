@@ -200,6 +200,8 @@ let device =
        <?> "Obtaining surface";
      !s
 
+let im_format = Vkt.Format.R32_sfloat
+
 let swap_chain_info =
   let extent = Vkt.Extent_2d.(
       make t [ width $= ~:512; height $= ~:512 ]
@@ -211,7 +213,7 @@ let swap_chain_info =
     flags $= Vkt.Swapchain_create_flags_khr.empty;
     surface $= surface_khr;
     min_image_count $= ~:1;
-    image_format $= Vkt.Format.R32_sfloat;
+    image_format $= im_format;
     image_color_space $= Vkt.Color_space_khr.Extended_srgb_linear_ext;
     image_extent $= extent ;
     image_array_layers $= ~: 1;
@@ -232,14 +234,16 @@ let swap_chain_info =
     clipped $= ~: Vk.Consts.true';
   ]
 
+module Manual()= struct
+
 let pf = Vkc.get_device_proc_addr device "vkCreateSwapchainKHR"
 
 ;; if pf = null then (debug "Cannot acquire swapchain_create"; exit 2)
 
 ;; debug "Acquired swapchain create"
 
-module Manual()= struct
-let create_swap_chain =
+
+  let create_swap_chain =
   let typ = Ctypes.(
       Vkt.device
       @->(ptr Vkt.swapchain_create_info_khr)
@@ -262,6 +266,45 @@ let swap_chain =
   !s
 
 
+let images =
+  get_array (msg "Swapchain images") Vk.Types.image
+  @@ Khr.get_swapchain_images_khr device swap_chain
+
+
+let component_mapping =
+  let open Vkt.Component_mapping in
+  let id = Vkt.Component_swizzle.Identity in
+  make t [ r $= id; g $= id; b $= id; a $= id ]
+
+let a_subresource_range =
+  let open Vkt.Image_subresource_range in
+  make t [
+    aspect_mask $= Vkt.Image_aspect_flags.(singleton color);
+    base_mip_level $= ~:0;
+    level_count $= ~:1;
+    base_array_layer $= ~:0;
+    layer_count $= ~:1;
+  ]
+
+let image_view_info im =
+  let open Vkt.Image_view_create_info in
+  make t [
+    s_type $= Vkt.Structure_type.Image_view_create_info;
+    p_next $= null;
+    flags $= Vkt.Image_view_create_flags.empty;
+    image $= im;
+    view_type $= Vkt.Image_view_type.N2d;
+    format $= im_format;
+    subresource_range $= a_subresource_range;
+  ]
+
+let views =
+  let create im =
+    let v = Ctypes.allocate_n Vkt.image_view 1 in
+    Vkc.create_image_view device (Ctypes.addr @@ image_view_info im) None v
+    <?> "Creating image view";
+    !v in
+  Array.map create images
 
 ;; event_loop e
 ;; debug "End"
