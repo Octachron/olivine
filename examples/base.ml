@@ -480,6 +480,63 @@ module Pipeline = struct
     Vkc.create_pipeline_layout device no_uniform None x
     <?> "Creating pipeline layout";
     !x
+
+  let color_attachment =
+    let open Vkt.Attachment_description in
+    mk_ptr t [
+      flags $= Vkt.Attachment_description_flags.empty;
+      format $= Image.im_format;
+      samples $= Vkt.Sample_count_flags.n1;
+      load_op $= Vkt.Attachment_load_op.Clear;
+      store_op $= Vkt.Attachment_store_op.Store;
+      stencil_load_op $= Vkt.Attachment_load_op.Dont_care;
+      stencil_store_op $= Vkt.Attachment_store_op.Dont_care;
+      initial_layout $= Vkt.Image_layout.Undefined;
+      final_layout $= Vkt.Image_layout.Present_src_khr
+    ]
+
+  let attachment =
+    let open Vkt.Attachment_reference in
+    mk_ptr t [
+      attachment $= ~: 0;
+      layout $= Vkt.Image_layout.Color_attachment_optimal;
+    ]
+
+  let subpass =
+    let null = nullptr Vkt.Attachment_reference.t in
+    let open Vkt.Subpass_description in
+    mk_ptr t [
+      flags $= Vkt.Subpass_description_flags.empty;
+      pipeline_bind_point $= Vkt.Pipeline_bind_point.Graphics;
+      color_attachment_count $= ~: 1;
+      p_color_attachments $= attachment;
+      input_attachment_count $= ~:0;
+      p_input_attachments $= null;
+      preserve_attachment_count $= ~:0;
+      p_preserve_attachments $= nullptr Ctypes.uint32_t;
+      p_resolve_attachments $= null;
+      p_depth_stencil_attachment $= None;
+    ]
+
+  let render_pass_info = let open Vkt.Render_pass_create_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Render_pass_create_info;
+      p_next $= null;
+      flags $= Vkt.Render_pass_create_flags.empty;
+      attachment_count $= ~: 1;
+      p_attachments $= color_attachment;
+      subpass_count $= ~: 1;
+      p_subpasses $= subpass;
+      dependency_count $= ~: 0;
+      p_dependencies $= nullptr Vkt.subpass_dependency
+    ]
+
+  let render_pass =
+    let x = Ctypes.allocate_n Vkt.render_pass 1 in
+    Vkc.create_render_pass device render_pass_info None x
+    <?> "Creating render pass";
+    !x
+
 end
 
 
