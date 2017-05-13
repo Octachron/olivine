@@ -15,8 +15,10 @@ let add_word name dict =
 
 let add name dict =
   let open Name_study in
-  { words = Dict.add name dict.words;
-    roles = R.add (String.lowercase_ascii name) Postfix dict.roles }
+  { dict with
+    words = Dict.add name dict.words;
+    roles = R.add (String.lowercase_ascii name) Postfix dict.roles;
+  }
 
 let add_ext x exts =
   S.add (String.lowercase_ascii x) exts
@@ -27,10 +29,15 @@ let vendor_tag (dict,out) (x:Typed.short_tag)=
 
 let empty =
   let open Name_study in
-  { words = Dict.empty; roles = R.empty }
+  { words = Dict.empty; roles = R.empty;
+    context = { mu with prefix = [word "vk"]} }
 
 let add_post x dict =
   Name_study.{ dict with roles = R.add x Postfix dict.roles }
+
+let add_pre x dict =
+  Name_study.{ dict with roles = R.add x Prefix dict.roles }
+
 
 let make_dict spec =
   let dict, exts =
@@ -51,6 +58,7 @@ let make_dict spec =
   |> add_post "flag"
   |> add_post "bits"
   |> add_post "bit"
+  |> add_pre "vk"
   , exts |> add_ext "KHX" |> add_ext "EXT"
 
 let () =

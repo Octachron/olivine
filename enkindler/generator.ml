@@ -135,7 +135,8 @@ module Either = struct
   let atoms_of_name dict name =
     let open Name_study in
     S.of_list @@ List.map fst
-    @@ remove_prefix ["error", ""]
+    @@ remove_prefix [ word "error"]
+    @@ remove_prefix [ word "vk"]
     @@ path dict name
 
   let atoms dict names =
@@ -598,6 +599,11 @@ let depend (out:out) ty =
     info.depends
 
 let pp_extension result_info dict out name m =
+  let dict = let open Name_study in
+    let more_ctx = mu
+    (* FIXME { mu : = [word name]} type separation with postfix *)
+    in
+    { dict with context = compose dict.context more_ctx } in
   let ppf = open_sub out.atlas out.root name in
   let map = function
     | Type | Const | Subresult as s -> out.map s

@@ -139,7 +139,13 @@ let split_sticky_camel_case dict s =
 
 type word = string * string option
 
-let word x = x, None
+
+let lower s =
+  let c =   String.lowercase_ascii s in
+  c,
+  if c = s then None else Some s
+
+let word = lower
 let expand = function
   | _, Some x -> x
   | x, None -> x
@@ -148,17 +154,12 @@ type role = Prefix | Main | Postfix
 
 type name =
   { prefix: word list; main: word list; postfix: word list }
+let mu = { prefix = []; main = []; postfix = [] }
 
-let clean = function
-  | ("",_) :: ("vk",_) :: q -> q
-  | ("",_) :: q -> q
-  | ("vk",_) :: q -> q
+
+let rec clean = function
+  | ("",_) :: q -> clean q
   | p -> p
-
-let lower s =
-  let c =   String.lowercase_ascii s in
-  c,
-  if c = s then None else Some s
 
 let canon w = fst w
 
@@ -170,7 +171,12 @@ let original name =
   Buffer.contents b
 
 module M = Misc.StringMap
-type dict = { words:Dict.t; roles: role M.t}
+type dict = { words:Dict.t; roles: role M.t; context:name }
+
+let compose x y = { prefix = x.prefix @ y.prefix;
+                    main = x.main @ y.main;
+                    postfix = x.postfix @ y.postfix
+                  }
 
 let path dict name =
   let path =
@@ -207,9 +213,6 @@ let from_path dict path =
   let r = pre empty path in
   {r with prefix = List.rev r.prefix; main = List.rev r.main }
 
-let make dict string = from_path dict @@ path dict @@ string
-let synthetize dict l =
-  l |>  List.map word |> from_path dict
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =
@@ -224,6 +227,11 @@ let remove_context context name =
     main = remove_prefix context.main name.main;
     postfix = remove_prefix context.postfix name.postfix
   }
+
+let make dict string =
+  remove_context dict.context @@ from_path dict @@ path dict @@ string
+let synthetize dict l =
+  l |>  List.map word |> from_path dict
 
 let snake ppf () = Fmt.pf ppf "_"
 
