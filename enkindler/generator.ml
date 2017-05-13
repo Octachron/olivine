@@ -294,21 +294,29 @@ end
 
 module Bitset = struct
 
-  let field dict ppf (name, value) =
+  let value_name set_name dict name =
+    Name_study.( remove_context set_name @@ make dict name )
+
+  let field_name set_name dict name = let open Name_study in
+    let context =
+      { set_name with postfix = set_name.postfix @ [ word "bit" ]  } in
+      remove_context context @@ make dict name
+
+  let field set_name dict ppf (name, value) =
     Fmt.pf ppf "  let %a = make_index %d\n"
-      Name_study.pp_var (Name_study.make dict name) value
+      Name_study.pp_var (field_name set_name dict name) value
 
-  let value dict ppf (name,value) =
-    Fmt.pf ppf "  let %a = of_int %d\n"
-      Name_study.pp_var (Name_study.make dict name) value
+  let value set_name dict ppf (name,value) =
+    let name = value_name set_name dict name in
+    Fmt.pf ppf "  let %a = of_int %d\n" Name_study.pp_var name value
 
-  let values dict ppf (fields,values) =
-    List.iter (field dict ppf) fields;
-    List.iter (value dict ppf) values
+  let values set_name dict ppf (fields,values) =
+    List.iter (field set_name dict ppf) fields;
+    List.iter (value set_name dict ppf) values
 
-  let pp dict ppf (fields,_) =
+  let pp set dict ppf (fields,_) =
     let field ppf (name, _) =
-      let name' = Name_study.make dict name in
+      let name' = field_name set dict name in
       Fmt.pf ppf "if mem %a set then\n\
                     Printer.fprintf ppf \"%a;@@ \"\n\
                   else ()"
@@ -343,10 +351,13 @@ module Bitset = struct
     let fields = match M.find field_name p.map with
       | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
       | _ -> [], [] in
+    let core_name = let open Name_study in
+      { name with postfix = List.filter (fun (x,_) -> x <> "flags") name.postfix }
+    in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     Fmt.pf ppf "  include Bitset.Make()\n";
-    values dict ppf fields;
-    pp dict ppf fields;
+    values core_name dict ppf fields;
+    pp core_name dict ppf fields;
     Fmt.pf ppf "end\n";
     resume ppf name;
     p
@@ -390,7 +401,7 @@ module Funptr = struct
     | [] ->
       Fmt.pf ppf "@[<hov> let %a = ptr void @]@."
         Name_study.pp_var tyname
-    | args' ->
+    | _ ->
       Fmt.pf ppf "@[<hov> let %a = %a@]@."
         Name_study.pp_var tyname
         (pp dict) fn

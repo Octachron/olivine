@@ -217,19 +217,19 @@ let swap_chain_info =
     image_array_layers $= ~: 1;
     image_usage $= Vkt.Image_usage_flags.(
         of_list [
-          image_usage_color_attachment_bit;
-          image_usage_sampled_bit;
-          image_usage_depth_stencil_attachment_bit
+          color_attachment;
+          sampled;
+          depth_stencil_attachment
         ]);
     image_sharing_mode $= Vkt.Sharing_mode.Exclusive;
     queue_family_index_count $= ~: 1;
     p_queue_family_indices $= Ctypes.(allocate uint32_t) ~:0;
     pre_transform $=
-    Vkt.Surface_transform_flags_khr.surface_transform_identity_bit_khr;
+    Vkt.Surface_transform_flags_khr.identity;
     composite_alpha $=
-    Vkt.Composite_alpha_flags_khr.composite_alpha_opaque_bit_khr;
+    Vkt.Composite_alpha_flags_khr.opaque;
     present_mode $= Vkt.Present_mode_khr.Fifo_relaxed;
-    clipped $= ~: Vk.Consts.false';
+    clipped $= ~: Vk.Consts.true';
   ]
 
 let pf = Vkc.get_device_proc_addr device "vkCreateSwapchainKHR"
@@ -238,7 +238,7 @@ let pf = Vkc.get_device_proc_addr device "vkCreateSwapchainKHR"
 
 ;; debug "Acquired swapchain create"
 
-module Manual()= struct 
+module Manual()= struct
 let create_swap_chain =
   let typ = Ctypes.(
       Vkt.device

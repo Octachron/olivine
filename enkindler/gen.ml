@@ -50,6 +50,7 @@ let make_dict spec =
   |> add_post "flags"
   |> add_post "flag"
   |> add_post "bits"
+  |> add_post "bit"
   , exts |> add_ext "KHX" |> add_ext "EXT"
 
 let () =

@@ -239,11 +239,18 @@ let escape = function
   | ["object", _] -> [ "object'" ]
   | ["false", _ ] -> [ "false'" ]
   | ["true", _ ] -> [ "true'" ]
+  | ["inherit",_] -> ["inherit'"]
   | s :: q -> escape_word s :: List.map fst q
   | p -> List.map fst p
 
 let flatten name =
   name.prefix @ name.main @ List.rev name.postfix
+
+let full_pp ppf s =
+  let pp_w ppf (s,_) = Fmt.string ppf s in
+  let list = Fmt.list ~sep:snake pp_w in
+  Fmt.pf ppf "%a::%a::%a"
+    list s.prefix list s.main list s.postfix
 
 let pp_module ppf n =
   match flatten n with
