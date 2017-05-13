@@ -151,7 +151,7 @@ module Device = struct
 
   let print_property device =
     let p = property device in
-    Format.printf "Device: %s\n"
+    debug "Device: %s\n"
       (to_string @@ p % Vkt.Physical_device_properties.device_name)
 
   ;; Array.iter print_property phy_devices
@@ -310,6 +310,8 @@ end
 module Pipeline = struct
   (** Create a graphical pipeline *)
 end
+
+
 
 ;; Sdl.(event_loop e)
 ;; debug "End"
