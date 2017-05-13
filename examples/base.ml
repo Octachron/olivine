@@ -315,48 +315,73 @@ end
 module Pipeline = struct
   (** Create a graphical pipeline *)
 
-  let frag = read_spirv "shaders/frag.spv"
-  let vert = read_spirv "shaders/vert.spv"
+  module Shaders = struct
 
-  let shader_module_info s =
-    let len = String.length s in
-    let c = A.make Ctypes.uint32_t (len / Ctypes.(sizeof uint32_t)) in
-    let c' =
-      A.from_ptr Ctypes.(coerce (ptr uint32_t) (ptr char) @@ A.start c) len in
-    String.iteri (fun n x -> A.set c' n x) s;
-    let open Vkt.Shader_module_create_info in
+    let frag = read_spirv "shaders/frag.spv"
+    let vert = read_spirv "shaders/vert.spv"
+
+    let shader_module_info s =
+      let len = String.length s in
+      let c = A.make Ctypes.uint32_t (len / Ctypes.(sizeof uint32_t)) in
+      let c' =
+        A.from_ptr Ctypes.(coerce (ptr uint32_t) (ptr char) @@ A.start c) len in
+      String.iteri (fun n x -> A.set c' n x) s;
+      let open Vkt.Shader_module_create_info in
+      make t [
+        s_type $= Vkt.Structure_type.Shader_module_create_info;
+        p_next $= null;
+        flags $= Vkt.Shader_module_create_flags.empty;
+        code_size $= Unsigned.Size_t.of_int len ;
+        p_code $= A.start c
+      ]
+
+    let create_shader name s =
+      let info = shader_module_info s in
+      let x = Ctypes.allocate_n Vkt.shader_module 1 in
+      Vkc.create_shader_module device (Ctypes.addr info) None x
+      <?> "Shader creation :" ^ name;
+      !x
+
+    let frag_shader = create_shader "fragment" frag
+    let vert_shader = create_shader "vertex" vert
+
+    let make_stage stage_ module_ =
+      let open Vkt.Pipeline_shader_stage_create_info in
+      make t [
+        s_type $= Vkt.Structure_type.Pipeline_shader_stage_create_info;
+        p_next $= null;
+        flags $= Vkt.Pipeline_shader_stage_create_flags.empty;
+        stage $= stage_;
+        module' $= module_;
+        p_name $= "main";
+        p_specialization_info $= None
+      ]
+
+    let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
+    let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
+  end
+
+  let null_input = let open Vkt.Pipeline_vertex_input_state_create_info in
     make t [
-      s_type $= Vkt.Structure_type.Shader_module_create_info;
+      s_type $= Vkt.Structure_type.Pipeline_vertex_input_state_create_info;
       p_next $= null;
-      flags $= Vkt.Shader_module_create_flags.empty;
-      code_size $= Unsigned.Size_t.of_int len ;
-      p_code $= A.start c
+      flags $= Vkt.Pipeline_vertex_input_state_create_flags.empty;
+      vertex_binding_description_count $= ~: 0;
+      p_vertex_binding_descriptions $=
+      nullptr Vkt.vertex_input_binding_description;
+      vertex_attribute_description_count $= ~: 0;
+      p_vertex_attribute_descriptions $=
+      nullptr Vkt.vertex_input_attribute_description
     ]
 
-  let create_shader name s =
-    let info = shader_module_info s in
-    let x = Ctypes.allocate_n Vkt.shader_module 1 in
-    Vkc.create_shader_module device (Ctypes.addr info) None x
-    <?> "Shader creation :" ^ name;
-    !x
-
-  let frag_shader = create_shader "fragment" frag
-  let vert_shader = create_shader "vertex" vert
-
-  let make_stage stage_ module_ =
-    let open Vkt.Pipeline_shader_stage_create_info in
+  let input_assembly = let open Vkt.Pipeline_input_assembly_state_create_info in
     make t [
-      s_type $= Vkt.Structure_type.Pipeline_shader_stage_create_info;
+      s_type $= Vkt.Structure_type.Pipeline_input_assembly_state_create_info;
       p_next $= null;
-      flags $= Vkt.Pipeline_shader_stage_create_flags.empty;
-      stage $= stage_;
-      module' $= module_;
-      p_name $= "main";
-      p_specialization_info $= None
+      flags $= Vkt.Pipeline_input_assembly_state_create_flags.empty;
+      topology $= Vkt.Primitive_topology.Triangle_strip;
+      primitive_restart_enable $= ~:Vk.Consts.false'
     ]
-
-  let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
-  let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
 
   
 end
