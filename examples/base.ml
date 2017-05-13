@@ -58,6 +58,11 @@ module Utils = struct
 
   let silent _minor _r = ()
 
+  let read_spirv filename =
+    let chan = open_in_bin filename in
+    let len = in_channel_length chan in
+    really_input_string chan len
+
 end
 open Utils
 
@@ -309,8 +314,52 @@ end
 
 module Pipeline = struct
   (** Create a graphical pipeline *)
-end
 
+  let frag = read_spirv "shaders/frag.spv"
+  let vert = read_spirv "shaders/vert.spv"
+
+  let shader_module_info s =
+    let len = String.length s in
+    let c = A.make Ctypes.uint32_t (len / Ctypes.(sizeof uint32_t)) in
+    let c' =
+      A.from_ptr Ctypes.(coerce (ptr uint32_t) (ptr char) @@ A.start c) len in
+    String.iteri (fun n x -> A.set c' n x) s;
+    let open Vkt.Shader_module_create_info in
+    make t [
+      s_type $= Vkt.Structure_type.Shader_module_create_info;
+      p_next $= null;
+      flags $= Vkt.Shader_module_create_flags.empty;
+      code_size $= Unsigned.Size_t.of_int len ;
+      p_code $= A.start c
+    ]
+
+  let create_shader name s =
+    let info = shader_module_info s in
+    let x = Ctypes.allocate_n Vkt.shader_module 1 in
+    Vkc.create_shader_module device (Ctypes.addr info) None x
+    <?> "Shader creation :" ^ name;
+    !x
+
+  let frag_shader = create_shader "fragment" frag
+  let vert_shader = create_shader "vertex" vert
+
+  let make_stage stage_ module_ =
+    let open Vkt.Pipeline_shader_stage_create_info in
+    make t [
+      s_type $= Vkt.Structure_type.Pipeline_shader_stage_create_info;
+      p_next $= null;
+      flags $= Vkt.Pipeline_shader_stage_create_flags.empty;
+      stage $= stage_;
+      module' $= module_;
+      p_name $= "main";
+      p_specialization_info $= None
+    ]
+
+  let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
+  let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
+
+  
+end
 
 
 ;; Sdl.(event_loop e)
