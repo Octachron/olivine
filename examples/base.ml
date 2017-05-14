@@ -123,13 +123,12 @@ module Instance = struct
 
   ;; debug "Info created"
 
-  let instance = Ctypes.allocate_n Vkt.instance 1
-  ;; debug "Instance pointer allocated"
-
-  ;; Vkc.create_instance (Ctypes.addr info) None instance
-     <?> "instance"
-
-  let instance = !instance
+  let instance =
+    let x = Ctypes.allocate_n Vkt.instance 1 in
+    debug "Instance pointer allocated";
+    Vkc.create_instance (Ctypes.addr info) None x
+    <?> "instance";
+    !x
 
   let extension_properties =
     get_array (msg "Extension properties") Vkt.extension_properties
@@ -161,11 +160,11 @@ module Device = struct
 
   ;; Array.iter print_property phy_devices
 
-  let phydevice = phy_devices.(0)
+  let phy = phy_devices.(0)
 
   let queue_family_properties =
     get_array silent Vkt.queue_family_properties
-    @@ Vkc.get_physical_device_queue_family_properties phydevice
+    @@ Vkc.get_physical_device_queue_family_properties phy
 
   let print_queue_property ppf property =
     Format.fprintf ppf "Queue flags: %a \n" Vkt.Queue_flags.pp
@@ -188,7 +187,7 @@ module Device = struct
   let device_extensions =
     get_array (msg "device extensions")
       Vkt.extension_properties
-      (Vkc.enumerate_device_extension_properties phydevice "")
+      (Vkc.enumerate_device_extension_properties phy "")
 
   ;; Format.printf "Device extensions:\n@[<v 2>"
   ;; Array.iter print_extension_property device_extensions
@@ -205,7 +204,7 @@ module Device = struct
         s_type $= Vkt.Structure_type.Device_create_info;
         p_next $= null;
         flags $= Vkt.Device_create_flags.empty;
-        queue_create_info_count $= ~:0;
+        queue_create_info_count $= ~: 1;
         p_queue_create_infos $= queue_create_info;
         enabled_layer_count $= nl;
         pp_enabled_layer_names $= layers;
@@ -213,7 +212,7 @@ module Device = struct
         pp_enabled_extension_names $= exts;
         p_enabled_features $= None
       ] in
-    Vkc.create_device phy_devices.(0) info None d
+    Vkc.create_device phy info None d
     <?> "Create logical device";
     !d
 end
@@ -229,6 +228,23 @@ module Image = struct
     Vk__sdl.create_surface instance Sdl.w None s
     <?> "Obtaining surface";
     !s
+
+  let capabilities =
+    let x = Ctypes.allocate_n Vkt.surface_capabilities_khr 1 in
+    Khr.get_physical_device_surface_capabilities_khr Device.phy surface_khr x
+    <?> "Surface capabilities";
+    !x
+
+  let supported_formats =
+    get_array (msg "Supported surface format") Vkt.surface_format_khr @@
+    Khr.get_physical_device_surface_formats_khr Device.phy
+      surface_khr
+
+  let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
+    Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
+      Vkt.Format.pp (sformat%format) Vkt.Color_space_khr.pp (sformat%color_space)
+
+  ;; Array.iter (debug "%a" pp_sformat) supported_formats
 
   let im_format = Vkt.Format.R32_sfloat
 
