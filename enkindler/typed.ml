@@ -81,16 +81,13 @@ module Extension = struct
         | Type ty -> decorate ty
         | _ -> raise Not_found
 
-    let enum m0 =
+    let enum extension_number m0 =
       let find = find decorate_enum m0 in
       let add m (x:enum) =
         let key = x.extend in
         let b, l = find key m  in
-        let pos =
-          if x.upward then
-            x.offset + b.sup + 1
-          else
-            b.inf - x.offset - 1 in
+        let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
+        let pos = if x.upward then +pos else -pos in
         let elt = add b pos, (x.name, Ctype.Abs pos) ::l in
         N.add key elt m in
       List.fold_left add N.empty
@@ -108,8 +105,9 @@ module Extension = struct
       List.fold_left add N.empty
 
     let extend m ext =
+      let ext_num = ext.metadata.number in
       let bits = bit m ext.bits in
-      let enums = enum m ext.enums in
+      let enums = enum ext_num m ext.enums in
       let cmp (_,x) (_,y)= compare x y in
       let sort = List.sort cmp in
       let rebuild_enum key (_,l) =
