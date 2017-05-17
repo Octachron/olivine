@@ -150,7 +150,7 @@ let expand = function
   | _, Some x -> x
   | x, None -> x
 
-type role = Prefix | Main | Postfix
+type role = Prefix | Main | Postfix | Extension
 
 type name =
   { prefix: word list; main: word list; postfix: word list }
@@ -196,7 +196,7 @@ let from_path dict path =
       begin match M.find (canon a) dict.roles with
         | exception Not_found -> main acc l
         | Prefix -> pre { acc with prefix = a :: acc.prefix } q
-        | Main | Postfix -> main acc l
+        | Main | Postfix | Extension -> main acc l
       end
   and main acc = function
     | [] -> acc
@@ -204,7 +204,7 @@ let from_path dict path =
       begin match M.find (canon a) dict.roles with
         | exception Not_found -> main { acc with main = a :: acc.main } q
         | Prefix | Main -> main { acc with main = a :: acc.main } q
-        | Postfix -> postfix acc l
+        | Postfix | Extension -> postfix acc l
       end
   and postfix acc = function
     | [] -> acc
@@ -253,6 +253,11 @@ let escape = function
 
 let flatten name =
   name.prefix @ name.main @ List.rev name.postfix
+
+let is_extension dict = function
+  | { postfix = (a,_) :: _ ; _ } when M.find_opt a dict.roles = Some Extension
+    -> true
+  | _ -> false
 
 let full_pp ppf s =
   let pp_w ppf (s,_) = Fmt.string ppf s in
