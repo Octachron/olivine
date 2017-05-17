@@ -1,12 +1,14 @@
 exception Type_error of string
 module N = Misc.StringMap
 module M = Xml.Map
+module Ty = Ctype.Ty
+module Arith = Ctype.Arith
 open Xml.Infix
 
 type entity =
-  | Const of Ctype.num_expr
-  | Type of Ctype.typexpr
-  | Fn of Ctype.fn
+  | Const of Arith.t
+  | Type of Ty.typexpr
+  | Fn of Ty.fn
 
 type vendor_id = { name: string; id: int; comment: string }
 type short_tag = { name: string; author:string; contact: string}
@@ -66,9 +68,9 @@ module Extension = struct
       List.fold_left add all
 
     let decorate_enum = function
-      | Ctype.Enum constrs ->
+      | Ty.Enum constrs ->
         let add' b = function
-          | _, Ctype.Abs n -> add b n
+          | _, Ty.Abs n -> add b n
           | _ -> b in
         List.fold_left add' all constrs, constrs
       | _ -> raise Not_found
@@ -88,13 +90,13 @@ module Extension = struct
         let b, l = find key m  in
         let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
         let pos = if x.upward then +pos else -pos in
-        let elt = add b pos, (x.name, Ctype.Abs pos) ::l in
+        let elt = add b pos, (x.name, Ty.Abs pos) ::l in
         N.add key elt m in
       List.fold_left add N.empty
 
     let bit m0 =
       let proj = function
-        | Ctype.Bitfields x -> x.fields, x.values
+        | Ty.Bitfields x -> x.fields, x.values
         | _ -> raise Not_found in
       let find = find proj m0 in
       let add m (x:bit) =
@@ -111,9 +113,9 @@ module Extension = struct
       let cmp (_,x) (_,y)= compare x y in
       let sort = List.sort cmp in
       let rebuild_enum key (_,l) =
-        N.add key (Type(Ctype.Enum (sort l))) in
+        N.add key (Type(Ty.Enum (sort l))) in
       let rebuild_set key (fields,values) =
-        N.add key (Type(Ctype.Bitfields { fields; values })) in
+        N.add key (Type(Ty.Bitfields { fields; values })) in
       m
       |> N.fold rebuild_enum enums
       |> N.fold rebuild_set bits
@@ -192,9 +194,9 @@ let is_prefix s s' =
 let len_info s =
   let lens = String.split_on_char ',' s in
   let len = function
-    | "null-terminated" -> Ctype.Null_terminated
-    | s when is_prefix "latexmath" s -> Ctype.Math_expr
-    | s -> Ctype.Var s in
+    | "null-terminated" -> Ty.Null_terminated
+    | s when is_prefix "latexmath" s -> Ty.Math_expr
+    | s -> Ty.Var s in
   List.map len lens
 
 let array_refine node =
@@ -203,21 +205,21 @@ let array_refine node =
   | Some s ->
     let lens = len_info s in
     let rec refine l q = match l, q with
-      | [Ctype.Null_terminated] , Ctype.(Const Ptr Name "char") ->
-        Ctype.String
-      | len :: l' , Ctype.(Ptr x | Const Ptr x) ->
-        Ctype.Array (Some len, refine l' x)
+      | [Ty.Null_terminated] , Ty.(Const Ptr Name "char") ->
+        Ty.String
+      | len :: l' , Ty.(Ptr x | Const Ptr x) ->
+        Ty.Array (Some len, refine l' x)
       | [], ty -> ty
       | _ -> assert false
     in
     refine lens
 
 let rec optionalize l typ = match l, typ with
-  | false :: q , Ctype.Ptr typ -> Ctype.Ptr (optionalize q typ)
+  | false :: q , Ty.Ptr typ -> Ty.Ptr (optionalize q typ)
   | true :: q, Ptr typ -> Option (Ptr (optionalize q typ))
   | q, Const typ -> Const(optionalize q typ)
   | q, Option typ -> Option(optionalize q typ)
-  | [true], typ -> (* Fixme: Ctype.Option typ*) typ
+  | [true], typ -> (* Fixme: Ty.Option typ*) typ
   | [], typ -> typ
   | _ ->
     Fmt.(pf stderr) "optionalize: %a\n%!" Fmt.(list bool) l;
@@ -233,7 +235,7 @@ let option_refine node =
     |> optionalize
 
 let result_refine (s,e) ty =
-  let open Ctype in
+  let open Ctype.Ty in
   let sum =String.split_on_char ',' in
   match s, e, ty with
   | None, _, _ | _, None, _  -> ty
@@ -271,7 +273,7 @@ let structure spec node =
   let fields = (List.rev @@ List.fold_left field [] node.children) in
   let is_private = match node%?("returnedonly") with
     | None -> false | Some b -> bool_of_string b in
-  let ty = Ctype.Record {fields; is_private} in
+  let ty = Ty.Record {fields; is_private} in
   register name (Type ty) spec
 
 
@@ -284,15 +286,15 @@ let union spec node =
       (name, refine n s) :: fields
     | _ -> fields in
   let fields = (List.rev @@ List.fold_left field [] node.children) in
-  let ty = Ctype.Union fields in
+  let ty = Ty.Union fields in
   register name (Type ty) spec
 
 let bitmask spec node =
   let name, ty = parse Parser.typedef @@ flatten node.Xml.children in
   let ty =
     match ty with
-    | Ctype.Name n ->
-      Ctype.Bitset { implementation=n;
+    | Ty.Name n ->
+      Ty.Bitset { implementation=n;
                      field_type = node%?("requires") }
     | _ -> raise @@ Type_error "Bitmask expected" in
   register name (Type ty) spec
@@ -310,12 +312,12 @@ let handle spec node =
     | [Data "VK_DEFINE_NON_DISPATCHABLE_HANDLE"] -> false
     | _ -> raise @@ Type_error "Unknown handle type" in
   let parent = node%?("parent") in
-  let ty = Ctype.Handle { dispatchable = d; parent } in
+  let ty = Ty.Handle { dispatchable = d; parent } in
   register name (Type ty) spec
 
 let enum spec node =
   let name = node%("name") in
-  register name (Type (Ctype.Enum [])) spec
+  register name (Type (Ty.Enum [])) spec
 
 
 let c_include spec node =
@@ -381,8 +383,8 @@ let enum_data constrs x =
   | Xml.Node ({ name = "enum"; _ } as n) ->
     let pos =
       begin match n%?("value"), n%?("offset") with
-        | Some x, _  -> Ctype.Abs (int_of_string x)
-        | None, Some x -> Ctype.Offset (int_of_string x)
+        | Some x, _  -> Ty.Abs (int_of_string x)
+        | None, Some x -> Ty.Offset (int_of_string x)
         | None, None -> assert false
       end in
     (n%("name"), pos) :: constrs
@@ -404,7 +406,7 @@ let constant spec = function
   | Xml.Node ({name="enum"; _ } as n) ->
     let name = n%("name") in
     let const = n%("value") in
-    let num_expr = Ctype.simplify @@ parse Parser.formula const in
+    let num_expr = Arith.simplify @@ parse Parser.formula const in
     register name (Const num_expr) spec
   | _ -> raise @@ Type_error "Unexpected data in constant"
 
@@ -418,8 +420,8 @@ let enums spec x =
       let ty = N.find n spec.entities in
       let ty =
         match ty with
-        | Type (Ctype.Enum constrs) ->
-          Ctype.Enum (List.fold_left enum_data constrs
+        | Type (Ty.Enum constrs) ->
+          Ty.Enum (List.fold_left enum_data constrs
                       @@ List.rev x.children)
         | _ -> raise @@ Type_error ("Enum expected, got " ^ n) in
       register n (Type ty) spec
@@ -430,9 +432,9 @@ let enums spec x =
         | Type Enum [] ->
           let fields, values =
             List.fold_left bitset_data ([], []) x.children in
-          Ctype.Bitfields { fields; values}
+          Ty.Bitfields { fields; values}
         | Type ty -> raise @@ Type_error
-            (Format.asprintf "Expected bitset %s, got %a" n Ctype.pp ty)
+            (Format.asprintf "Expected bitset %s, got %a" n Ty.pp ty)
         | Fn _ -> raise @@ Type_error "Expected a bitset, got a function"
         | Const _ -> raise @@ Type_error "Expected a bitset, got a constant"
       in
@@ -466,7 +468,7 @@ let command spec = function
     let name, return = proto p in
     let return = result_refine r return in
     register name
-      (Fn { Ctype.return; name;
+      (Fn { Ty.return; name;
             args = List.rev @@ List.fold_left arg [] args })
       spec
   | Node n -> raise @@
@@ -584,12 +586,12 @@ let pp_required ppf r =
     r.type_name r.from
 
 let pp_entity ppf (name,ent)= match ent with
-  | Fn fn -> fp ppf "%a@;" Ctype.pp_fn fn
-  | Type ty -> fp ppf "%a@;" Ctype.pp_typedecl (name,ty)
-  | Const c -> fp ppf "constant %s=%a@;" name Ctype.pp_num_expr c
+  | Fn fn -> fp ppf "%a@;" Ty.pp_fn fn
+  | Type ty -> fp ppf "%a@;" Ty.pp_typedecl (name,ty)
+  | Const c -> fp ppf "constant %s=%a@;" name Arith.pp c
 
 let pp_constant ppf (name, expr) =
-  Fmt.pf ppf "%s=%a" name Ctype.pp_num_expr expr
+  Fmt.pf ppf "%s=%a" name Arith.pp expr
 
 let pp ppf r =
   fp ppf "@[<v 2>{@,vendor ids=@ @[<v>%a@];@;\

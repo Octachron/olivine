@@ -1,6 +1,9 @@
 let sep ppf () = Fmt.pf ppf "\n"
 let arrow ppf () = Fmt.pf ppf "@ @->"
 
+module Ty = Ctype.Ty
+module Arith = Ctype.Arith
+
 module S = Misc.StringSet
 module M = Misc.StringMap
 module Ls = Set.Make(struct
@@ -50,12 +53,12 @@ module Enum = struct
   let contiguous_range =
     let rec range first current = function
       | [] -> Some(min first current, max first current)
-      | (_, Ctype.Abs n) :: q when abs(current - n) = 1 ->
+      | (_, Ty.Abs n) :: q when abs(current - n) = 1 ->
         range first n q
       | _ -> None in
     function
     | [] -> None
-    | (_, Ctype.Abs n) :: q -> range n n q
+    | (_, Ty.Abs n) :: q -> range n n q
     | _ -> None
 
   type implementation = Std | Poly
@@ -82,7 +85,7 @@ module Enum = struct
   let to_int dict impl ppf name constrs =
     Fmt.pf ppf "\n  let to_int = function\n";
     let constr ppf = function
-      | (_, Ctype.Abs n as c) ->
+      | (_, Ty.Abs n as c) ->
         Fmt.pf ppf "    | %a -> %d" (pp_constr dict name impl) c n
       | _ -> () in
     Fmt.list ~sep constr ppf constrs
@@ -90,7 +93,7 @@ module Enum = struct
   let of_int dict impl ppf name constrs =
     Fmt.pf ppf "\n  let of_int = function\n";
     let constr ppf = function
-      | (_, Ctype.Abs n as c) ->
+      | (_, Ty.Abs n as c) ->
         Fmt.pf ppf "    | %d -> %a" n (pp_constr dict name impl) c
       | _ -> () in
     Fmt.list ~sep constr ppf constrs;
@@ -128,7 +131,7 @@ module Either = struct
   let map constrs p =
     let map = List.fold_left
         (fun m (x,n) -> match n with
-           | Ctype.Abs n -> M.add x n m
+           | Ty.Abs n -> M.add x n m
            | _ -> m) M.empty constrs in
     { p with result_info = { p.result_info with map } }
 
@@ -171,7 +174,7 @@ module Either = struct
   let view dict m ppf constrs =
     let name = side_name dict constrs in
     let constrs =
-      List.map (fun name -> name, Ctype.Abs (find name m)) constrs in
+      List.map (fun name -> name, Ty.Abs (find name m)) constrs in
     Fmt.pf ppf "module %a = struct\n" Name_study.pp_module name;
     Enum.(of_int dict Poly) ppf name constrs;
     Enum.(to_int dict Poly) ppf name constrs;
@@ -212,27 +215,27 @@ end
 
 module Typexp = struct
   let rec pp dict ppf = function
-    | Ctype.Const t -> pp dict ppf t
-    | Ctype.Name n ->
+    | Ty.Const t -> pp dict ppf t
+    | Ty.Name n ->
       Fmt.pf ppf "%a" Name_study.pp_type (Name_study.make dict n)
-    | Ctype.Ptr Name n | Ptr Const Name n ->
+    | Ty.Ptr Name n | Ptr Const Name n ->
       Fmt.pf ppf "(ptr %a)" Name_study.pp_type (Name_study.make dict n)
-    | Ctype.Ptr typ -> Fmt.pf ppf "(ptr (%a))" (pp dict) typ
-    | Ctype.Option Name n ->
+    | Ty.Ptr typ -> Fmt.pf ppf "(ptr (%a))" (pp dict) typ
+    | Ty.Option Name n ->
       Fmt.pf ppf "(option %a)" Name_study.pp_type
         (Name_study.make dict n)
-    | Ctype.Option (Ptr typ) ->
+    | Ty.Option (Ptr typ) ->
       Fmt.pf ppf "(ptr_opt (%a))" (pp dict) typ
-    | Ctype.Option typ -> Fmt.pf ppf "(option (%a))" (pp dict) typ
+    | Ty.Option typ -> Fmt.pf ppf "(option (%a))" (pp dict) typ
 
-    | Ctype.String -> Fmt.pf ppf "string"
-    | Ctype.Array (Some Const n ,typ) ->
+    | Ty.String -> Fmt.pf ppf "string"
+    | Ty.Array (Some Const n ,typ) ->
       Fmt.pf ppf "(array %a @@@@ %a)"
         Name_study.pp_var (Name_study.make dict n)
         (pp dict) typ
-    | Ctype.Array (_,typ) -> pp dict ppf (Ctype.Ptr typ)
-    | Ctype.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
-    | Ctype.Handle _  ->
+    | Ty.Array (_,typ) -> pp dict ppf (Ty.Ptr typ)
+    | Ty.Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
+    | Ty.Handle _  ->
       failwith "Anonymous type"
     | Result {ok;bad} ->
       Either.pp_result dict ppf (ok,bad)
@@ -250,7 +253,7 @@ module Structured = struct
     | Record -> Fmt.pf ppf "structure"
 
   let rec check_typ dict p = function
-    | Ctype.Ptr t | Const t | Option t -> check_typ dict p t
+    | Ty.Ptr t | Const t | Option t -> check_typ dict p t
     | Array(_,t) -> check_typ dict p t
     | Name t ->
       if S.mem t p.current then p.generator t p else p
@@ -350,7 +353,7 @@ module Bitset = struct
   let make_with_bits dict p name field_name =
     let ppf = out p Type in
     let fields = match M.find field_name p.map with
-      | Typed.Type Ctype.Bitfields {fields; values} -> fields, values
+      | Typed.Type Ty.Bitfields {fields; values} -> fields, values
       | _ -> [], [] in
     let core_name = let open Name_study in
       { name with postfix = List.filter (fun (x,_) -> x <> "flags") name.postfix }
@@ -388,13 +391,13 @@ end
 
 module Funptr = struct
 
-  let pp dict ppf (fn:Ctype.fn) =
+  let pp dict ppf (fn:Ty.fn) =
     Fmt.pf ppf "@[(Foreign.funptr @@@@@ @ %a@ @->@ returning %a)@]"
       (Fmt.list ~sep:arrow @@ Typexp.pp dict)
       (List.map snd fn.args)
       (Typexp.pp dict) fn.return
 
-  let make dict p tyname (fn:Ctype.fn) =
+  let make dict p tyname (fn:Ty.fn) =
     let ppf = out p Type in
     let p = Structured.check_fields dict p fn.args in
     let p = Structured.check_typ dict p fn.return in
@@ -413,12 +416,12 @@ end
 
 module Fn = struct
 
-  let make dict p (fn:Ctype.fn) =
+  let make dict p (fn:Ty.fn) =
     let ppf = out p Core in
     let p = Structured.check_fields dict p fn.args in
     let p = Structured.check_typ dict p fn.return in
     let args' = match List.map snd fn.args with
-      | [] -> [Ctype.Name "void"]
+      | [] -> [Ty.Name "void"]
       | l -> l in
     let name' = Name_study.make dict fn.name in
     Fmt.pf ppf "@[<hov>let %a =\n\
@@ -432,7 +435,7 @@ end
 
 module DFn = struct
 
-  let make dict p (fn:Ctype.fn) =
+  let make dict p (fn:Ty.fn) =
     let ppf = out p Core in
     let p = Structured.check_fields dict p fn.args in
     let p = Structured.check_typ dict p fn.return in
@@ -451,7 +454,7 @@ module Const = struct
     let ppf = out p Const in
     let rec expr ppf =
       function
-      | Ctype.Float f -> Fmt.pf ppf "%f" f
+      | Arith.Float f -> Fmt.pf ppf "%f" f
       | Int n ->  Fmt.pf ppf "%d" n
       | UInt64 n -> Fmt.pf ppf "Unsigned.ULLong.of_string \"%s\""
                       (Unsigned.ULLong.to_string n)
@@ -488,7 +491,7 @@ let alias dict ppf name origin =
     Name_study.pp_type (Name_study.make dict origin)
 
 let make_type dict p name = function
-  | Ctype.Const _  | Option _ | Ptr _ | String | Array (_,_)
+  | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_)
   | Result _ -> p
   | Name t -> alias dict (out p Type) name t; p
   | FunPtr fn -> Funptr.make dict p name fn

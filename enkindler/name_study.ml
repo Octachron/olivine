@@ -321,7 +321,7 @@ let rec pp_nametree ppf = function
     let bs = List.filter (fun (_n,m) -> cardinal m > 5 ) (N.bindings m)
     in
     Fmt.pf ppf "@[<v 2>%a@]"
-      (Ctype.pp_list (Ctype.const "@;") pp_branch) bs
+      (Ctype.Ty.pp_list (Ctype.Ty.const "@;") pp_branch) bs
 and pp_branch ppf (name, m) =
     Fmt.pf ppf "%s(%d):@;@[%a@]" name (cardinal m) pp_nametree m
 

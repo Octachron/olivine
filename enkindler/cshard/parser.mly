@@ -24,13 +24,15 @@
 
 %{
 open Ctype
+open Ty
+open Arith
 open Unsigned
 %}
 
 %start<unit> start
-%start<Ctype.type_decl> typedef
-%start<Ctype.field> field
-%start <Ctype.num_expr> formula
+%start<Ctype.Ty.type_decl> typedef
+%start<Ctype.Ty.field> field
+%start <Ctype.Arith.t> formula
 %%
 
 start:
