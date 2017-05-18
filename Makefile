@@ -3,7 +3,7 @@ CCO=$(CC) -use-ocamlfind -use-menhir
 SPIR=glslangValidator -V
 
 
-all: info gen vk.cma base baseml
+all: info gen vk.cma base baseml libgen
 
 base: c/base.c
 	gcc -lvulkan c/base.c -o base
@@ -15,6 +15,9 @@ info:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
 gen:  _tags enkindler/*
+	$(CCO) $@.native && mv $@.native $@
+
+libgen:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
 lib/vk.ml: _tags gen enkindler/*

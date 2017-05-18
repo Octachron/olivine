@@ -213,6 +213,8 @@ let from_path dict path =
   let r = pre empty path in
   {r with prefix = List.rev r.prefix; main = List.rev r.main }
 
+let to_path n = n.prefix @ n.main @ n.postfix
+let simple path = { mu with main = path}
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =

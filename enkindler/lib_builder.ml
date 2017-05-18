@@ -22,9 +22,9 @@ module M = Map.Make(String)
 type module' = {
   name : string;
   path: path;
-  args: module' list;
+  args: string list;
   sig': (L.name * item) list;
-  submodules: (string * module') list
+  submodules: module' list
 }
 
 and item =
@@ -34,13 +34,31 @@ and item =
 
 and sig' = item M.t
 
+
+
+module Result = struct
+  module Map = Map.Make(struct type t = Ty.name let compare = compare end)
+  let make constrs =
+    List.fold_left
+      (fun m (x,n) -> match n with
+         | Ty.Abs n -> Map.add x n m
+         | _ -> m) Map.empty constrs
+end
+
+type lib = {
+  content: module';
+  result: int Result.Map.t;
+  root: string;
+  preambule: string;
+}
+
 let make ?(args=[]) ?(submodules=[]) ?(sig'=[]) path name =
   { name; path; sig'; args; submodules }
 
 let rec update_assoc key default f = function
-  | (a,b) :: q when a = key -> (key, f b) :: q
+  | m :: q when m.name = key -> (f m) :: q
   | a :: q -> a :: update_assoc key default f q
-  | [] -> [key, f default]
+  | [] -> [f default]
 
     (*
 let find_module name at m =
@@ -51,7 +69,7 @@ let find_module name at m =
       | s -> s, m.submodules
 *)
 
-let add path name item module' =
+let add path name item lib =
   let rec add prefix rest module' =
   match rest with
   | [] -> { module' with sig' = (name, item) :: module'.sig' }
@@ -60,7 +78,7 @@ let add path name item module' =
       submodules =
         update_assoc w (make prefix w) (add (w::prefix) q) module'.submodules
     } in
-  add [] path module'
+  { lib with content = add [] path lib.content }
 
 module S = Misc.StringSet
 
@@ -120,10 +138,19 @@ let rec dep_typ (dict,gen as g) (items,lib as build) = function
     dep_typ g build t
   | Name t ->
     if S.mem t items then gen build t else build
-  | Result {ok;bad} as t ->
-    let t = Rename.typ (Name_study.make dict) t in
-    items,
-    add ["subresult"] (Subresult.composite_nominal dict ok bad) (Type t) lib
+  | Result _ as t ->
+    begin match Rename.typ (L.make dict) t with
+      | Ty.Result {ok;bad} as t ->
+        let name = Subresult.composite_nominal ok bad in
+        let okname = Subresult.side_name ok in
+        let badname = Subresult.side_name bad in
+        items,
+        lib
+        |> add ["subresult"] okname (Type (Ty.Result {ok; bad=[]}))
+        |> add ["subresult"] badname (Type (Ty.Result {bad; ok=[]}))
+        |> add ["subresult"] name (Type t)
+      | _ -> assert false
+    end
   | _ -> build
 
 
@@ -144,7 +171,12 @@ let deps gen build = function
   | Union fields | Record {fields; _ } ->
     dep_fields gen fields build
 
-let rec generate_ideal dict registry (items,lib as build) p =
+let record_result (name,ty) lib = match ty with
+  | Ty.Enum constrs when  List.map L.canon name.L.main = ["result"] ->
+    { lib with result = Result.make constrs }
+  | _ -> lib
+
+let rec generate_ideal dict registry (items, lib as build) p =
     let name = L.make dict p in
     let items = S.remove p items in
     let renamer = Name_study.make dict in
@@ -162,7 +194,8 @@ let rec generate_ideal dict registry (items,lib as build) p =
     | Typed.Type typ ->
       let items, lib = deps (dict,generate_ideal dict registry) build typ in
       let typ = Rename.typ renamer typ in
-      let lib = add ["type"] name (Type typ) lib in
+      let lib =
+        lib |> record_result (name,typ) |> add ["type"] name (Type typ) in
       (items,lib)
 
 let rec generate_core dict registry (items, _ as build) =
@@ -172,3 +205,10 @@ let rec generate_core dict registry (items, _ as build) =
     let p = S.choose items in
     generate_core dict registry
     @@ generate_ideal dict registry build p
+
+let generate root preambule dict registry =
+  let lib =
+    { root; preambule; result = Result.Map.empty;
+      content = make  [] "vk" } in
+  let items = S.of_list @@ List.map fst @@ M.bindings registry in
+  generate_core dict registry (items,lib)
