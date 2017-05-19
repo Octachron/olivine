@@ -193,6 +193,24 @@ end
 
 module Bitset = struct
 
+  let bit_name name =
+  let rec bitname = function
+    | ("flags", _ ) :: q ->
+      ("bits", Some "Bits") :: ("flag", Some "Flag") :: q
+    | [] ->
+      raise @@ Invalid_argument "bitname []"
+    | a :: q -> a :: bitname q in
+  L.{ name with postfix = bitname name.postfix }
+
+  let set_name name =
+    let rec rename = function
+      |  ("bits", Some "Bits") :: ("flag", Some "Flag") :: q ->
+        ("flags", Some "Flags" ) :: q
+      | [] ->
+        raise @@ Invalid_argument "empty bitset name []"
+      | a :: q -> a :: rename q in
+    L.{ name with postfix = rename name.postfix }
+
   let value_name set_name name =
     L.remove_context set_name name
 
@@ -227,25 +245,17 @@ module Bitset = struct
                 Printer.fprintf ppf \"}@@]\"\n"
       (Fmt.list ~sep field) fields
 
-
-  let bitname name =
-    let rec bitname = function
-      | ("flags", _ ) :: q ->
-         ("bits", Some "Bits") :: ("flag", Some "Flag") :: q
-      | [] -> raise @@ Invalid_argument "bitname []"
-      | a :: q -> a :: bitname q in
-    L.{ name with postfix = bitname name.postfix }
-
-  let resume ppf name =
+  let resume ppf bitname name =
     Fmt.pf ppf "type %a = %a.t\n"
       L.pp_type name L.pp_module name;
     Fmt.pf ppf "let %a = %a.view\n"
       L.pp_var name L.pp_module name;
     Fmt.pf ppf "let %a = %a.index_view\n"
-      L.pp_var (bitname name)
+      L.pp_var bitname
       L.pp_module name
 
-  let pp_with_bits ppf (name,fields) =
+  let pp_with_bits ppf (bitname,fields) =
+    let name = set_name bitname in
     let core_name = let open L in
       { name with postfix = List.filter (fun (x,_) -> x <> "flags") name.postfix }
     in
@@ -254,14 +264,16 @@ module Bitset = struct
     values core_name ppf fields;
     pp_pp core_name ppf fields;
     Fmt.pf ppf "end\n";
-    resume ppf name
+    resume ppf bitname name
 
-  let pp ppf (name,opt) = match opt with
+  let pp ppf (name,opt) =
+    let bitname = bit_name name in
+    match opt with
     | Some _ -> ()
     | None ->
       Fmt.pf ppf "module %a = Bitset.Make()\n"
         L.pp_module name;
-      resume ppf name
+      resume ppf bitname name
 
 end
 
@@ -385,17 +397,19 @@ let pp_item results ppf (name, item) = match item with
   | Const c -> Const.pp ppf (name,c)
   | Fn f -> Fn.pp ppf f
 
+
 let rec pp_module results ppf (m:B.module') =
   Fmt.pf ppf
-    "module %s%a= @[<v 2> struct@;\
-    %a@;\
-    %a@;\
-     end@]@.
+    "module %s%a= @[<v 2> struct@;\%aend@]@.
     "
     (String.capitalize_ascii m.name)
+    (pp_sig results) m
     pp_args m.args
+and pp_sig results ppf (m:B.module') =
+    Fmt.pf ppf "%a@;@;%a@;"
     (Fmt.list @@ pp_item results) m.sig'
     (Fmt.list @@ pp_module results) m.submodules
+
 and pp_args ppf = function
   | [] -> ()
   | args -> Fmt.list pp_arg ppf args
@@ -411,10 +425,11 @@ let atlas ppf modules =
 let lib (lib:B.lib) =
   let open_file n =
     Format.formatter_of_out_channel @@ open_out @@ lib.root ^ "/" ^ n in
-  let  pp_preambule ppf = Fmt.string ppf lib.preambule in
+  let  pp_preambule ppf (m:B.module') =
+    Fmt.pf ppf "%s\n%s\n" lib.preambule m.preambule in
   atlas (open_file "vk.ml") lib.content.submodules;
   let pp_sub (m:B.module') =
     let ppf = open_file ("vk__" ^ m.name ^ ".ml") in
-    pp_preambule ppf;
-    pp_module lib.result ppf m in
+    pp_preambule ppf m;
+    pp_sig lib.result ppf m in
   List.iter pp_sub lib.content.submodules

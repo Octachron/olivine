@@ -20,8 +20,8 @@ gen:  _tags enkindler/*
 libgen:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
-lib/vk.ml: _tags gen enkindler/*
-	./gen spec/vk.xml lib
+lib/vk.ml: _tags libgen enkindler/*
+	./libgen spec/vk.xml lib
 
 vk.cma: _tags lib/* lib/vk.ml libsdlvulkan.so
 	$(CCO) $@

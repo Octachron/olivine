@@ -1,7 +1,6 @@
 module L = Name_study
 type path = string list
 
-
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
 module Cty = Ctype.Ty
@@ -22,6 +21,7 @@ module M = Map.Make(String)
 type module' = {
   name : string;
   path: path;
+  preambule: string;
   args: string list;
   sig': (L.name * item) list;
   submodules: module' list
@@ -34,7 +34,13 @@ and item =
 
 and sig' = item M.t
 
-
+let sys_specific name =
+  let check =
+    function "xlib" | "xcb" | "wl" |
+             "android" | "mir" | "win32" -> true | _ -> false in
+  List.exists
+    (List.exists @@ fun w -> check (Name_study.canon w) )
+    Name_study.[name.prefix;name.postfix;name.main]
 
 module Result = struct
   module Map = Map.Make(struct type t = Ty.name let compare = compare end)
@@ -52,8 +58,8 @@ type lib = {
   preambule: string;
 }
 
-let make ?(args=[]) ?(submodules=[]) ?(sig'=[]) path name =
-  { name; path; sig'; args; submodules }
+let make ?(args=[]) ?(submodules=[]) ?(sig'=[]) ?(preambule="") path name =
+  { name; path; sig'; args; submodules; preambule }
 
 let rec update_assoc key default f = function
   | m :: q when m.name = key -> (f m) :: q
@@ -87,9 +93,9 @@ let may f = function
   | Some x -> Some (f x)
 
 module Rename = struct
-  let rec typ (!) =
+  let rec typ (!) x =
     let typ = typ (!) in
-    function
+    match x with
     | Cty.Name n -> Ty.Name !n
     | Const ty -> Ty.Const(typ ty)
     | Ptr ty -> Ty.Ptr(typ ty)
@@ -132,8 +138,8 @@ module Rename = struct
     | Bit n -> Ty.Bit n
 end
 
-
-let rec dep_typ (dict,gen as g) (items,lib as build) = function
+let rec dep_typ (dict,gen as g) (items,lib as build) =
+  function
   | Cty.Ptr t | Const t | Option t | Array(_,t) ->
     dep_typ g build t
   | Name t ->
@@ -162,14 +168,18 @@ let dep_fields gen fields build =
 let dep_fn gen (fn: Cty.fn) build =
   fn.return |> dep_typ gen build |> dep_fields gen fn.args
 
+
 let deps gen build = function
   | Cty.Option t | Ptr t | Array(_,t) | (Name _ as t) ->
     dep_typ gen build t
   | Const _  | String
-  | Result _  | Handle _ | Enum _ | Bitset _ | Bitfields _ -> build
+  | Result _  | Handle _ | Enum _ | Bitfields _ -> build
   | FunPtr fn -> dep_fn gen fn build
   | Union fields | Record {fields; _ } ->
     dep_fields gen fields build
+  | Bitset { field_type = Some name'; _ } ->
+    snd gen build name'
+  | Bitset _ -> build
 
 let record_result (name,ty) lib = match ty with
   | Ty.Enum constrs when  List.map L.canon name.L.main = ["result"] ->
@@ -177,26 +187,28 @@ let record_result (name,ty) lib = match ty with
   | _ -> lib
 
 let rec generate_ideal dict registry (items, lib as build) p =
-    let name = L.make dict p in
-    let items = S.remove p items in
-    let renamer = Name_study.make dict in
-    match M.find p registry with
-    | Typed.Const c ->
-      let lib = add ["const"] name (Const c) lib in
+  if not @@ S.mem p items then build else
+  let (items, lib as build ) = (S.remove p items, lib) in
+  let name = L.make dict p in
+  let renamer = Name_study.make dict in
+  match M.find p registry with
+  | Typed.Const c ->
+    let lib = add ["const"] name (Const c) lib in
+    items,lib
+  | Typed.Fn fn ->
+    if L.(is_extension dict name || sys_specific name) then
+      build
+    else
+      let fn = Rename.fn renamer fn in
+      let lib = add ["core"] name (Fn fn) lib in
       items,lib
-    | Typed.Fn fn ->
-      if L.(is_extension dict @@ make dict p) then
-        build
-      else
-        let fn = Rename.fn renamer fn in
-        let lib = add ["core"] name (Fn fn) lib in
-        items,lib
-    | Typed.Type typ ->
-      let items, lib = deps (dict,generate_ideal dict registry) build typ in
-      let typ = Rename.typ renamer typ in
-      let lib =
-        lib |> record_result (name,typ) |> add ["type"] name (Type typ) in
-      (items,lib)
+  | Typed.Type typ ->
+    if sys_specific name then build else
+    let items, lib = deps (dict,generate_ideal dict registry) build typ in
+    let typ = Rename.typ renamer typ in
+    let lib =
+      lib |> record_result (name,typ) |> add ["types"] name (Type typ) in
+    (items,lib)
 
 let rec generate_core dict registry (items, _ as build) =
   if items = S.empty then
@@ -206,9 +218,19 @@ let rec generate_core dict registry (items, _ as build) =
     generate_core dict registry
     @@ generate_ideal dict registry build p
 
+let rec normalize m =
+  { m with submodules = List.rev_map normalize m.submodules;
+           sig' = List.rev m.sig' }
+
 let generate root preambule dict registry =
+  let submodules =
+    [make ~preambule:"open Vk__const\nopen Vk__types\nopen Vk__subresult"
+       ["vk"] "core";
+     make ~preambule:"open Vk__const\n" ["vk"] "types";
+    ] in
   let lib =
     { root; preambule; result = Result.Map.empty;
-      content = make  [] "vk" } in
+      content = make ~submodules [] "vk" } in
   let items = S.of_list @@ List.map fst @@ M.bindings registry in
-  generate_core dict registry (items,lib)
+  let lib = generate_core dict registry (items,lib) in
+  { lib with content = normalize lib.content }

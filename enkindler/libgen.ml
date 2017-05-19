@@ -13,18 +13,18 @@ let add_word name dict =
   { dict with words = Dict.add name dict.words }
 
 
-let add name dict =
+let add role name dict =
   let open Name_study in
   { dict with
     words = Dict.add name dict.words;
-    roles = R.add (String.lowercase_ascii name) Postfix dict.roles;
+    roles = R.add (String.lowercase_ascii name) role dict.roles;
   }
 
 let add_ext x exts =
   S.add (String.lowercase_ascii x) exts
 
 let vendor_tag (dict,out) (x:Typed.short_tag)=
-  ( add x.name dict,
+  ( add Extension x.name dict,
     add_ext x.name out)
 
 let empty =
@@ -43,16 +43,16 @@ let make_dict spec =
   let dict, exts =
     List.fold_left vendor_tag (empty,S.empty) spec.Typed.tags in
   dict
-  |> add "RandR"
-  |> add "RR"
-  |> add "ID"
-  |> add "EXT"
-  |> add "KHX"
-  |> add "IOS"
-  |> add "1D"
-  |> add "2D"
-  |> add "3D"
-  |> add "UUID"
+  |> add Main "RandR"
+  |> add Main "RR"
+  |> add  Main "ID"
+  |> add Extension "EXT"
+  |> add Extension "KHX"
+  |> add Main "IOS"
+  |> add Main "1D"
+  |> add Main "2D"
+  |> add Main "3D"
+  |> add Main "UUID"
   |> add_word "Win32"
   |> add_post "flags"
   |> add_post "flag"

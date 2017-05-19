@@ -256,16 +256,19 @@ let escape = function
 let flatten name =
   name.prefix @ name.main @ List.rev name.postfix
 
+let full_pp ppf s =
+  let pp_w ppf (s,x) =
+    let s = match x with Some s -> s | None -> s in
+    Fmt.string ppf s in
+  let list = Fmt.list ~sep:snake pp_w in
+  Fmt.pf ppf "%a::%a::%a"
+    list s.prefix list s.main list s.postfix
+
+
 let is_extension dict = function
   | { postfix = (a,_) :: _ ; _ } when M.find_opt a dict.roles = Some Extension
     -> true
   | _ -> false
-
-let full_pp ppf s =
-  let pp_w ppf (s,_) = Fmt.string ppf s in
-  let list = Fmt.list ~sep:snake pp_w in
-  Fmt.pf ppf "%a::%a::%a"
-    list s.prefix list s.main list s.postfix
 
 let pp_module ppf n =
   match flatten n with
