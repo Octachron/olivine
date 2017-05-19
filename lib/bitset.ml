@@ -39,10 +39,10 @@ module Make(): S = struct
     if n > 63 then
       raise @@ Out_of_bound n
     else
-      n
+      1 lsl n
 
   let mem n x =
-    1 land (x lsr n) = 1
+    x land n <> 0
 
   let union = (lor)
   let (+) = union
@@ -54,7 +54,7 @@ module Make(): S = struct
   let intersection = (land)
   let ( * ) = intersection
 
-  let singleton k = 1 lsl k
+  let singleton k = k
   let of_list =
     List.fold_left ( fun acc x -> acc + singleton x) empty
 
