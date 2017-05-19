@@ -214,6 +214,17 @@ module Device = struct
     <?> "Surface capabilities";
     !x
 
+  let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
+    Format.fprintf ppf "[%d×%d]"
+      (to_int @@ extent%width) (to_int @@ extent%height)
+
+  let pp_capability ppf cap = let open Vkt.Surface_capabilities_khr in
+    Format.fprintf ppf "@[min_image:%d; max_image_count:%d; current_extent:%a@]"
+      (to_int @@ cap%min_image_count) (to_int @@ cap%max_image_count)
+      pp_extent_2d (cap%current_extent)
+
+  ;; debug "Surface capabilities: %a" pp_capability capabilities
+
   let supported_formats =
     get_array (msg "Supported surface format") Vkt.surface_format_khr @@
     Surface.get_physical_device_surface_formats_khr phy
@@ -255,11 +266,16 @@ module Swapchain = Vk.Khr.Swapchain(Device)
 
 module Image = struct
 
-  let im_format = Vkt.Format.R32_sfloat
+  let surface_format = Device.supported_formats.(0)
 
-  let extent = Vkt.Extent_2d.(
-        make t [ width $= ~:512; height $= ~:512 ]
-      )
+  let im_format, colorspace =
+    let open Vkt.Surface_format_khr in
+    surface_format % format, surface_format % color_space
+
+  let image_count, extent = let open Vkt.Surface_capabilities_khr in
+    (Device.capabilities % min_image_count,
+     Device.capabilities % current_extent)
+
   let swap_chain_info =
     let open Vkt.Swapchain_create_info_khr in
     make t [
@@ -267,7 +283,7 @@ module Image = struct
       p_next $= null;
       flags $= Vkt.Swapchain_create_flags_khr.empty;
       surface $= surface_khr;
-      min_image_count $= ~:1;
+      min_image_count $= image_count;
       image_format $= im_format;
       image_color_space $= Vkt.Color_space_khr.Extended_srgb_linear_ext;
       image_extent $= extent ;
