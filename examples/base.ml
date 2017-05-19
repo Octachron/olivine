@@ -182,13 +182,15 @@ module Device = struct
   ;; Array.iter (print_queue_property Format.std_formatter)
     queue_family_properties
 
+  let queue_family = ~: 0
+  
   let queue_create_info =
     let open Vkt.Device_queue_create_info in
     mk_ptr t [
       s_type $= Vkt.Structure_type.Device_queue_create_info;
       p_next $= null;
       flags $= Vkt.Device_queue_create_flags.empty;
-      queue_family_index $= ~:0;
+      queue_family_index $= queue_family;
       queue_count $= ~:1;
       p_queue_priorities $= Ctypes.(allocate float) 1.
     ]
@@ -219,9 +221,14 @@ module Device = struct
       (to_int @@ extent%width) (to_int @@ extent%height)
 
   let pp_capability ppf cap = let open Vkt.Surface_capabilities_khr in
-    Format.fprintf ppf "@[min_image:%d; max_image_count:%d; current_extent:%a@]"
+    Format.fprintf ppf
+      "@[min_image:%d; max_image_count:%d; current_extent:%a;@;\
+       transform:%a;@ composite_alpha:%a;@ usage_flags:%a@]"
       (to_int @@ cap%min_image_count) (to_int @@ cap%max_image_count)
       pp_extent_2d (cap%current_extent)
+      Vkt.Surface_transform_flags_khr.pp (cap%supported_transforms)
+      Vkt.Composite_alpha_flags_khr.pp (cap%supported_composite_alpha)
+      Vkt.Image_usage_flags.pp (cap%supported_usage_flags)
 
   ;; debug "Surface capabilities: %a" pp_capability capabilities
 
@@ -236,6 +243,17 @@ module Device = struct
 
   ;; Array.iter (debug "%a" pp_sformat) supported_formats
 
+  let present_modes =
+    get_array (msg "Surface present modes") Vkt.present_mode_khr @@
+    Surface.get_physical_device_surface_present_modes_khr phy surface_khr
+
+  ;; Array.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
+
+  let support =
+    let x = Ctypes.(allocate uint32_t) false' in
+    Surface.get_physical_device_surface_support_khr phy queue_family
+      surface_khr x <?> "Compatibility surface/device";
+    assert (!x = true' )
 
   let x =
     let d = Ctypes.allocate_n Vkt.Device.t 1 in
@@ -276,6 +294,7 @@ module Image = struct
     (Device.capabilities % min_image_count,
      Device.capabilities % current_extent)
 
+  
   let swap_chain_info =
     let open Vkt.Swapchain_create_info_khr in
     make t [
@@ -285,14 +304,13 @@ module Image = struct
       surface $= surface_khr;
       min_image_count $= image_count;
       image_format $= im_format;
-      image_color_space $= Vkt.Color_space_khr.Extended_srgb_linear_ext;
+      image_color_space $= colorspace;
       image_extent $= extent ;
       image_array_layers $= ~: 1;
       image_usage $= Vkt.Image_usage_flags.(
           of_list [
             color_attachment;
-            sampled;
-            depth_stencil_attachment
+            sampled
           ]);
       image_sharing_mode $= Vkt.Sharing_mode.Exclusive;
       queue_family_index_count $= ~: 1;
@@ -301,7 +319,7 @@ module Image = struct
       Vkt.Surface_transform_flags_khr.identity;
       composite_alpha $=
       Vkt.Composite_alpha_flags_khr.opaque;
-      present_mode $= Vkt.Present_mode_khr.Fifo_relaxed;
+      present_mode $= Vkt.Present_mode_khr.Fifo;
       clipped $= true';
     ]
 
