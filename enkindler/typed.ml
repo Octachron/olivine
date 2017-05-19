@@ -18,7 +18,10 @@ type require = { from:string; type_name:string }
 module Extension = struct
 
   type metadata =
-    { name:string; number:int; supported:string; version : int }
+    { name:string;
+      number:int;
+      type':string option;
+      version : int }
 
   type enum =
     { extend:string; name:string; offset:int; upward:bool }
@@ -32,11 +35,14 @@ module Extension = struct
       enums: enum list;
       bits: bit list }
 
+  let pp_exttype ppf = function
+    | None -> Fmt.pf ppf "support=disabled"
+    | Some x -> Fmt.pf ppf "type=\"%s\"" x
 
   let pp_metadata ppf (m:metadata) =
     Fmt.pf ppf
-      "@[<hov>{name=%s;@ number=%d;@ supported=%s;@ version=%d}@]"
-      m.name m.number m.supported m.version
+      "@[<hov>{name=%s;@ number=%d;@ %a;@ version=%d}@]"
+      m.name m.number pp_exttype m.type' m.version
 
   let pp_enum ppf (e:enum)=
     Fmt.pf ppf
@@ -518,8 +524,9 @@ let extension = function
              _ } as n) ->
     let metadata =
       { Extension.version = int_of_string (version%("name"));
-        name = n%("name"); supported=n%("supported");
-        number = int_of_string @@ n%("number")
+        name = n%("name");
+        number = int_of_string @@ n%("number");
+        type' = n%?("type")
       }
     in
     let start =

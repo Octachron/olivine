@@ -64,9 +64,7 @@ let make_dict spec =
 let preambule =
   "open Ctypes\n\
    let libvulkan = Dl.dlopen ~filename:\"libvulkan.so\" ~flags:Dl.[RTLD_NOW]\n\
-   let foreign = Foreign.foreign ~from:libvulkan\n\
-   open Wayland\n\
-   open Xlib\n\
+   let foreign name = Foreign.foreign ~from:libvulkan (\"vk\"^name) \n\
    module Printer = Format\n\
   "
 
@@ -74,5 +72,5 @@ let () =
   let info = read Sys.argv.(1) in
   let dict, _exts = make_dict info in
   let root = Sys.argv.(2) in
-  let lib = Lib_builder.generate root preambule dict info.entities in
+  let lib = Lib_builder.generate root preambule dict info in
   Printers.lib lib

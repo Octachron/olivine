@@ -2,6 +2,7 @@ module A = Ctypes.CArray
 module Vkt = Vk.Types
 module Vkc = Vk.Core
 
+
 module Utils = struct
   (** Ctype utility functions *)
   let get, set = Ctypes.(getf,setf)
@@ -29,6 +30,10 @@ module Utils = struct
   let (!) = Ctypes.(!@)
   let (~:) = Unsigned.UInt32.of_int
   let to_int = Unsigned.UInt32.to_int
+
+  let true' = ~: Vk.Const.true'
+  let false' = ~: Vk.Const.false'
+
 
   let (+@) = Ctypes.(+@)
   let ( <-@ ) = Ctypes.( <-@ )
@@ -123,7 +128,7 @@ module Instance = struct
 
   ;; debug "Info created"
 
-  let instance =
+  let x =
     let x = Ctypes.allocate_n Vkt.instance 1 in
     debug "Instance pointer allocated";
     Vkc.create_instance (Ctypes.addr info) None x
@@ -136,7 +141,11 @@ module Instance = struct
 
   ;; Array.iter print_extension_property extension_properties
 end
-let instance = Instance.instance
+let instance = Instance.x
+
+(** Once an instance has been created, load the KHR extensions *)
+module Surface = Vk.Khr.Surface(Instance)
+
 
 module Device = struct
   let phy_devices =
@@ -193,6 +202,29 @@ module Device = struct
   ;; Array.iter print_extension_property device_extensions
   ;; Format.printf "@]@."
 
+  let surface_khr =
+    let s = Ctypes.allocate_n ~count:1 Vkt.surface_khr in
+    Vk__sdl.create_surface instance Sdl.w None s
+    <?> "Obtaining surface";
+    !s
+
+  let capabilities =
+    let x = Ctypes.allocate_n Vkt.surface_capabilities_khr 1 in
+    Surface.get_physical_device_surface_capabilities_khr phy surface_khr x
+    <?> "Surface capabilities";
+    !x
+
+  let supported_formats =
+    get_array (msg "Supported surface format") Vkt.surface_format_khr @@
+    Surface.get_physical_device_surface_formats_khr phy
+      surface_khr
+
+  let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
+    Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
+      Vkt.Format.pp (sformat%format) Vkt.Color_space_khr.pp (sformat%color_space)
+
+  ;; Array.iter (debug "%a" pp_sformat) supported_formats
+
 
   let x =
     let d = Ctypes.allocate_n Vkt.Device.t 1 in
@@ -217,34 +249,11 @@ module Device = struct
     !d
 end
 let device = Device.x
+let surface_khr = Device.surface_khr
 
-
-(** Once a device has been created, load the KHR extensions *)
-module Khr = Vk.Khr.Make(Device)
+module Swapchain = Vk.Khr.Swapchain(Device)
 
 module Image = struct
-  let surface_khr =
-    let s = Ctypes.allocate_n ~count:1 Vkt.surface_khr in
-    Vk__sdl.create_surface instance Sdl.w None s
-    <?> "Obtaining surface";
-    !s
-
-  let capabilities =
-    let x = Ctypes.allocate_n Vkt.surface_capabilities_khr 1 in
-    Khr.get_physical_device_surface_capabilities_khr Device.phy surface_khr x
-    <?> "Surface capabilities";
-    !x
-
-  let supported_formats =
-    get_array (msg "Supported surface format") Vkt.surface_format_khr @@
-    Khr.get_physical_device_surface_formats_khr Device.phy
-      surface_khr
-
-  let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
-    Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
-      Vkt.Format.pp (sformat%format) Vkt.Color_space_khr.pp (sformat%color_space)
-
-  ;; Array.iter (debug "%a" pp_sformat) supported_formats
 
   let im_format = Vkt.Format.R32_sfloat
 
@@ -277,19 +286,19 @@ module Image = struct
       composite_alpha $=
       Vkt.Composite_alpha_flags_khr.opaque;
       present_mode $= Vkt.Present_mode_khr.Fifo_relaxed;
-      clipped $= ~: Vk.Consts.true';
+      clipped $= true';
     ]
 
   let swap_chain =
     let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
-    Khr.create_swapchain_khr device (Ctypes.addr swap_chain_info) None s
+    Swapchain.create_swapchain_khr device (Ctypes.addr swap_chain_info) None s
     <?> "swap_chain";
     !s
 
 
   let images =
     get_array (msg "Swapchain images") Vk.Types.image
-    @@ Khr.get_swapchain_images_khr device swap_chain
+    @@ Swapchain.get_swapchain_images_khr device swap_chain
 
 
   let component_mapping =
@@ -396,7 +405,7 @@ module Pipeline = struct
       p_next $= null;
       flags $= Vkt.Pipeline_input_assembly_state_create_flags.empty;
       topology $= Vkt.Primitive_topology.Triangle_strip;
-      primitive_restart_enable $= ~:Vk.Consts.false'
+      primitive_restart_enable $= false'
     ]
 
   let to_float x = float @@ Unsigned.UInt32.to_int x
@@ -431,12 +440,12 @@ module Pipeline = struct
       s_type $= Vkt.Structure_type.Pipeline_rasterization_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_rasterization_state_create_flags.empty;
-      depth_clamp_enable $= ~: Vk.Consts.false';
-      rasterizer_discard_enable $= ~: Vk.Consts.false';
+      depth_clamp_enable $= false';
+      rasterizer_discard_enable $= false';
       polygon_mode $= Vkt.Polygon_mode.Fill;
       cull_mode $= Vkt.Cull_mode_flags.(singleton back);
       front_face $= Vkt.Front_face.Clockwise;
-      depth_bias_enable $=  ~: Vk.Consts.false';
+      depth_bias_enable $= false';
       depth_bias_constant_factor $= 0.;
       depth_bias_clamp $= 0.;
       depth_bias_slope_factor $= 0.;
@@ -449,16 +458,16 @@ module Pipeline = struct
       p_next $= null;
       flags $= Vkt.Pipeline_multisample_state_create_flags.empty;
       rasterization_samples $= Vkt.Sample_count_flags.n1;
-      sample_shading_enable $= ~: Vk.Consts.false';
+      sample_shading_enable $= false';
       min_sample_shading $= 1.;
       p_sample_mask $= nullptr Ctypes.uint32_t;
-      alpha_to_coverage_enable $= ~: Vk.Consts.false';
-      alpha_to_one_enable $= ~: Vk.Consts.false'
+      alpha_to_coverage_enable $= false';
+      alpha_to_one_enable $= false'
     ]
 
   let no_blend = let open Vkt.Pipeline_color_blend_attachment_state in
     mk_ptr t [
-      blend_enable $= ~: Vk.Consts.false';
+      blend_enable $= false';
       src_color_blend_factor $= Vkt.Blend_factor.One;
       dst_color_blend_factor $= Vkt.Blend_factor.Zero;
       color_blend_op $= Vkt.Blend_op.Add;
@@ -473,7 +482,7 @@ module Pipeline = struct
       s_type $= Vkt.Structure_type.Pipeline_color_blend_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_color_blend_state_create_flags.empty;
-      logic_op_enable $= ~: Vk.Consts.false';
+      logic_op_enable $= false';
       logic_op $= Vkt.Logic_op.Copy;
       attachment_count $= ~: 1;
       p_attachments $= no_blend;

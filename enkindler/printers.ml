@@ -21,8 +21,9 @@ module Enum = struct
 
   type implementation = Std | Poly
 
-  let pp_constr name impl ppf (c, _ ) =
-    let name = L.remove_context name c in
+  let pp_constr name_0 impl ppf (c, _ ) =
+    let name = L.remove_context name_0 c in
+    let name = if name = L.mu then name_0 else name in
     match impl with
     | Std -> Fmt.pf ppf "%a" L.pp_constr name
     | Poly -> Fmt.pf ppf "`%a" L.pp_constr name
@@ -102,11 +103,14 @@ module Result = struct
       raise Not_found
 
   let view m ppf name constrs =
+    Fmt.epr "Result.view %a@." L.full_pp name;
     let constrs =
       List.map (fun name -> name, Ty.Abs (find name m)) constrs in
     Fmt.pf ppf "module %a = struct\n" L.pp_module name;
+    Fmt.epr "Result.view 2: %a@." L.full_pp name;
     Enum.(of_int Poly) ppf name constrs;
     Enum.(to_int Poly) ppf name constrs;
+    Fmt.epr "Result.view 3: %a@." L.full_pp name;
     Fmt.pf ppf "\nend\n"
 
   let pp_type ppf (ok,errors) =
@@ -392,7 +396,9 @@ let pp_type results ppf (name,ty) =
   | Record r ->
     Structured.(pp Record) ppf (name,r.fields)
 
-let pp_item results ppf (name, item) = match item with
+let pp_item results ppf (name, item) =
+  Fmt.epr "Printing %a@." L.full_pp name;
+  match item with
   | B.Type t -> pp_type results ppf (name,t)
   | Const c -> Const.pp ppf (name,c)
   | Fn f -> Fn.pp ppf f
@@ -400,11 +406,11 @@ let pp_item results ppf (name, item) = match item with
 
 let rec pp_module results ppf (m:B.module') =
   Fmt.pf ppf
-    "module %s%a= @[<v 2> struct@;\%aend@]@.
+    "module %s%a= @[<v 2> struct@;%aend@]@.
     "
     (String.capitalize_ascii m.name)
-    (pp_sig results) m
     pp_args m.args
+    (pp_sig results) m
 and pp_sig results ppf (m:B.module') =
     Fmt.pf ppf "%a@;@;%a@;"
     (Fmt.list @@ pp_item results) m.sig'

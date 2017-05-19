@@ -3,6 +3,7 @@ S src/**
 S src
 S _build/**
 S lib/*
+S lib_aux/*
 S sdl/*
 PKG xmlm fmt ctypes.foreign tsdl
 FLG -w A-44-42-45-4-41-48-6-40-30@8

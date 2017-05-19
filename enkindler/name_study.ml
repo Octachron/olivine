@@ -178,13 +178,21 @@ let compose x y = { prefix = x.prefix @ y.prefix;
                     postfix = x.postfix @ y.postfix
                   }
 
+let string_prefix s s2 =
+  let n = String.length s in
+  String.length s2 >= n &&
+  s = String.sub s2 0 n
+
 let path dict name =
   let path =
-  if String.contains name '_' then
-    name
-    |> String.split_on_char '_'
-  else
-    name |> split_sticky_camel_case dict.words
+    if string_prefix "PFN" name then
+      split_sticky_camel_case dict.words
+      @@ String.sub name 5 (String.length name - 5)
+    else if String.contains name '_' then
+      name
+      |> String.split_on_char '_'
+    else
+      name |> split_sticky_camel_case dict.words
   in
   path |> List.map lower |> clean
 

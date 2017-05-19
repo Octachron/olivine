@@ -37,7 +37,7 @@ and sig' = item M.t
 let sys_specific name =
   let check =
     function "xlib" | "xcb" | "wl" |
-             "android" | "mir" | "win32" -> true | _ -> false in
+             "android" | "wayland" | "mir" | "win32" -> true | _ -> false in
   List.exists
     (List.exists @@ fun w -> check (Name_study.canon w) )
     Name_study.[name.prefix;name.postfix;name.main]
@@ -75,16 +75,22 @@ let find_module name at m =
       | s -> s, m.submodules
 *)
 
-let add path name item lib =
+let add path name item module' =
   let rec add prefix rest module' =
   match rest with
-  | [] -> { module' with sig' = (name, item) :: module'.sig' }
+    | [] ->
+      let s = module'.sig' in
+      let sig' = if List.mem_assoc name s then s else (name,item) :: s in
+      { module' with sig' }
   | w :: q ->
     { module' with
       submodules =
         update_assoc w (make prefix w) (add (w::prefix) q) module'.submodules
     } in
-  { lib with content = add [] path lib.content }
+  add [] path module'
+
+let add_l path name item lib =
+  { lib with content = add path name item lib.content }
 
 module S = Misc.StringSet
 
@@ -93,6 +99,7 @@ let may f = function
   | Some x -> Some (f x)
 
 module Rename = struct
+  let elt dict = L.make dict
   let rec typ (!) x =
     let typ = typ (!) in
     match x with
@@ -181,10 +188,12 @@ let deps gen build = function
     snd gen build name'
   | Bitset _ -> build
 
-let record_result (name,ty) lib = match ty with
-  | Ty.Enum constrs when  List.map L.canon name.L.main = ["result"] ->
-    { lib with result = Result.make constrs }
-  | _ -> lib
+let result_info dict registry =
+  match M.find "VkResult" registry with
+  | exception Not_found -> assert false
+  | Typed.Type Cty.Enum constrs ->
+    Result.make @@ List.map Rename.(constr @@ elt dict) constrs
+  | _ -> assert false
 
 let rec generate_ideal dict registry (items, lib as build) p =
   if not @@ S.mem p items then build else
@@ -196,18 +205,15 @@ let rec generate_ideal dict registry (items, lib as build) p =
     let lib = add ["const"] name (Const c) lib in
     items,lib
   | Typed.Fn fn ->
-    if L.(is_extension dict name || sys_specific name) then
-      build
-    else
-      let fn = Rename.fn renamer fn in
-      let lib = add ["core"] name (Fn fn) lib in
-      items,lib
+    let items, lib = dep_fn (dict, generate_ideal dict registry) fn build in
+    let fn = Rename.fn renamer fn in
+    let lib = add ["core"] name (Fn fn) lib in
+    items, lib
   | Typed.Type typ ->
-    if sys_specific name then build else
     let items, lib = deps (dict,generate_ideal dict registry) build typ in
     let typ = Rename.typ renamer typ in
     let lib =
-      lib |> record_result (name,typ) |> add ["types"] name (Type typ) in
+      lib |> add ["types"] name (Type typ) in
     (items,lib)
 
 let rec generate_core dict registry (items, _ as build) =
@@ -222,15 +228,82 @@ let rec normalize m =
   { m with submodules = List.rev_map normalize m.submodules;
            sig' = List.rev m.sig' }
 
-let generate root preambule dict registry =
+let classify_extension dict m (ext:Typed.Extension.t) =
+  let path = List.rev @@ L.to_path @@ L.make dict ext.metadata.name in
+  match path with
+  | [] -> assert false
+  | w :: _ ->
+    let a  = L.canon w in
+    Fmt.epr "Extension core name: %s@." a;
+    let exts = try M.find a m with Not_found -> [] in
+    M.add a (ext::exts) m
+
+let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
+  let name = List.rev (L.make dict ext.metadata.name).postfix in
+  let name = L.{ mu with main = remove_prefix [L.word branch] name} in
+  if sys_specific name then l else
+  match ext.metadata.type' with
+  | None -> l
+  | Some t ->
+    let args = [Format.asprintf "X:%s" t] in
+    let preambule = Format.asprintf "\ninclude Foreign_%s(X)\n" t in
+    let items = S.of_list
+      @@ List.filter (fun name -> not @@ sys_specific @@ L.make dict name)
+      @@ ext.commands (*@ ext.types*) in
+    let mname = Format.asprintf "%a" L.pp_module name in
+    let ext_m = make ~args ~preambule ["vk"; branch]  mname in
+    let m = generate_core dict registry (items, ext_m) in
+    let sig' = match m.submodules with
+      | [{name="core"; _} as core; ({name="subresult"; _ } as sub)]
+      | [({name="subresult"; _ } as sub); ({name="core"; _} as core) ]
+        -> core.sig' @ sub.sig'
+      | [{name="core"; _} as core ] -> core.sig'
+      | [] -> []
+      | s -> List.iter (fun m -> Fmt.epr "Submodule:%s@." m.name) s;
+        assert false in
+    { m with
+      submodules = [];
+      sig'
+    } :: l
+
+let generate_extensions dict registry extensions =
+  let exts = List.fold_left (classify_extension dict) M.empty extensions in
+  let preambule = "open Vk__const\n\
+                   open Vk__types\n\
+                   open Vk__extension_sig\n\
+                   open Vk__subresult\n" in
+  let gen_branch name exts acc =
+    let submodules =
+      List.fold_left (generate_subextension dict registry name) [] exts in
+        (normalize @@ make ~preambule ~submodules ["vk"] name) :: acc in
+   M.fold gen_branch exts []
+
+let filter_extension dict registry name0 =
+  let name = L.make dict name0 in
+  match M.find name0 registry with
+  | Typed.Type _ -> not @@ sys_specific name
+  | Fn _ ->
+    not (L.is_extension dict name || sys_specific name)
+  | Const _ -> true
+
+let generate root preambule dict (spec:Typed.spec) =
+  let registry = spec.entities in
   let submodules =
     [make ~preambule:"open Vk__const\nopen Vk__types\nopen Vk__subresult"
        ["vk"] "core";
      make ~preambule:"open Vk__const\n" ["vk"] "types";
     ] in
-  let lib =
-    { root; preambule; result = Result.Map.empty;
-      content = make ~submodules [] "vk" } in
-  let items = S.of_list @@ List.map fst @@ M.bindings registry in
-  let lib = generate_core dict registry (items,lib) in
-  { lib with content = normalize lib.content }
+  let items =
+       S.of_list
+    @@ List.filter (filter_extension dict registry)
+    @@ List.map fst
+    @@ M.bindings registry in
+  let content =
+    normalize @@ generate_core dict registry (items, make ~submodules [] "vk") in
+  let content =
+    { content with
+      submodules = content.submodules
+                   @ generate_extensions dict registry spec.extensions
+    } in
+  { root; preambule; result = result_info dict registry; content}
+

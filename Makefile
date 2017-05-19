@@ -23,7 +23,7 @@ libgen:  _tags enkindler/*
 lib/vk.ml: _tags libgen enkindler/*
 	./libgen spec/vk.xml lib
 
-vk.cma: _tags lib/* lib/vk.ml libsdlvulkan.so
+vk.cma: _tags enkindler/*.ml lib/* lib/vk.ml libsdlvulkan.so
 	$(CCO) $@
 
 term: enkindler.cma
