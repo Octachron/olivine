@@ -367,7 +367,7 @@ module Image = struct
       let v = Ctypes.allocate_n Vkt.image_view 1 in
       Vkc.create_image_view device (Ctypes.addr @@ image_view_info im) None v
       <?> "Creating image view";
-      !v in
+      v in
     Array.map create images
 end
 
@@ -622,7 +622,7 @@ module Pipeline = struct
       base_pipeline_index $= 0l;
     ]
 
-  let pipeline =
+  let x =
     debug "Pipeline creation";
     let x = Ctypes.allocate_n Vkt.pipeline 1 in
     Vkc.create_graphics_pipelines device Vkt.Pipeline_cache.null ~:1
@@ -630,6 +630,126 @@ module Pipeline = struct
     <?> "Graphics pipeline creation";
     !x
 
+end
+
+module Cmd = struct
+
+  let framebuffer_info = let open Vkt.Framebuffer_create_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Framebuffer_create_info;
+      p_next $= null;
+      flags $= Vkt.Framebuffer_create_flags.empty;
+      render_pass $= Pipeline.simple_render_pass;
+      attachment_count $= ~:1;
+      p_attachments $= Image.views.(0);
+      width $= Image.extent % Vkt.Extent_2d.width;
+      height $= Image.extent % Vkt.Extent_2d.height;
+      layers $= ~: 1;
+    ]
+
+  let framebuffer =
+    let x  = Ctypes.allocate_n Vkt.framebuffer 1 in
+    Vkc.create_framebuffer device framebuffer_info None
+      x <?> "Framebuffer creation";
+    !x
+
+  let my_fmb = framebuffer
+
+  let queue =
+    let x = Ctypes.allocate_n Vkt.queue 1 in
+    Vkc.get_device_queue device Device.queue_family ~:0 x;
+    !x
+
+  let command_pool_info = let open Vkt.Command_pool_create_info in
+    mk_ptr t [s_type $= Vkt.Structure_type.Command_pool_create_info;
+            p_next $= null;
+            flags $= Vkt.Command_pool_create_flags.empty;
+            queue_family_index $= Device.queue_family;
+           ]
+
+  let command_pool =
+    let x  = Ctypes.allocate_n Vkt.Command_pool.t 1 in
+    Vkc.create_command_pool device command_pool_info None x
+    <?> "Command pool creation";
+    !x
+
+  let my_cmd_pool = command_pool
+  let n_cmd_buffers = ~: 1
+  let buffer_allocate_info = let open Vkt.Command_buffer_allocate_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Command_buffer_allocate_info;
+      p_next $= null;
+      command_pool $= my_cmd_pool;
+      level $= Vkt.Command_buffer_level.Primary;
+      command_buffer_count $= n_cmd_buffers;
+    ]
+
+  let cmd_buffers =
+    let n = to_int n_cmd_buffers in
+    let x = A.make Vkt.command_buffer n in
+    Vkc.allocate_command_buffers device buffer_allocate_info @@ A.start x
+    <?> "Command buffers allocation";
+    x
+
+  let cmd_begin_info = let open Vkt.Command_buffer_begin_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Command_buffer_begin_info;
+      p_next $= null;
+      flags $= Vkt.Command_buffer_usage_flags.(singleton simultaneous_use);
+      p_inheritance_info $= None;
+    ]
+
+  let clear_values =
+    let open Vkt.Clear_value in
+    let x = Ctypes.make t in
+    let c = Ctypes.make Vkt.clear_color_value in
+    let a = A.of_list Ctypes.float [ 0.;0.;0.; 1.] in
+    set c Vkt.Clear_color_value.float_3_2 @@ A.start a;
+    set x color c;
+    x
+
+  let render_pass_info = let open Vkt.Render_pass_begin_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Render_pass_begin_info;
+      p_next $= null;
+      render_pass $= Pipeline.simple_render_pass;
+      framebuffer $= my_fmb;
+      render_area $= Pipeline.scissor;
+      clear_value_count $= ~:1;
+      p_clear_values $= (Ctypes.addr clear_values);
+    ]
+
+  let () =
+    let b = A.get cmd_buffers 0 in
+    Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
+    Vkc.cmd_begin_render_pass b render_pass_info
+      Vkt.Subpass_contents.Inline;
+    Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
+    Vkc.cmd_draw b ~:3 ~:1 ~:0 ~:0;
+    Vkc.cmd_end_render_pass b;
+    Vkc.end_command_buffer b <?> "Command buffer recorded"
+end
+
+module Render = struct
+
+  let semaphore_info = let open Vkt.Semaphore_create_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Semaphore_create_info;
+      p_next $= null;
+      flags $= Vkt.Semaphore_create_flags.empty
+    ]
+
+  let create_semaphore () =
+    let x = Ctypes.allocate_n Vkt.semaphore 1 in
+    Vkc.create_semaphore device semaphore_info None x
+    <?> "Created semaphore";
+    !x
+
+  let im_semaphore = create_semaphore ()
+  let render_semaphore = create_semaphore ()
+
+  let draw () = () 
+  
 end
 
 
