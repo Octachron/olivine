@@ -465,6 +465,7 @@ module Pipeline = struct
       p_next $= null;
       flags $= Vkt.Pipeline_viewport_state_create_flags.empty;
       viewport_count $= ~: 1;
+      scissor_count $= ~: 1;
       p_viewports $= Ctypes.addr viewport;
       p_scissors $= Ctypes.addr scissor
     ]

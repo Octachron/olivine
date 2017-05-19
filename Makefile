@@ -34,8 +34,8 @@ enkindler.cma: _tags enkindler/*
 libsdlvulkan.so: sdl/vulkan_sdl.c
 	gcc -shared -o libsdlvulkan.so -fPIC -lvulkan sdl/vulkan_sdl.c
 
-shader: shaders/base.{frag,vert}
-	$(SPIR) shaders/base.frag && $(SPIR) shaders/base.vert
+shader: shaders/base.frag shaders/base.vert
+	cd shaders && $(SPIR) base.frag && $(SPIR) base.vert
 
 
 clean:
