@@ -1,5 +1,3 @@
-module G = Generator
-
 let fp = Format.fprintf
 let stdout = Format.std_formatter
 

@@ -65,6 +65,18 @@ module Typexpr(X:name) = struct
     | Null_terminated
     | Math_expr
 
+  type direction =
+    | In
+    | Out
+    | In_Out
+
+  let pp_dir ppf x =
+    Fmt.pf ppf "%s" (match x with
+        | In -> "in"
+        | Out -> "out"
+        | In_Out -> "in|out"
+      )
+
   type typexpr =
     | Const of typexpr
     | Name of name
@@ -74,7 +86,7 @@ module Typexpr(X:name) = struct
     | Array of int constexpr option * typexpr
     | FunPtr of fn
     | Enum of  constructor list
-    | Union of field list
+    | Union of simple_field list
     | Bitset of { implementation:name; field_type:name option}
     | Bitfields of
         {
@@ -85,11 +97,24 @@ module Typexpr(X:name) = struct
     | Result of { ok: name list; bad: name list }
     | Record of {is_private:bool; fields: field list}
 
-  and field = name * typexpr
-  and fn = { name:name; return: typexpr; args: field list }
+  and simple_field = name * typexpr
+  and field =
+    | Simple of simple_field
+    | Composite of { subfields: simple_field list; typ:typexpr }
+  and fn_field = { dir:direction; field:field }
+  and fn = { name:name; return: typexpr; args: fn_field list }
 
   type type_decl = name * typexpr
 
+  let flatten_fields l =
+    let f acc = function
+      | Simple f -> f :: acc
+      | Composite c -> c.subfields @ acc in
+    List.rev @@ List.fold_left f [] l
+
+  let flatten_fn_fields fs =
+    let proj x = x.field in
+    flatten_fields @@ List.map proj fs
 
   let fp = Fmt.pf
 
@@ -126,7 +151,7 @@ module Typexpr(X:name) = struct
       fp ppf "@[%s{%a}@]" (if is_private then "private" else "")
         (pp_list (const ";@ ") pp_field) fields
     | Union fields ->
-      fp ppf "@[[%a]@]" (pp_list (const "@ ||") pp_field) fields
+      fp ppf "@[[%a]@]" (pp_list (const "@ ||") pp_simple_field) fields
     | Bitset {implementation; field_type} ->
       fp ppf "Bitset@[@ {implementation:%a;@ field_type:(%a)}@]"
         X.pp implementation Fmt.(option X.pp)  field_type
@@ -146,9 +171,17 @@ module Typexpr(X:name) = struct
       fp ppf "@[either@ [ok:%a]@ [bad:%a]@]"
         ppl ok ppl bad
 
-  and pp_field ppf (name, t) =
+  and pp_simple_field ppf (name, t) =
     fp ppf "%a:%a" X.pp name pp t
 
+  and pp_field ppf = function
+    | Simple f -> pp_simple_field ppf f
+    | Composite {subfields; typ} ->
+      fp ppf "[@[{%a} %a]@]" (Fmt.list pp_simple_field) subfields pp typ
+
+  and pp_fn_field ppf f =
+    fp ppf "⟨%a:%a⟩" pp_dir f.dir pp_field f.field
+  
   and pp_constr ppf (name,pos) =
     fp ppf "%a(%a)" X.pp name pp_pos pos
 
@@ -159,7 +192,7 @@ module Typexpr(X:name) = struct
 
   and pp_fn ppf fn =
     fp ppf "fun %a@ (%a)@ ⇒ %a" X.pp fn.name
-      (pp_list (const ",@ ") pp_field) fn.args
+      (pp_list (const ",@ ") pp_fn_field) fn.args
       pp fn.return
 
   let pp_typedecl ppf (name,ty)=

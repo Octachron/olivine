@@ -31,7 +31,7 @@ open Unsigned
 
 %start<unit> start
 %start<Ctype.Ty.type_decl> typedef
-%start<Ctype.Ty.field> field
+%start<Ctype.Ty.simple_field> field
 %start <Ctype.Arith.t> formula
 %%
 
@@ -65,7 +65,7 @@ args:
  ;;
 
 arg:
- | t=typexp n=IDENTIFIER q=post_qualifier { n, q t }
+ | t=typexp n=IDENTIFIER q=post_qualifier { {dir=In_Out; field=Simple (n, q t)} }
 ;;
 
 field:

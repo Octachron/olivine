@@ -276,7 +276,7 @@ let structure spec node =
     | Xml.Node ({ name = "member"; children; _ } as n) ->
       let s = flatten children in
       let name, s = parse Parser.field s in
-      (name, refine n s) :: fields
+      Ty.Simple(name, refine n s) :: fields
     | _ -> fields in
   let fields = (List.rev @@ List.fold_left field [] node.children) in
   let is_private = match node%?("returnedonly") with
@@ -465,6 +465,8 @@ let arg l = function
   | Node n -> raise @@
     Type_error ("expected param node, got "^ n.name ^ " node")
 
+let args_refine =
+  List.rev_map (fun f -> {Ty.dir=In_Out; field = Simple f})
 
 let command spec = function
   | Xml.Data s -> raise @@
@@ -477,7 +479,7 @@ let command spec = function
     let return = result_refine r return in
     register name
       (Fn { Ty.return; name;
-            args = List.rev @@ List.fold_left arg [] args })
+            args = args_refine @@ List.fold_left arg [] args })
       spec
   | Node n -> raise @@
     Type_error ("expected command node, got "^ n.name ^ " node")

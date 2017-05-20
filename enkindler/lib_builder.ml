@@ -113,7 +113,7 @@ module Rename = struct
     | Array (cexpr, t) -> Ty.Array( may (const (!)) cexpr, typ t)
     | FunPtr f -> Ty.FunPtr (fn (!) f)
     | Enum constrs -> Ty.Enum(List.map (constr(!)) constrs)
-    | Union f -> Ty.Union (fields (!) f)
+    | Union f -> Ty.Union (sfields (!) f)
     | Record r ->
       Ty.Record{ is_private = r.is_private; fields = fields (!) r.fields }
     | Bitset b ->
@@ -132,17 +132,30 @@ module Rename = struct
     | Null_terminated -> Ty.Null_terminated
     | Math_expr -> Ty.Math_expr
   and fn (!) {Ctype.Ty.args; name; return } =
-    Ty.{ args = List.map (field (!)) args;
+    Ty.{ args = fn_fields (!) args;
          name = ! name;
          return = typ (!) return }
   and bitfield (!) (name, n) = !name, n
-  and field (!) (n,ty) = !n, typ (!) ty
-  and fields (!) = List.map (field (!))
+  and sfield (!) (n,ty) = !n, typ (!) ty
+  and field (!) = function
+    | Cty.Simple f -> Ty.Simple(sfield (!) f)
+    | Composite r -> Composite { subfields = sfields (!) r.subfields;
+                                 typ = typ (!) r.typ
+                               }
+  and fn_field (!) (r:Cty.fn_field) =
+    { Ty.dir = dir r.dir; field = field (!) r.field }
+  and sfields (!) = List.map @@ sfield (!)
+  and fields (!) = List.map @@ field (!)
+  and fn_fields (!) = List.map @@ fn_field (!)
   and constr (!) (n, p) = !n, pos p
   and pos = function
     | Cty.Abs n -> Ty.Abs n
     | Offset n -> Ty.Offset n
     | Bit n -> Ty.Bit n
+  and dir = function
+    | Cty.In -> Ty.In
+    | Out -> Ty.Out
+    | In_Out -> Ty.In_Out
 end
 
 let rec dep_typ (dict,gen as g) (items,lib as build) =
@@ -173,7 +186,8 @@ let dep_fields gen fields build =
       build fields
 
 let dep_fn gen (fn: Cty.fn) build =
-  fn.return |> dep_typ gen build |> dep_fields gen fn.args
+  fn.return |> dep_typ gen build |> dep_fields gen
+    (Cty.flatten_fn_fields fn.args)
 
 
 let deps gen build = function
@@ -182,8 +196,10 @@ let deps gen build = function
   | Const _  | String
   | Result _  | Handle _ | Enum _ | Bitfields _ -> build
   | FunPtr fn -> dep_fn gen fn build
-  | Union fields | Record {fields; _ } ->
+  | Union fields ->
     dep_fields gen fields build
+  | Record {fields; _ } ->
+    dep_fields gen (Cty.flatten_fields fields) build
   | Bitset { field_type = Some name'; _ } ->
     snd gen build name'
   | Bitset _ -> build

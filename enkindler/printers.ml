@@ -168,29 +168,42 @@ end
 
 module Structured = struct
 
-  type kind = Union | Record
+  type 'field kind =
+    | Union: Ty.simple_field kind
+    | Record: Ty.field kind
 
-  let pp_kind ppf = function
+  let pp_kind (type a) ppf: a kind -> unit = function
     | Union -> Fmt.pf ppf "union"
     | Record -> Fmt.pf ppf "structure"
 
-  let field name ppf (field_name,typ)=
+  let sfield name ppf (field_name,typ)=
     let field_name = L.remove_context name field_name in
     Fmt.pf ppf "  let %a = field t \"%a\" %a"
       L.pp_var field_name L.pp_var field_name Typexp.pp typ
 
-  let def kind ppf name fields =
-    Fmt.pf ppf "  type t\n";
-    Fmt.pf ppf "  type %a = t\n" L.pp_type name;
-    Fmt.pf ppf "  let t: t %a typ = %a \"%a\"\n"
+  let field name ppf = function
+    | Ty.Simple f -> sfield name ppf f
+    | Composite { subfields; _ } (*fixme*) ->
+       Fmt.list (sfield name) ppf subfields
+
+  let def (type a) (kind: a kind) ppf name (fields:a list) =
+    Fmt.pf ppf "type t@;";
+    Fmt.pf ppf "type %a = t@;" L.pp_type name;
+    Fmt.pf ppf "let t: t %a typ = %a \"%a\"@;"
       pp_kind kind
       pp_kind kind
       L.pp_type name
     ;
-    Fmt.list ~sep (field name) ppf fields;
-    Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
+    begin match kind with
+      | Union ->
+        Fmt.list (sfield name) ppf fields
+      | Record ->
+        Fmt.list  (field name) ppf fields
+    end;
+    Fmt.pf ppf "@;let () = Ctypes.seal t@;"
 
-  let pp_make ppf fields =
+  let pp_make ppf (fields: Ty.field list) =
+    let fields = Ty.flatten_fields fields (*FIXME*) in
     let gen = "generated__x__" in
     let is_option = function
       | Ty.Const Option _
@@ -205,7 +218,7 @@ module Structured = struct
       else () in
     let set_field ppf (f,_) = Fmt.pf ppf "Ctypes.setf %s %a arg_%a;" gen
         L.pp_var f L.pp_var f in
-    Fmt.pf ppf "@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
+    Fmt.pf ppf "@;@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
                %a\
                Ctypes.addr %s
              @]"
@@ -215,11 +228,14 @@ module Structured = struct
       Fmt.(list set_field) fields
       gen
 
-  let pp kind ppf (name,fields) =
-    Fmt.pf ppf "module %a = struct\n" L.pp_module name;
+  let pp (type a) (kind: a kind) ppf (name, (fields: a list)) =
+    Fmt.pf ppf "@[<hov 2> module %a =@ struct@;" L.pp_module name;
     def kind ppf name fields;
-    if kind = Record then pp_make ppf fields;
-    Fmt.pf ppf "end\n";
+    begin match kind with
+      | Record ->  pp_make ppf fields;
+      | Union -> ()
+    end;
+    Fmt.pf ppf "end@]@.";
     Fmt.pf ppf "let %a = %a.t\n\
                 type %a = %a.t\n"
       L.pp_type name L.pp_module name
@@ -337,11 +353,13 @@ module Funptr = struct
 
   let pp_ty ppf (fn:Ty.fn) =
     Fmt.pf ppf "%a@ @->@ returning %a"
-      (Fmt.list ~sep:arrow Typexp.pp) (List.map snd fn.args)
+      (Fmt.list ~sep:arrow Typexp.pp)
+      (List.map snd @@ Ty.flatten_fn_fields fn.args)
+      (* Composite fields does not make sense here *)
       Typexp.pp fn.return
 
   let pp  ppf (tyname, (fn:Ty.fn)) =
-    match List.map snd fn.args with
+    match List.map snd @@ Ty.flatten_fn_fields fn.args with
     | [] ->
       Fmt.pf ppf "@[<hov> let %a = ptr void @]@."
         L.pp_var tyname
@@ -359,7 +377,7 @@ end
 module Fn = struct
 
   let pp ppf (fn:Ty.fn) =
-    let args' = match List.map snd fn.args with
+    let args' = match List.map snd @@ Ty.flatten_fn_fields fn.args with
       | [] -> [Ty.Name (L.simple [L.word "void"])]
       | l -> l in
     Fmt.pf ppf "@[<hov>let %a =\n\

@@ -1,6 +1,6 @@
 module Dict = Name_study.Dict
 module R = Name_study.M
-module S = Generator.S
+module S = Misc.StringSet
 
 let read filename =
   let spec = open_in filename in

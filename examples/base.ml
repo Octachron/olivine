@@ -122,14 +122,14 @@ module Instance = struct
 
   let info =
     Vkt.Instance_create_info.make
-        ~s_type: Vkt.Structure_type.Instance_create_info
-        ~p_next: null
-        ~flags: Vkt.Instance_create_flags.empty
-        ~enabled_layer_count: nl
-        ~pp_enabled_layer_names: layers
-        ~enabled_extension_count: n_ext
-        ~pp_enabled_extension_names: extensions
-        ()
+      ~s_type: Vkt.Structure_type.Instance_create_info
+      ~p_next: null
+      ~flags: Vkt.Instance_create_flags.empty
+      ~enabled_layer_count: nl
+      ~pp_enabled_layer_names: layers
+      ~enabled_extension_count: n_ext
+      ~pp_enabled_extension_names: extensions
+      ()
 
   ;; debug "Info created"
 
