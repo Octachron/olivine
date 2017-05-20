@@ -67,17 +67,26 @@ module Enum = struct
 
   let view ppf () =
     Fmt.pf ppf
-       "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
+      "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
+
+  let view_opt ppf () =
+    Fmt.pf ppf
+       "\n  let view_opt =\
+              let read x: _ option = if x = max_int then None else Some x in\n\
+              let write: _ option -> _ = \n\
+                function None -> max_int | Some x -> x in\n\
+              Ctypes.view ~write ~read int\n"
 
   let pp impl ppf (name,constrs) =
     Fmt.pf ppf "module %a = struct\n" L.pp_module name;
     List.iter (fun f -> f impl ppf name constrs)
     [def; to_int; of_int; pp ];
     view ppf ();
+    view_opt ppf ();
     Fmt.pf ppf "end\n";
-    Fmt.pf ppf "let %a = %a.view\n\
+    Fmt.pf ppf "let %a, %a_opt = %a.(view,view_opt)\n\
                type %a = %a.t\n"
-      L.pp_var name L.pp_module name
+      L.pp_var name  L.pp_var name L.pp_module name
       L.pp_type name L.pp_module name
 
 end
@@ -138,11 +147,12 @@ module Typexp = struct
       Fmt.pf ppf "(ptr %a)" L.pp_type n
     | Ptr typ -> Fmt.pf ppf "(ptr (%a))" pp typ
     | Option Name n ->
-      Fmt.pf ppf "(option %a)" L.pp_type n
+      Fmt.pf ppf "%a_opt" L.pp_type n
     | Option (Ptr typ) ->
       Fmt.pf ppf "(ptr_opt (%a))" pp typ
-    | Option typ -> Fmt.pf ppf "(option (%a))" pp typ
-
+    | Option Array (_,t) -> Fmt.pf ppf "(ptr_opt (%a))" pp t
+    | Option String -> Fmt.pf ppf "string_opt"
+    | Option t -> Fmt.epr "Not implemented: option %a@." Ty.pp t; exit 2
     | String -> Fmt.pf ppf "string"
     | Array (Some Const n ,typ) ->
       Fmt.pf ppf "(array %a @@@@ %a)" L.pp_var n pp typ
@@ -275,11 +285,15 @@ module Bitset = struct
   let resume ppf bitname name =
     Fmt.pf ppf "type %a = %a.t\n"
       L.pp_type name L.pp_module name;
-    Fmt.pf ppf "let %a = %a.view\n"
-      L.pp_var name L.pp_module name;
+    Fmt.pf ppf "let %a, %a_opt = %a.(view, view_opt)\n"
+      L.pp_var name L.pp_var name L.pp_module name;
     Fmt.pf ppf "let %a = %a.index_view\n"
       L.pp_var bitname
+      L.pp_module name;
+    Fmt.pf ppf "let %a_opt = %a.index_view_opt\n"
+      L.pp_var bitname
       L.pp_module name
+
 
   let pp_with_bits ppf (bitname,fields) =
     let name = set_name bitname in
@@ -309,18 +323,21 @@ module Handle = struct
     Fmt.pf ppf
       "module %a = Handle.Make()\n\
        type %a = %a.t\n\
-       let %a = %a.view\n"
+       let %a, %a_opt = %a.(view,view_opt)
+\n"
       L.pp_module name
       L.pp_type name L.pp_module name
-      L.pp_type name L.pp_module name
+      L.pp_var name L.pp_var name L.pp_module name
 end
 
 module Funptr = struct
 
-  let pp_core ppf (fn:Ty.fn) =
-    Fmt.pf ppf "@[(Foreign.funptr @@@@@ @ %a@ @->@ returning %a)@]"
-      (Fmt.list ~sep:arrow Typexp.pp)
-      (List.map snd fn.args)
+  let opt = "funptr_opt"
+  let direct = "funptr"
+
+  let pp_ty ppf (fn:Ty.fn) =
+    Fmt.pf ppf "%a@ @->@ returning %a"
+      (Fmt.list ~sep:arrow Typexp.pp) (List.map snd fn.args)
       Typexp.pp fn.return
 
   let pp  ppf (tyname, (fn:Ty.fn)) =
@@ -329,8 +346,13 @@ module Funptr = struct
       Fmt.pf ppf "@[<hov> let %a = ptr void @]@."
         L.pp_var tyname
     | _ ->
-      Fmt.pf ppf "@[<hov> let %a = %a@]@."
-        L.pp_var tyname pp_core fn
+      Fmt.pf ppf "@[<hov> let %a, %a_opt =@ \
+                  let ty = %a in@ \
+                  (Foreign.funptr ty,@ \
+                  Foreign.funptr_opt ty)\
+                  @]@."
+        L.pp_var tyname L.pp_var tyname
+        pp_ty fn
 
 end
 
@@ -352,9 +374,9 @@ module DFn = struct
 
   let pp ppf (fn:Ty.fn) =
     Fmt.pf ppf "@[<hov>let %a =\n\
-                get \"%s\" (%a) @]@."
+                get \"%s\" (Foreign.funptr %a) @]@."
       L.pp_var fn.name
-      (L.original fn.name) Funptr.pp_core fn
+      (L.original fn.name) Funptr.pp_ty fn
 end
 
 

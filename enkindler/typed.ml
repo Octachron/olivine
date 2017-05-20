@@ -220,12 +220,14 @@ let array_refine node =
     in
     refine lens
 
+let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
+
 let rec optionalize l typ = match l, typ with
   | false :: q , Ty.Ptr typ -> Ty.Ptr (optionalize q typ)
   | true :: q, Ptr typ -> Option (Ptr (optionalize q typ))
   | q, Const typ -> Const(optionalize q typ)
   | q, Option typ -> Option(optionalize q typ)
-  | [true], typ -> (* Fixme: Ty.Option typ*) typ
+  | [true], typ ->  debug "%a" Ty.pp typ; Option typ
   | [], typ -> typ
   | _ ->
     Fmt.(pf stderr) "optionalize: %a\n%!" Fmt.(list bool) l;

@@ -8,6 +8,10 @@ module Utils = struct
   let get, set = Ctypes.(getf,setf)
   let null = Ctypes.null
 
+  let pp_opt pp ppf = function
+    | None -> ()
+    | Some x -> pp ppf x
+
   let ($=) field value str= set str field value
   let ( % ) = get
 
@@ -45,18 +49,20 @@ module Utils = struct
     ~: n, a'
 
   let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
-  let to_array n p = Array.init (to_int !n) (fun i -> !(p +@ i) )
+  let to_array n p = Array.init n (fun i -> !(p +@ i) )
   let to_string carray =
     String.init (A.length carray)
       (fun n -> A.get carray n)
 
   let get_array msg elt f =
-    let n = Ctypes.(allocate uint32_t) ~:0 in
-    msg "count" @@ f n (nullptr elt);
+    let n = Ctypes.allocate Vkt.uint32_t_opt None in
+    msg "count" @@ f n None;
+    let count = match !n with
+      | None -> 0 | Some n -> to_int n  in
     let e =
-      Ctypes.allocate_n ~count:(to_int !n) elt in
-    msg "allocation" (f n e);
-    to_array n e
+      Ctypes.allocate_n ~count elt in
+    msg "allocation" (f n @@ Some e);
+    to_array count e
 
   let msg name minor r =
     r <?> name ^ ":" ^ minor
@@ -136,7 +142,7 @@ module Instance = struct
 
   let extension_properties =
     get_array (msg "Extension properties") Vkt.extension_properties
-    @@ Vkc.enumerate_instance_extension_properties ""
+    @@ Vkc.enumerate_instance_extension_properties None
 
   ;; Array.iter print_extension_property extension_properties
 end
@@ -175,7 +181,7 @@ module Device = struct
     @@ Vkc.get_physical_device_queue_family_properties phy
 
   let print_queue_property ppf property =
-    Format.fprintf ppf "Queue flags: %a \n" Vkt.Queue_flags.pp
+    Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
       (property % Vkt.Queue_family_properties.queue_flags)
 
   ;; Array.iter (print_queue_property Format.std_formatter)
@@ -184,20 +190,18 @@ module Device = struct
   let queue_family = ~: 0
 
   let queue_create_info =
-    let open Vkt.Device_queue_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Device_queue_create_info;
-      p_next $= null;
-      flags $= Vkt.Device_queue_create_flags.empty;
-      queue_family_index $= queue_family;
-      queue_count $= ~:1;
-      p_queue_priorities $= Ctypes.(allocate float) 1.
-    ]
+    Vkt.Device_queue_create_info.make
+      ~s_type: Vkt.Structure_type.Device_queue_create_info
+      ~p_next: null
+      ~queue_family_index:queue_family
+      ~queue_count:(~:1)
+      ~p_queue_priorities: Ctypes.(allocate float 1.)
+      ()
 
   let device_extensions =
     get_array (msg "device extensions")
       Vkt.extension_properties
-      (Vkc.enumerate_device_extension_properties phy "")
+      (Vkc.enumerate_device_extension_properties phy None)
 
   ;; Format.printf "Device extensions:\n@[<v 2>"
   ;; Array.iter print_extension_property device_extensions
@@ -225,9 +229,9 @@ module Device = struct
        transform:%a;@ composite_alpha:%a;@ usage_flags:%a@]"
       (to_int @@ cap%min_image_count) (to_int @@ cap%max_image_count)
       pp_extent_2d (cap%current_extent)
-      Vkt.Surface_transform_flags_khr.pp (cap%supported_transforms)
-      Vkt.Composite_alpha_flags_khr.pp (cap%supported_composite_alpha)
-      Vkt.Image_usage_flags.pp (cap%supported_usage_flags)
+      (pp_opt Vkt.Surface_transform_flags_khr.pp) (cap%supported_transforms)
+      (pp_opt Vkt.Composite_alpha_flags_khr.pp) (cap%supported_composite_alpha)
+      (pp_opt Vkt.Image_usage_flags.pp) (cap%supported_usage_flags)
 
   ;; debug "Surface capabilities: %a" pp_capability capabilities
 
@@ -259,19 +263,17 @@ module Device = struct
     let nl, layers = from_array Ctypes.string [| |] in
     let n_ext, exts = from_array Ctypes.string [|"VK_KHR_swapchain"|] in
     let info =
-      let open Vkt.Device_create_info in
-      mk_ptr t [
-        s_type $= Vkt.Structure_type.Device_create_info;
-        p_next $= null;
-        flags $= Vkt.Device_create_flags.empty;
-        queue_create_info_count $= ~: 1;
-        p_queue_create_infos $= queue_create_info;
-        enabled_layer_count $= nl;
-        pp_enabled_layer_names $= layers;
-        enabled_extension_count $= n_ext ;
-        pp_enabled_extension_names $= exts;
-        p_enabled_features $= None
-      ] in
+      Vkt.Device_create_info.make
+        ~s_type: Vkt.Structure_type.Device_create_info
+        ~p_next: null
+        ~queue_create_info_count:( ~:1 )
+        ~p_queue_create_infos: queue_create_info
+        ~enabled_layer_count: nl
+        ~pp_enabled_layer_names: layers
+        ~enabled_extension_count: n_ext
+        ~pp_enabled_extension_names: exts
+      ()
+      in
     Vkc.create_device phy info None d
     <?> "Create logical device";
     !d
@@ -297,7 +299,6 @@ module Image = struct
     Vkt.Swapchain_create_info_khr.make
       ~s_type: Vkt.Structure_type.Swapchain_create_info_khr
       ~p_next: null
-      ~flags: Vkt.Swapchain_create_flags_khr.empty
       ~surface: surface_khr
       ~min_image_count: image_count
       ~image_format:format
@@ -319,6 +320,7 @@ module Image = struct
       ~present_mode: Vkt.Present_mode_khr.Fifo
       ~clipped: true'
       ~old_swapchain:Vkt.Swapchain_khr.null
+      ()
 
   let swap_chain =
     let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
@@ -348,12 +350,12 @@ module Image = struct
     Vkt.Image_view_create_info.make
       ~s_type: Vkt.Structure_type.Image_view_create_info
       ~p_next: null
-      ~flags: Vkt.Image_view_create_flags.empty
       ~image: im
       ~view_type: Vkt.Image_view_type.N2d
       ~format
       ~subresource_range
       ~components:!(component_mapping)
+      ()
 
   let views =
     let create im =
@@ -382,9 +384,9 @@ module Pipeline = struct
       Vkt.Shader_module_create_info.make
         ~s_type: Vkt.Structure_type.Shader_module_create_info
         ~p_next: null
-        ~flags: Vkt.Shader_module_create_flags.empty
         ~code_size:(Unsigned.Size_t.of_int len)
         ~p_code:(A.start c)
+        ()
 
     let create_shader name s =
       let info = shader_module_info s in
@@ -414,22 +416,22 @@ module Pipeline = struct
     Vkt.Pipeline_vertex_input_state_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_vertex_input_state_create_info
       ~p_next: null
-      ~flags: Vkt.Pipeline_vertex_input_state_create_flags.empty
       ~vertex_binding_description_count:(~: 0)
       ~p_vertex_binding_descriptions:
         (nullptr Vkt.vertex_input_binding_description)
       ~vertex_attribute_description_count:(~: 0)
       ~p_vertex_attribute_descriptions:
         (nullptr Vkt.vertex_input_attribute_description)
+      ()
 
-  let input_assembly = let open Vkt.Pipeline_input_assembly_state_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_input_assembly_state_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_input_assembly_state_create_flags.empty;
-      topology $= Vkt.Primitive_topology.Triangle_list;
-      primitive_restart_enable $= false'
-    ]
+  let input_assembly =
+    Vkt.Pipeline_input_assembly_state_create_info.make
+      ~s_type: Vkt.Structure_type.Pipeline_input_assembly_state_create_info
+      ~p_next: null
+      ~flags: Vkt.Pipeline_input_assembly_state_create_flags.empty
+      ~topology: Vkt.Primitive_topology.Triangle_list
+      ~primitive_restart_enable: false'
+    ()
 
   let to_float x = float @@ Unsigned.UInt32.to_int x
   let viewport =
@@ -445,82 +447,79 @@ module Pipeline = struct
       ~extent:Image.extent
 
 
-  let viewport_state = let open Vkt.Pipeline_viewport_state_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_viewport_state_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_viewport_state_create_flags.empty;
-      viewport_count $= ~: 1;
-      scissor_count $= ~: 1;
-      p_viewports $= viewport;
-      p_scissors $= scissor
-    ]
+  let viewport_state =
+    Vkt.Pipeline_viewport_state_create_info.make
+      ~s_type: Vkt.Structure_type.Pipeline_viewport_state_create_info
+      ~p_next: null
+      ~viewport_count: (~:1)
+      ~scissor_count: (~:1)
+      ~p_viewports: viewport
+      ~p_scissors: scissor
+      ()
 
-  let rasterizer = let open Vkt.Pipeline_rasterization_state_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_rasterization_state_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_rasterization_state_create_flags.empty;
-      depth_clamp_enable $= false';
-      rasterizer_discard_enable $= false';
-      polygon_mode $= Vkt.Polygon_mode.Fill;
-      cull_mode $= Vkt.Cull_mode_flags.(singleton back);
-      front_face $= Vkt.Front_face.Clockwise;
-      depth_bias_enable $= false';
-      depth_bias_constant_factor $= 0.;
-      depth_bias_clamp $= 0.;
-      depth_bias_slope_factor $= 0.;
-      line_width $= 1.
-    ]
+  let rasterizer =
+    Vkt.Pipeline_rasterization_state_create_info.make
+      ~s_type: Vkt.Structure_type.Pipeline_rasterization_state_create_info
+      ~p_next: null
+      ~depth_clamp_enable: false'
+      ~rasterizer_discard_enable: false'
+      ~polygon_mode: Vkt.Polygon_mode.Fill
+      ~cull_mode: Vkt.Cull_mode_flags.(singleton back)
+      ~front_face: Vkt.Front_face.Clockwise
+      ~depth_bias_enable: false'
+      ~depth_bias_constant_factor: 0.
+      ~depth_bias_clamp: 0.
+      ~depth_bias_slope_factor: 0.
+      ~line_width: 1.
+      ()
 
-  let no_multisampling = let open Vkt.Pipeline_multisample_state_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_multisample_state_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_multisample_state_create_flags.empty;
-      rasterization_samples $= Vkt.Sample_count_flags.n1;
-      sample_shading_enable $= false';
-      min_sample_shading $= 1.;
-      p_sample_mask $= nullptr Ctypes.uint32_t;
-      alpha_to_coverage_enable $= false';
-      alpha_to_one_enable $= false'
-    ]
+  let no_multisampling =
+    Vkt.Pipeline_multisample_state_create_info.make
+      ~s_type: Vkt.Structure_type.Pipeline_multisample_state_create_info
+      ~p_next: null
+      ~flags: Vkt.Pipeline_multisample_state_create_flags.empty
+      ~rasterization_samples: Vkt.Sample_count_flags.n1
+      ~sample_shading_enable: false'
+      ~min_sample_shading: 1.
+      ~alpha_to_coverage_enable: false'
+      ~alpha_to_one_enable: false'
+      ()
 
-  let no_blend = let open Vkt.Pipeline_color_blend_attachment_state in
-    mk_ptr t [
-      blend_enable $= false';
-      color_write_mask $= Vkt.Color_component_flags.(of_list[r;g;b;a]);
-      src_color_blend_factor $= Vkt.Blend_factor.One;
-      dst_color_blend_factor $= Vkt.Blend_factor.Zero;
-      color_blend_op $= Vkt.Blend_op.Add;
-      src_alpha_blend_factor $= Vkt.Blend_factor.One;
-      dst_alpha_blend_factor $= Vkt.Blend_factor.Zero;
-      alpha_blend_op $= Vkt.Blend_op.Add;
-    ]
+  let no_blend =
+    Vkt.Pipeline_color_blend_attachment_state.make
+     ~blend_enable: false'
+     ~color_write_mask: Vkt.Color_component_flags.(of_list[r;g;b;a])
+     ~src_color_blend_factor: Vkt.Blend_factor.One
+     ~dst_color_blend_factor: Vkt.Blend_factor.Zero
+     ~color_blend_op: Vkt.Blend_op.Add
+     ~src_alpha_blend_factor: Vkt.Blend_factor.One
+     ~dst_alpha_blend_factor: Vkt.Blend_factor.Zero
+     ~alpha_blend_op: Vkt.Blend_op.Add
+     ()
 
-  let blend_state_info = let open Vkt.Pipeline_color_blend_state_create_info in
+
+  let blend_state_info =
     let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_color_blend_state_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_color_blend_state_create_flags.empty;
-      logic_op_enable $= false';
-      logic_op $= Vkt.Logic_op.Copy;
-      attachment_count $= ~: 1;
-      p_attachments $= no_blend;
-      blend_constants $= consts
-    ]
+    Vkt.Pipeline_color_blend_state_create_info.make
+     ~s_type: Vkt.Structure_type.Pipeline_color_blend_state_create_info
+     ~p_next: null
+     ~logic_op_enable: false'
+     ~logic_op: Vkt.Logic_op.Copy
+     ~attachment_count: ~: 1
+     ~p_attachments: no_blend
+     ~blend_constants: consts
+     ()
 
-  let no_uniform = let open Vkt.Pipeline_layout_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_layout_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_layout_create_flags.empty;
-      set_layout_count $= ~:0;
-      p_set_layouts $= nullptr Vkt.descriptor_set_layout;
-      push_constant_range_count $= ~: 0;
-      p_push_constant_ranges $= nullptr Vkt.push_constant_range
-    ]
+
+  let no_uniform =
+    Vkt.Pipeline_layout_create_info.make
+      ~s_type: Vkt.Structure_type.Pipeline_layout_create_info
+      ~p_next: null
+      ~set_layout_count: (~:0)
+      ~p_set_layouts:(nullptr Vkt.descriptor_set_layout)
+      ~push_constant_range_count:(~:0)
+      ~p_push_constant_ranges:(nullptr Vkt.push_constant_range)
+      ()
 
   let simple_layout =
     let x = Ctypes.allocate_n Vkt.pipeline_layout 1 in
@@ -529,54 +528,45 @@ module Pipeline = struct
     !x
 
   let color_attachment =
-    let open Vkt.Attachment_description in
-    mk_ptr t [
-      flags $= Vkt.Attachment_description_flags.empty;
-      format $= Image.format;
-      samples $= Vkt.Sample_count_flags.n1;
-      load_op $= Vkt.Attachment_load_op.Clear;
-      store_op $= Vkt.Attachment_store_op.Store;
-      stencil_load_op $= Vkt.Attachment_load_op.Dont_care;
-      stencil_store_op $= Vkt.Attachment_store_op.Dont_care;
-      initial_layout $= Vkt.Image_layout.Undefined;
-      final_layout $= Vkt.Image_layout.Present_src_khr
-    ]
+    Vkt.Attachment_description.make
+      ~format: Image.format
+      ~samples: Vkt.Sample_count_flags.n1
+      ~load_op: Vkt.Attachment_load_op.Clear
+      ~store_op: Vkt.Attachment_store_op.Store
+      ~stencil_load_op: Vkt.Attachment_load_op.Dont_care
+      ~stencil_store_op: Vkt.Attachment_store_op.Dont_care
+      ~initial_layout: Vkt.Image_layout.Undefined
+      ~final_layout: Vkt.Image_layout.Present_src_khr
+      ()
 
   let attachment =
-    let open Vkt.Attachment_reference in
-    mk_ptr t [
-      attachment $= ~: 0;
-      layout $= Vkt.Image_layout.Color_attachment_optimal;
-    ]
+    Vkt.Attachment_reference.make
+      ~attachment:( ~:0 )
+      ~layout: Vkt.Image_layout.Color_attachment_optimal
 
-  let my_subpass =
+  let subpass =
     let null = nullptr Vkt.Attachment_reference.t in
-    let open Vkt.Subpass_description in
-    mk_ptr t [
-      flags $= Vkt.Subpass_description_flags.empty;
-      pipeline_bind_point $= Vkt.Pipeline_bind_point.Graphics;
-      color_attachment_count $= ~: 1;
-      p_color_attachments $= attachment;
-      input_attachment_count $= ~:0;
-      p_input_attachments $= null;
-      preserve_attachment_count $= ~:0;
-      p_preserve_attachments $= nullptr Ctypes.uint32_t;
-      p_resolve_attachments $= null;
-      p_depth_stencil_attachment $= None;
-    ]
+    Vkt.Subpass_description.make
+      ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
+      ~color_attachment_count: ~: 1
+      ~p_color_attachments: attachment
+      ~input_attachment_count: ~:0
+      ~p_input_attachments: null
+      ~preserve_attachment_count: ~:0
+      ~p_preserve_attachments: (nullptr Ctypes.uint32_t)
+      ()
 
-  let render_pass_info = let open Vkt.Render_pass_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Render_pass_create_info;
-      p_next $= null;
-      flags $= Vkt.Render_pass_create_flags.empty;
-      attachment_count $= ~: 1;
-      p_attachments $= color_attachment;
-      subpass_count $= ~: 1;
-      p_subpasses $= my_subpass;
-      dependency_count $= ~: 0;
-      p_dependencies $= nullptr Vkt.subpass_dependency
-    ]
+  let render_pass_info =
+    Vkt.Render_pass_create_info.make
+      ~s_type: Vkt.Structure_type.Render_pass_create_info
+      ~p_next: null
+      ~attachment_count: ~: 1
+      ~p_attachments: color_attachment
+      ~subpass_count: ~: 1
+      ~p_subpasses: subpass
+      ~dependency_count: ~: 0
+      ~p_dependencies: (nullptr Vkt.subpass_dependency)
+      ()
 
   let simple_render_pass =
     let x = Ctypes.allocate_n Vkt.render_pass 1 in
@@ -584,35 +574,31 @@ module Pipeline = struct
     <?> "Creating render pass";
     !x
 
-  let pipeline_info = let open Vkt.Graphics_pipeline_create_info in
+  let pipeline_info =
     let nstages, stages = from_array Vkt.pipeline_shader_stage_create_info
         Shaders.[| !vert_stage; !frag_stage |] in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Graphics_pipeline_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_create_flags.empty;
-      stage_count $= nstages;
-      p_stages $= stages;
-      p_vertex_input_state $= null_input;
-      p_input_assembly_state $= input_assembly;
-      p_tessellation_state $= None;
-      p_viewport_state $= Some viewport_state;
-      p_rasterization_state $= rasterizer;
-      p_multisample_state $= Some no_multisampling;
-      p_depth_stencil_state $= None;
-      p_color_blend_state $= Some blend_state_info;
-      p_dynamic_state $= None;
-      layout $= simple_layout;
-      render_pass $= simple_render_pass;
-      subpass $= ~:0;
-      base_pipeline_handle $= Vkt.Pipeline.null;
-      base_pipeline_index $= 0l;
-    ]
+    Vkt.Graphics_pipeline_create_info.make
+      ~s_type: Vkt.Structure_type.Graphics_pipeline_create_info
+      ~p_next: null
+      ~stage_count: nstages
+      ~p_stages: stages
+      ~p_vertex_input_state: null_input
+      ~p_input_assembly_state: input_assembly
+      ~p_viewport_state: viewport_state
+      ~p_rasterization_state: rasterizer
+      ~p_multisample_state: no_multisampling
+      ~p_color_blend_state: blend_state_info
+      ~layout: simple_layout
+      ~render_pass: simple_render_pass
+      ~subpass: ~:0
+      ~base_pipeline_index: 0l
+      ()
+
 
   let x =
     debug "Pipeline creation";
     let x = Ctypes.allocate_n Vkt.pipeline 1 in
-    Vkc.create_graphics_pipelines device Vkt.Pipeline_cache.null ~:1
+    Vkc.create_graphics_pipelines device None ~:1
       pipeline_info None x
     <?> "Graphics pipeline creation";
     !x
@@ -621,18 +607,17 @@ end
 
 module Cmd = struct
 
-  let framebuffer_info image = let open Vkt.Framebuffer_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Framebuffer_create_info;
-      p_next $= null;
-      flags $= Vkt.Framebuffer_create_flags.empty;
-      render_pass $= Pipeline.simple_render_pass;
-      attachment_count $= ~:1;
-      p_attachments $= image;
-      width $= Image.extent % Vkt.Extent_2d.width;
-      height $= Image.extent % Vkt.Extent_2d.height;
-      layers $= ~: 1;
-    ]
+  let framebuffer_info image =
+    Vkt.Framebuffer_create_info.make
+      ~s_type: Vkt.Structure_type.Framebuffer_create_info
+      ~p_next: null
+      ~render_pass: Pipeline.simple_render_pass
+      ~attachment_count: ~:1
+      ~p_attachments: image
+      ~width:(Image.extent % Vkt.Extent_2d.width )
+      ~height:(Image.extent % Vkt.Extent_2d.height)
+      ~layers: ~: 1
+      ()
 
   let framebuffer index =
     let x  = Ctypes.allocate_n Vkt.framebuffer 1 in
@@ -650,12 +635,12 @@ module Cmd = struct
     Vkc.get_device_queue device Device.queue_family ~:0 x;
     !x
 
-  let command_pool_info = let open Vkt.Command_pool_create_info in
-    mk_ptr t [s_type $= Vkt.Structure_type.Command_pool_create_info;
-            p_next $= null;
-            flags $= Vkt.Command_pool_create_flags.empty;
-            queue_family_index $= Device.queue_family;
-           ]
+  let command_pool_info =
+    Vkt.Command_pool_create_info.make
+      ~s_type: Vkt.Structure_type.Command_pool_create_info
+      ~p_next: null
+      ~queue_family_index: Device.queue_family
+      ()
 
   let command_pool =
     let x  = Ctypes.allocate_n Vkt.Command_pool.t 1 in
@@ -665,14 +650,13 @@ module Cmd = struct
 
   let my_cmd_pool = command_pool
   let n_cmd_buffers = ~: (A.length framebuffers)
-  let buffer_allocate_info = let open Vkt.Command_buffer_allocate_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Command_buffer_allocate_info;
-      p_next $= null;
-      command_pool $= my_cmd_pool;
-      level $= Vkt.Command_buffer_level.Primary;
-      command_buffer_count $= n_cmd_buffers;
-    ]
+  let buffer_allocate_info =
+    Vkt.Command_buffer_allocate_info.make
+      ~s_type: Vkt.Structure_type.Command_buffer_allocate_info
+      ~p_next: null
+      ~command_pool: my_cmd_pool
+      ~level: Vkt.Command_buffer_level.Primary
+      ~command_buffer_count: n_cmd_buffers
 
   let cmd_buffers =
     let n = to_int n_cmd_buffers in
@@ -683,13 +667,12 @@ module Cmd = struct
 
   ;;debug "Created %d cmd buffers" (to_int n_cmd_buffers)
 
-  let cmd_begin_info = let open Vkt.Command_buffer_begin_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Command_buffer_begin_info;
-      p_next $= null;
-      flags $= Vkt.Command_buffer_usage_flags.(singleton simultaneous_use);
-      p_inheritance_info $= None;
-    ]
+  let cmd_begin_info =
+    Vkt.Command_buffer_begin_info.make
+      ~s_type: Vkt.Structure_type.Command_buffer_begin_info
+      ~p_next: null
+      ~flags: Vkt.Command_buffer_usage_flags.(singleton simultaneous_use)
+      ()
 
   let clear_values =
     let open Vkt.Clear_value in
@@ -700,16 +683,16 @@ module Cmd = struct
     set x color c;
     x
 
-  let render_pass_info fmb = let open Vkt.Render_pass_begin_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Render_pass_begin_info;
-      p_next $= null;
-      render_pass $= Pipeline.simple_render_pass;
-      framebuffer $= fmb;
-      render_area $= !Pipeline.scissor;
-      clear_value_count $= ~:1;
-      p_clear_values $= (Ctypes.addr clear_values);
-    ]
+  let render_pass_info fmb =
+    Vkt.Render_pass_begin_info.make
+      ~s_type: Vkt.Structure_type.Render_pass_begin_info
+      ~p_next: null
+      ~render_pass: Pipeline.simple_render_pass
+      ~framebuffer: fmb
+      ~render_area: !Pipeline.scissor
+      ~clear_value_count: (~:1)
+      ~p_clear_values: (Ctypes.addr clear_values)
+      ()
 
   let cmd b fmb =
     Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
@@ -730,12 +713,11 @@ end
 
 module Render = struct
 
-  let semaphore_info = let open Vkt.Semaphore_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Semaphore_create_info;
-      p_next $= null;
-      flags $= Vkt.Semaphore_create_flags.empty
-    ]
+  let semaphore_info =
+    Vkt.Semaphore_create_info.make
+      ~s_type: Vkt.Structure_type.Semaphore_create_info
+      ~p_next: null
+      ()
 
   let create_semaphore () =
     let x = Ctypes.allocate_n Vkt.semaphore 1 in
@@ -749,39 +731,38 @@ module Render = struct
   let wait_stage = let open Vkt.Pipeline_stage_flags in
     Ctypes.allocate view @@ singleton top_of_pipe
 
-  let submit_info index = let open Vkt.Submit_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Submit_info;
-      p_next $= null;
-      wait_semaphore_count $= ~: 1;
-      p_wait_semaphores $= im_semaphore;
-      p_wait_dst_stage_mask $= wait_stage;
-      command_buffer_count $= ~: 1;
-      p_command_buffers $= A.start Cmd.cmd_buffers +@ index;
-      signal_semaphore_count $= ~:1;
-      p_signal_semaphores $= render_semaphore;
-    ]
+  let submit_info index =
+    Vkt.Submit_info.make
+      ~s_type: Vkt.Structure_type.Submit_info
+      ~p_next: null
+      ~wait_semaphore_count: (~: 1)
+      ~p_wait_semaphores: im_semaphore
+      ~p_wait_dst_stage_mask: wait_stage
+      ~command_buffer_count: (~: 1)
+      ~p_command_buffers: (A.start Cmd.cmd_buffers +@ index)
+      ~signal_semaphore_count: (~:1)
+      ~p_signal_semaphores: render_semaphore
+      ()
 
   let swapchains = Ctypes.allocate Vkt.swapchain_khr Image.swap_chain
   let present_info index =
-    let open Vkt.Present_info_khr in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Present_info_khr;
-      p_next $= null;
-      wait_semaphore_count $= ~:1;
-      p_wait_semaphores $= render_semaphore;
-      swapchain_count $= ~: 1;
-      p_swapchains $= swapchains;
-      p_image_indices $= index;
-    ]
+    Vkt.Present_info_khr.make
+      ~s_type: Vkt.Structure_type.Present_info_khr
+      ~p_next: null
+      ~wait_semaphore_count: ~:1
+      ~p_wait_semaphores: render_semaphore
+      ~swapchain_count: ~: 1
+      ~p_swapchains: swapchains
+      ~p_image_indices: index
+      ()
 
   let debug_draw () =
     let n = Ctypes.(allocate uint32_t) ~:0 in
     Swapchain.acquire_next_image_khr device Image.swap_chain
-      Unsigned.UInt64.max_int !im_semaphore Vkt.Fence.null n
+      Unsigned.UInt64.max_int (Some !im_semaphore) None n
     <?> "Acquire image";
     debug "Image %d acquired" (to_int !n);
-    Vkc.queue_submit Cmd.queue ~:1 (submit_info @@ to_int !n) Vkt.Fence.null
+    Vkc.queue_submit Cmd.queue (Some ~:1) (submit_info @@ to_int !n) None
     <?> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue (present_info n)
     <?> "Image presented"
@@ -789,9 +770,9 @@ module Render = struct
   let draw () =
         let n = Ctypes.(allocate uint32_t) ~:0 in
     Swapchain.acquire_next_image_khr device Image.swap_chain
-      Unsigned.UInt64.max_int !im_semaphore Vkt.Fence.null n
+      Unsigned.UInt64.max_int (Some !im_semaphore) None n
     |> ignore;
-    Vkc.queue_submit Cmd.queue ~:1 (submit_info @@ to_int !n) Vkt.Fence.null
+    Vkc.queue_submit Cmd.queue (Some ~:1) (submit_info @@ to_int !n) None
     |> ignore;
     Swapchain.queue_present_khr Cmd.queue (present_info n)
     |> ignore

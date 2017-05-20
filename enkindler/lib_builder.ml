@@ -290,7 +290,7 @@ let generate root preambule dict (spec:Typed.spec) =
   let submodules =
     [make ~preambule:"open Vk__const\nopen Vk__types\nopen Vk__subresult"
        ["vk"] "core";
-     make ~preambule:"open Vk__const\n" ["vk"] "types";
+     make ~preambule:"open Vk__const\ninclude Builtin_types\n" ["vk"] "types";
     ] in
   let items =
        S.of_list

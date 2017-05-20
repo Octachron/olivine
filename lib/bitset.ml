@@ -25,7 +25,9 @@ module type S = sig
 
   val of_int: int -> t
   val view: t Ctypes.typ
+  val view_opt: t option Ctypes.typ
   val index_view: index Ctypes.typ
+  val index_view_opt: index option Ctypes.typ
 end
 
 module Make(): S = struct
@@ -61,5 +63,17 @@ module Make(): S = struct
   let of_int n = n
   let id x = x
   let view = Ctypes.view id id Ctypes.int
+
+  let view_opt =
+    let read x = if x = 0 then None else Some x in
+    let write = function None -> 0 | Some x -> x in
+    Ctypes.view read write Ctypes.int
+
   let index_view = Ctypes.view id id Ctypes.int
+
+  let index_view_opt =
+    let read x = if x = 0 then None else Some x in
+    let write = function None -> 0 | Some x -> x in
+    Ctypes.view read write Ctypes.int
+
 end

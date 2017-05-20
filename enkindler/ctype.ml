@@ -106,9 +106,11 @@ module Typexpr(X:name) = struct
   let pp_bitfield ppf (name,int) =
     fp ppf "%d:%a" int X.pp name
 
+  let pp_name = X.pp
+
   let rec pp ppf = function
     | Const c -> fp ppf "const %a" pp c
-    | Name n -> X.pp ppf n
+    | Name n -> fp ppf "\"%a\"" X.pp n
     | Ptr (Name _ |Ptr _ as ty) -> fp ppf "ptr %a" pp ty
     | Ptr ty -> fp ppf "ptr (%a)" pp ty
     | Option (Name _ as ty) -> fp ppf "option %a" pp ty

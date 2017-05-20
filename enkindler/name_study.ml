@@ -187,7 +187,7 @@ let path dict name =
   let path =
     if string_prefix "PFN" name then
       split_sticky_camel_case dict.words
-      @@ String.sub name 5 (String.length name - 5)
+      @@ String.sub name 4 (String.length name - 4)
     else if String.contains name '_' then
       name
       |> String.split_on_char '_'
