@@ -184,7 +184,7 @@ module Device = struct
     queue_family_properties
 
   let queue_family = ~: 0
-  
+
   let queue_create_info =
     let open Vkt.Device_queue_create_info in
     mk_ptr t [
@@ -295,7 +295,6 @@ module Image = struct
     (Device.capabilities % min_image_count,
      Device.capabilities % current_extent)
 
-  
   let swap_chain_info =
     let open Vkt.Swapchain_create_info_khr in
     make t [
@@ -792,7 +791,7 @@ module Render = struct
       p_image_indices $= index;
     ]
 
-  let draw () =
+  let debug_draw () =
     let n = Ctypes.(allocate uint32_t) ~:0 in
     Swapchain.acquire_next_image_khr device Image.swap_chain
       Unsigned.UInt64.max_int !im_semaphore Vkt.Fence.null n
@@ -803,8 +802,18 @@ module Render = struct
     Swapchain.queue_present_khr Cmd.queue (present_info n)
     <?> "Image presented"
 
+  let draw () =
+        let n = Ctypes.(allocate uint32_t) ~:0 in
+    Swapchain.acquire_next_image_khr device Image.swap_chain
+      Unsigned.UInt64.max_int !im_semaphore Vkt.Fence.null n
+    |> ignore;
+    Vkc.queue_submit Cmd.queue ~:1 (submit_info @@ to_int !n) Vkt.Fence.null
+    |> ignore;
+    Swapchain.queue_present_khr Cmd.queue (present_info n)
+    |> ignore
+
 end
 
-;; Render.(draw(); draw ())
+;; Render.(debug_draw(); debug_draw ())
 ;; Sdl.(event_loop Render.draw e)
 ;; debug "End"
