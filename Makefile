@@ -14,9 +14,6 @@ baseml: vk.cma examples/base.ml shaders
 info:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
-gen:  _tags enkindler/*
-	$(CCO) $@.native && mv $@.native $@
-
 libgen:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
