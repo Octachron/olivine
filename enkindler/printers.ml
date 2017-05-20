@@ -183,9 +183,24 @@ module Structured = struct
     Fmt.list ~sep (field name) ppf fields;
     Fmt.pf ppf "\n  let () = Ctypes.seal t\n"
 
+  let pp_make ppf fields =
+    let gen = "generated__x__" in
+    let pp_label ppf (f,_) = Fmt.pf ppf "~%a:arg_%a" L.pp_var f L.pp_var f in
+    let set_field ppf (f,_) = Fmt.pf ppf "Ctypes.setf %s %a arg_%a;" gen
+        L.pp_var f L.pp_var f in
+    Fmt.pf ppf "@[let make %a=@ let %s = Ctypes.make t in@ \
+               %a\
+               Ctypes.addr %s
+             @]"
+      Fmt.(list pp_label) fields
+      gen
+      Fmt.(list set_field) fields
+      gen
+
   let pp kind ppf (name,fields) =
     Fmt.pf ppf "module %a = struct\n" L.pp_module name;
     def kind ppf name fields;
+    if kind = Record then pp_make ppf fields;
     Fmt.pf ppf "end\n";
     Fmt.pf ppf "let %a = %a.t\n\
                 type %a = %a.t\n"

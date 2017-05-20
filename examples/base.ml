@@ -287,7 +287,7 @@ module Image = struct
 
   let surface_format = Device.supported_formats.(0)
 
-  let im_format, colorspace =
+  let format, colorspace =
     let open Vkt.Surface_format_khr in
     surface_format % format, surface_format % color_space
 
@@ -296,36 +296,35 @@ module Image = struct
      Device.capabilities % current_extent)
 
   let swap_chain_info =
-    let open Vkt.Swapchain_create_info_khr in
-    make t [
-      s_type $= Vkt.Structure_type.Swapchain_create_info_khr;
-      p_next $= null;
-      flags $= Vkt.Swapchain_create_flags_khr.empty;
-      surface $= surface_khr;
-      min_image_count $= image_count;
-      image_format $= im_format;
-      image_color_space $= colorspace;
-      image_extent $= extent ;
-      image_array_layers $= ~: 1;
-      image_usage $= Vkt.Image_usage_flags.(
+    Vkt.Swapchain_create_info_khr.make
+      ~s_type: Vkt.Structure_type.Swapchain_create_info_khr
+      ~p_next: null
+      ~flags: Vkt.Swapchain_create_flags_khr.empty
+      ~surface: surface_khr
+      ~min_image_count: image_count
+      ~image_format:format
+      ~image_color_space: colorspace
+      ~image_extent: extent
+      ~image_array_layers: ~: 1
+      ~image_usage:Vkt.Image_usage_flags.(
           of_list [
             color_attachment;
             sampled
-          ]);
-      image_sharing_mode $= Vkt.Sharing_mode.Exclusive;
-      queue_family_index_count $= ~: 1;
-      p_queue_family_indices $= Ctypes.(allocate uint32_t) ~:0;
-      pre_transform $=
-      Vkt.Surface_transform_flags_khr.identity;
-      composite_alpha $=
-      Vkt.Composite_alpha_flags_khr.opaque;
-      present_mode $= Vkt.Present_mode_khr.Fifo;
-      clipped $= true';
-    ]
+          ])
+      ~image_sharing_mode: Vkt.Sharing_mode.Exclusive
+      ~queue_family_index_count: ~: 1
+      ~p_queue_family_indices: Ctypes.(allocate uint32_t ~:0)
+      ~pre_transform:
+        Vkt.Surface_transform_flags_khr.identity
+      ~composite_alpha:
+        Vkt.Composite_alpha_flags_khr.opaque
+      ~present_mode: Vkt.Present_mode_khr.Fifo
+      ~clipped: true'
+      ~old_swapchain:Vkt.Swapchain_khr.null
 
   let swap_chain =
     let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
-    Swapchain.create_swapchain_khr device (Ctypes.addr swap_chain_info) None s
+    Swapchain.create_swapchain_khr device swap_chain_info None s
     <?> "swap_chain";
     !s
 
@@ -336,41 +335,36 @@ module Image = struct
   ;; debug "Swapchain: %d images" (Array.length images)
 
   let component_mapping =
-    let open Vkt.Component_mapping in
     let id = Vkt.Component_swizzle.Identity in
-    make t [ r $= id; g $= id; b $= id; a $= id ]
+    Vkt.Component_mapping.make ~r:id ~g:id ~b:id ~a:id
 
-  let a_subresource_range =
-    let open Vkt.Image_subresource_range in
-    make t [
-      aspect_mask $= Vkt.Image_aspect_flags.(singleton color);
-      base_mip_level $= ~:0;
-      level_count $= ~:1;
-      base_array_layer $= ~:0;
-      layer_count $= ~:1;
-    ]
+  let subresource_range =
+    !(Vkt.Image_subresource_range.make
+    ~aspect_mask:Vkt.Image_aspect_flags.(singleton color)
+    ~base_mip_level: ~:0
+    ~level_count: ~:1
+    ~base_array_layer: ~:0
+    ~layer_count: ~:1)
 
   let image_view_info im =
-    let open Vkt.Image_view_create_info in
-    make t [
-      s_type $= Vkt.Structure_type.Image_view_create_info;
-      p_next $= null;
-      flags $= Vkt.Image_view_create_flags.empty;
-      image $= im;
-      view_type $= Vkt.Image_view_type.N2d;
-      format $= im_format;
-      subresource_range $= a_subresource_range;
-    ]
+    Vkt.Image_view_create_info.make
+      ~s_type: Vkt.Structure_type.Image_view_create_info
+      ~p_next: null
+      ~flags: Vkt.Image_view_create_flags.empty
+      ~image: im
+      ~view_type: Vkt.Image_view_type.N2d
+      ~format
+      ~subresource_range
+      ~components:!(component_mapping)
 
   let views =
     let create im =
       let v = Ctypes.allocate_n Vkt.image_view 1 in
-      Vkc.create_image_view device (Ctypes.addr @@ image_view_info im) None v
+      Vkc.create_image_view device (image_view_info im) None v
       <?> "Creating image view";
       v in
     Array.map create images
 
-  
 end
 
 module Pipeline = struct
@@ -387,53 +381,48 @@ module Pipeline = struct
       let c' =
         A.from_ptr Ctypes.(coerce (ptr uint32_t) (ptr char) @@ A.start c) len in
       String.iteri (fun n x -> A.set c' n x) s;
-      let open Vkt.Shader_module_create_info in
-      make t [
-        s_type $= Vkt.Structure_type.Shader_module_create_info;
-        p_next $= null;
-        flags $= Vkt.Shader_module_create_flags.empty;
-        code_size $= Unsigned.Size_t.of_int len ;
-        p_code $= A.start c
-      ]
+      Vkt.Shader_module_create_info.make
+        ~s_type: Vkt.Structure_type.Shader_module_create_info
+        ~p_next: null
+        ~flags: Vkt.Shader_module_create_flags.empty
+        ~code_size:(Unsigned.Size_t.of_int len)
+        ~p_code:(A.start c)
 
     let create_shader name s =
       let info = shader_module_info s in
       let x = Ctypes.allocate_n Vkt.shader_module 1 in
-      Vkc.create_shader_module device (Ctypes.addr info) None x
+      Vkc.create_shader_module device info None x
       <?> "Shader creation :" ^ name;
       !x
 
     let frag_shader = create_shader "fragment" frag
     let vert_shader = create_shader "vertex" vert
 
-    let make_stage stage_ module_ =
-      let open Vkt.Pipeline_shader_stage_create_info in
-      make t [
-        s_type $= Vkt.Structure_type.Pipeline_shader_stage_create_info;
-        p_next $= null;
-        flags $= Vkt.Pipeline_shader_stage_create_flags.empty;
-        stage $= stage_;
-        module' $= module_;
-        p_name $= "main";
-        p_specialization_info $= None
-      ]
+    let make_stage stage module' =
+      Vkt.Pipeline_shader_stage_create_info.make
+        ~s_type: Vkt.Structure_type.Pipeline_shader_stage_create_info
+        ~p_next: null
+        ~flags: Vkt.Pipeline_shader_stage_create_flags.empty
+        ~stage
+        ~module'
+        ~p_name: "main"
+        ~p_specialization_info: None
 
     let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
     let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
   end
 
-  let null_input = let open Vkt.Pipeline_vertex_input_state_create_info in
-    mk_ptr t [
-      s_type $= Vkt.Structure_type.Pipeline_vertex_input_state_create_info;
-      p_next $= null;
-      flags $= Vkt.Pipeline_vertex_input_state_create_flags.empty;
-      vertex_binding_description_count $= ~: 0;
-      p_vertex_binding_descriptions $=
-      nullptr Vkt.vertex_input_binding_description;
-      vertex_attribute_description_count $= ~: 0;
-      p_vertex_attribute_descriptions $=
-      nullptr Vkt.vertex_input_attribute_description
-    ]
+  let null_input =
+    Vkt.Pipeline_vertex_input_state_create_info.make
+      ~s_type: Vkt.Structure_type.Pipeline_vertex_input_state_create_info
+      ~p_next: null
+      ~flags: Vkt.Pipeline_vertex_input_state_create_flags.empty
+      ~vertex_binding_description_count:(~: 0)
+      ~p_vertex_binding_descriptions:
+        (nullptr Vkt.vertex_input_binding_description)
+      ~vertex_attribute_description_count:(~: 0)
+      ~p_vertex_attribute_descriptions:
+        (nullptr Vkt.vertex_input_attribute_description)
 
   let input_assembly = let open Vkt.Pipeline_input_assembly_state_create_info in
     mk_ptr t [
@@ -445,21 +434,17 @@ module Pipeline = struct
     ]
 
   let to_float x = float @@ Unsigned.UInt32.to_int x
-  let viewport = let open Vkt.Viewport in
-    make t [
-      x $= 0.;
-      y $= 0.;
-      width $= to_float @@ Image.extent%(Vkt.Extent_2d.width);
-      height $= to_float @@ Image.extent%(Vkt.Extent_2d.height);
-      min_depth $= 0.;
-      max_depth $= 1.
-    ]
+  let viewport =
+    let width = to_float @@ Image.extent%(Vkt.Extent_2d.width)
+    and height = to_float @@ Image.extent%(Vkt.Extent_2d.height) in
+  Vkt.Viewport.make ~x: 0. ~y: 0. ~width ~height
+      ~min_depth: 0.
+      ~max_depth: 1.
 
-  let scissor = let open Vkt.Rect_2d in
-    make t [
-      offset $= Vkt.Offset_2d.(make t [ x $= 0l; y $= 0l ] );
-      extent  $= Image.extent
-    ]
+  let scissor =
+    Vkt.Rect_2d.make
+      ~offset: Vkt.Offset_2d.(!(make ~x:0l ~y:0l))
+      ~extent:Image.extent
 
   let viewport_state = let open Vkt.Pipeline_viewport_state_create_info in
     mk_ptr t [
@@ -468,8 +453,8 @@ module Pipeline = struct
       flags $= Vkt.Pipeline_viewport_state_create_flags.empty;
       viewport_count $= ~: 1;
       scissor_count $= ~: 1;
-      p_viewports $= Ctypes.addr viewport;
-      p_scissors $= Ctypes.addr scissor
+      p_viewports $= viewport;
+      p_scissors $= scissor
     ]
 
   let rasterizer = let open Vkt.Pipeline_rasterization_state_create_info in
@@ -548,7 +533,7 @@ module Pipeline = struct
     let open Vkt.Attachment_description in
     mk_ptr t [
       flags $= Vkt.Attachment_description_flags.empty;
-      format $= Image.im_format;
+      format $= Image.format;
       samples $= Vkt.Sample_count_flags.n1;
       load_op $= Vkt.Attachment_load_op.Clear;
       store_op $= Vkt.Attachment_store_op.Store;
@@ -602,7 +587,7 @@ module Pipeline = struct
 
   let pipeline_info = let open Vkt.Graphics_pipeline_create_info in
     let nstages, stages = from_array Vkt.pipeline_shader_stage_create_info
-        Shaders.[| vert_stage; frag_stage |] in
+        Shaders.[| !vert_stage; !frag_stage |] in
     mk_ptr t [
       s_type $= Vkt.Structure_type.Graphics_pipeline_create_info;
       p_next $= null;
@@ -722,7 +707,7 @@ module Cmd = struct
       p_next $= null;
       render_pass $= Pipeline.simple_render_pass;
       framebuffer $= fmb;
-      render_area $= Pipeline.scissor;
+      render_area $= !Pipeline.scissor;
       clear_value_count $= ~:1;
       p_clear_values $= (Ctypes.addr clear_values);
     ]
