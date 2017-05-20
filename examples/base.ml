@@ -115,24 +115,22 @@ module Instance = struct
       [|"VK_KHR_surface"; "VK_KHR_xlib_surface" |]
 
   let info =
-    make Vkt.instance_create_info
-      Vkt.Instance_create_info.[
-        s_type $= Vkt.Structure_type.Instance_create_info;
-        p_next $= null;
-        flags $= Vkt.Instance_create_flags.empty;
-        p_application_info $= None;
-        enabled_layer_count $= nl;
-        pp_enabled_layer_names $= layers;
-        enabled_extension_count $= n_ext ;
-        pp_enabled_extension_names $= extensions;
-      ]
+    Vkt.Instance_create_info.make
+        ~s_type: Vkt.Structure_type.Instance_create_info
+        ~p_next: null
+        ~flags: Vkt.Instance_create_flags.empty
+        ~enabled_layer_count: nl
+        ~pp_enabled_layer_names: layers
+        ~enabled_extension_count: n_ext
+        ~pp_enabled_extension_names: extensions
+        ()
 
   ;; debug "Info created"
 
   let x =
     let x = Ctypes.allocate_n Vkt.instance 1 in
     debug "Instance pointer allocated";
-    Vkc.create_instance (Ctypes.addr info) None x
+    Vkc.create_instance info None x
     <?> "instance";
     !x
 
@@ -406,7 +404,7 @@ module Pipeline = struct
         ~stage
         ~module'
         ~p_name: "main"
-        ~p_specialization_info: None
+        ()
 
     let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
     let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
@@ -445,6 +443,7 @@ module Pipeline = struct
     Vkt.Rect_2d.make
       ~offset: Vkt.Offset_2d.(!(make ~x:0l ~y:0l))
       ~extent:Image.extent
+
 
   let viewport_state = let open Vkt.Pipeline_viewport_state_create_info in
     mk_ptr t [

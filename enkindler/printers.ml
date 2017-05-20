@@ -185,14 +185,25 @@ module Structured = struct
 
   let pp_make ppf fields =
     let gen = "generated__x__" in
-    let pp_label ppf (f,_) = Fmt.pf ppf "~%a:arg_%a" L.pp_var f L.pp_var f in
+    let is_option = function
+      | Ty.Const Option _
+        | Ty.Option _ -> true
+        | _ -> false in
+    let pp_label ppf (f,ty) =
+      let kind= if is_option ty then "?" else "~" in
+      Fmt.pf ppf "%s%a:arg_%a" kind L.pp_var f L.pp_var f in
+    let pp_terminator fields ppf =
+      if List.exists (fun (_,x) -> is_option x) fields then
+        Fmt.pf ppf "()"
+      else () in
     let set_field ppf (f,_) = Fmt.pf ppf "Ctypes.setf %s %a arg_%a;" gen
         L.pp_var f L.pp_var f in
-    Fmt.pf ppf "@[let make %a=@ let %s = Ctypes.make t in@ \
+    Fmt.pf ppf "@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
                %a\
                Ctypes.addr %s
              @]"
       Fmt.(list pp_label) fields
+      (pp_terminator fields)
       gen
       Fmt.(list set_field) fields
       gen
