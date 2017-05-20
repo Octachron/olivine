@@ -103,14 +103,11 @@ module Result = struct
       raise Not_found
 
   let view m ppf name constrs =
-    Fmt.epr "Result.view %a@." L.full_pp name;
     let constrs =
       List.map (fun name -> name, Ty.Abs (find name m)) constrs in
     Fmt.pf ppf "module %a = struct\n" L.pp_module name;
-    Fmt.epr "Result.view 2: %a@." L.full_pp name;
     Enum.(of_int Poly) ppf name constrs;
     Enum.(to_int Poly) ppf name constrs;
-    Fmt.epr "Result.view 3: %a@." L.full_pp name;
     Fmt.pf ppf "\nend\n"
 
   let pp_type ppf (ok,errors) =
@@ -423,7 +420,6 @@ let pp_type results ppf (name,ty) =
     Structured.(pp Record) ppf (name,r.fields)
 
 let pp_item results ppf (name, item) =
-  Fmt.epr "Printing %a@." L.full_pp name;
   match item with
   | B.Type t -> pp_type results ppf (name,t)
   | Const c -> Const.pp ppf (name,c)

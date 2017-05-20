@@ -234,7 +234,6 @@ let classify_extension dict m (ext:Typed.Extension.t) =
   | [] -> assert false
   | w :: _ ->
     let a  = L.canon w in
-    Fmt.epr "Extension core name: %s@." a;
     let exts = try M.find a m with Not_found -> [] in
     M.add a (ext::exts) m
 
