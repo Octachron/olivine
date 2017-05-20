@@ -88,7 +88,8 @@ module Sdl = struct
 
   let () = Sdl.show_window w
   let e = Sdl.Event.create ()
-  let rec event_loop e =
+  let rec event_loop idle e =
+    idle ();
     let open Sdl.Event in
     if
       Sdl.poll_event @@ Some e
@@ -96,7 +97,7 @@ module Sdl = struct
       && get e keyboard_keycode = Sdl.K.escape
     then
       exit 0
-    else event_loop e
+    else event_loop idle e
 
 end
 
@@ -329,11 +330,11 @@ module Image = struct
     <?> "swap_chain";
     !s
 
-
   let images =
     get_array (msg "Swapchain images") Vk.Types.image
     @@ Swapchain.get_swapchain_images_khr device swap_chain
 
+  ;; debug "Swapchain: %d images" (Array.length images)
 
   let component_mapping =
     let open Vkt.Component_mapping in
@@ -369,6 +370,8 @@ module Image = struct
       <?> "Creating image view";
       v in
     Array.map create images
+
+  
 end
 
 module Pipeline = struct
@@ -634,24 +637,27 @@ end
 
 module Cmd = struct
 
-  let framebuffer_info = let open Vkt.Framebuffer_create_info in
+  let framebuffer_info image = let open Vkt.Framebuffer_create_info in
     mk_ptr t [
       s_type $= Vkt.Structure_type.Framebuffer_create_info;
       p_next $= null;
       flags $= Vkt.Framebuffer_create_flags.empty;
       render_pass $= Pipeline.simple_render_pass;
       attachment_count $= ~:1;
-      p_attachments $= Image.views.(0);
+      p_attachments $= image;
       width $= Image.extent % Vkt.Extent_2d.width;
       height $= Image.extent % Vkt.Extent_2d.height;
       layers $= ~: 1;
     ]
 
-  let framebuffer =
+  let framebuffer index =
     let x  = Ctypes.allocate_n Vkt.framebuffer 1 in
-    Vkc.create_framebuffer device framebuffer_info None
+    Vkc.create_framebuffer device (framebuffer_info index) None
       x <?> "Framebuffer creation";
     !x
+
+  let framebuffers = A.of_list Vkt.framebuffer @@ Array.to_list
+    @@ Array.map framebuffer Image.views
 
   let my_fmb = framebuffer
 
@@ -674,7 +680,7 @@ module Cmd = struct
     !x
 
   let my_cmd_pool = command_pool
-  let n_cmd_buffers = ~: 1
+  let n_cmd_buffers = ~: (A.length framebuffers)
   let buffer_allocate_info = let open Vkt.Command_buffer_allocate_info in
     mk_ptr t [
       s_type $= Vkt.Structure_type.Command_buffer_allocate_info;
@@ -690,6 +696,8 @@ module Cmd = struct
     Vkc.allocate_command_buffers device buffer_allocate_info @@ A.start x
     <?> "Command buffers allocation";
     x
+
+  ;;debug "Created %d cmd buffers" (to_int n_cmd_buffers)
 
   let cmd_begin_info = let open Vkt.Command_buffer_begin_info in
     mk_ptr t [
@@ -708,26 +716,32 @@ module Cmd = struct
     set x color c;
     x
 
-  let render_pass_info = let open Vkt.Render_pass_begin_info in
+  let render_pass_info fmb = let open Vkt.Render_pass_begin_info in
     mk_ptr t [
       s_type $= Vkt.Structure_type.Render_pass_begin_info;
       p_next $= null;
       render_pass $= Pipeline.simple_render_pass;
-      framebuffer $= my_fmb;
+      framebuffer $= fmb;
       render_area $= Pipeline.scissor;
       clear_value_count $= ~:1;
       p_clear_values $= (Ctypes.addr clear_values);
     ]
 
-  let () =
-    let b = A.get cmd_buffers 0 in
+  let cmd b fmb =
     Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
-    Vkc.cmd_begin_render_pass b render_pass_info
+    Vkc.cmd_begin_render_pass b (render_pass_info fmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
     Vkc.cmd_draw b ~:3 ~:1 ~:0 ~:0;
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <?> "Command buffer recorded"
+
+  let iter2 f a b =
+    for i=0 to min (A.length a) (A.length b) - 1 do
+      f (A.get a i) (A.get b i)
+    done
+
+  let () = iter2 cmd cmd_buffers framebuffers
 end
 
 module Render = struct
@@ -743,15 +757,53 @@ module Render = struct
     let x = Ctypes.allocate_n Vkt.semaphore 1 in
     Vkc.create_semaphore device semaphore_info None x
     <?> "Created semaphore";
-    !x
+    x
 
   let im_semaphore = create_semaphore ()
   let render_semaphore = create_semaphore ()
 
-  let draw () = () 
-  
+  let wait_stage = let open Vkt.Pipeline_stage_flags in
+    Ctypes.allocate view @@ singleton top_of_pipe
+
+  let submit_info index = let open Vkt.Submit_info in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Submit_info;
+      p_next $= null;
+      wait_semaphore_count $= ~: 1;
+      p_wait_semaphores $= im_semaphore;
+      p_wait_dst_stage_mask $= wait_stage;
+      command_buffer_count $= ~: 1;
+      p_command_buffers $= A.start Cmd.cmd_buffers +@ index;
+      signal_semaphore_count $= ~:1;
+      p_signal_semaphores $= render_semaphore;
+    ]
+
+  let swapchains = Ctypes.allocate Vkt.swapchain_khr Image.swap_chain
+  let present_info index =
+    let open Vkt.Present_info_khr in
+    mk_ptr t [
+      s_type $= Vkt.Structure_type.Present_info_khr;
+      p_next $= null;
+      wait_semaphore_count $= ~:1;
+      p_wait_semaphores $= render_semaphore;
+      swapchain_count $= ~: 1;
+      p_swapchains $= swapchains;
+      p_image_indices $= index;
+    ]
+
+  let draw () =
+    let n = Ctypes.(allocate uint32_t) ~:0 in
+    Swapchain.acquire_next_image_khr device Image.swap_chain
+      Unsigned.UInt64.max_int !im_semaphore Vkt.Fence.null n
+    <?> "Acquire image";
+    debug "Image %d acquired" (to_int !n);
+    Vkc.queue_submit Cmd.queue ~:1 (submit_info @@ to_int !n) Vkt.Fence.null
+    <?> "Submitting command to queue";
+    Swapchain.queue_present_khr Cmd.queue (present_info n)
+    <?> "Image presented"
+
 end
 
-
-;; Sdl.(event_loop e)
+;; Render.(draw(); draw ())
+;; Sdl.(event_loop Render.draw e)
 ;; debug "End"
