@@ -441,7 +441,7 @@ module Pipeline = struct
       s_type $= Vkt.Structure_type.Pipeline_input_assembly_state_create_info;
       p_next $= null;
       flags $= Vkt.Pipeline_input_assembly_state_create_flags.empty;
-      topology $= Vkt.Primitive_topology.Triangle_strip;
+      topology $= Vkt.Primitive_topology.Triangle_list;
       primitive_restart_enable $= false'
     ]
 
@@ -506,6 +506,7 @@ module Pipeline = struct
   let no_blend = let open Vkt.Pipeline_color_blend_attachment_state in
     mk_ptr t [
       blend_enable $= false';
+      color_write_mask $= Vkt.Color_component_flags.(of_list[r;g;b;a]);
       src_color_blend_factor $= Vkt.Blend_factor.One;
       dst_color_blend_factor $= Vkt.Blend_factor.Zero;
       color_blend_op $= Vkt.Blend_op.Add;
