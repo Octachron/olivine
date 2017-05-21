@@ -306,7 +306,7 @@ let filter_extension dict registry name0 =
   | Const _ -> true
 
 let builtins dict =
-  Name_set.of_list @@ List.map (L.make dict) ["bool_64"]
+  Name_set.of_list @@ List.map (L.make dict) ["vkBool32"]
 
 let generate root preambule dict (spec:Typed.spec) =
   let registry = spec.entities in

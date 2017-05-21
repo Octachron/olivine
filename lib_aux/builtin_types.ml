@@ -9,9 +9,25 @@ let integer_opt (type a) (typ:a Ctypes.typ) (module I:intlike with type t = a) =
   let write = function None -> I.zero | Some x -> x in
   Ctypes.view ~read ~write typ
 
-type uint32_t = U32.t
 type uint64_t = U64.t
-let uint32_t_opt = integer_opt Ctypes.uint32_t (module U32)
+
+(** {2 Uint32 special handling} *)
+type uint32_t = int (* ASSUME 64 bits *)
+let uint32_t = Ctypes.view ~read:(U32.to_int) ~write:(U32.of_int)
+    Ctypes.uint32_t
+module Int = struct type t = int let zero = 0 end
+let uint32_t_opt = integer_opt uint32_t (module Int)
+
+let bool_3_2 =
+  let true' = U32.of_int Vk__const.true'
+  and false' = U32.of_int Vk__const.false' in
+  Ctypes.view
+    ~read:( (=) true' )
+    ~write:( fun x -> if x then true' else false' )
+    Ctypes.uint32_t
+
+let bool = bool_3_2
+
 let size_t_opt = integer_opt Ctypes.size_t (module S)
 let device_size_opt = integer_opt Ctypes.uint64_t (module U64)
 
