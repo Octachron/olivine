@@ -116,20 +116,17 @@ end
 module Instance = struct
   (** Creating a vulkan instance *)
 
-  let nl, layers = from_array Ctypes.string [| |]
+  let layers = A.of_list Ctypes.string []
 
-  let n_ext, extensions =
-    from_array Ctypes.string
-      [|"VK_KHR_surface"; "VK_KHR_xlib_surface" |]
+  let extensions =
+    A.of_list Ctypes.string ["VK_KHR_surface"; "VK_KHR_xlib_surface" ]
 
   let info =
     Vkt.Instance_create_info.make
       ~s_type: Vkt.Structure_type.Instance_create_info
       ~p_next: null
       ~flags: Vkt.Instance_create_flags.empty
-      ~enabled_layer_count: nl
       ~pp_enabled_layer_names: layers
-      ~enabled_extension_count: n_ext
       ~pp_enabled_extension_names: extensions
       ()
 
@@ -190,14 +187,14 @@ module Device = struct
     queue_family_properties
 
   let queue_family = 0
+  let priorities = A.of_list Ctypes.float [ 1.]
 
   let queue_create_info =
     Vkt.Device_queue_create_info.make
       ~s_type: Vkt.Structure_type.Device_queue_create_info
       ~p_next: null
       ~queue_family_index:queue_family
-      ~queue_count: 1
-      ~p_queue_priorities: Ctypes.(allocate float 1.)
+      ~p_queue_priorities: priorities
       ()
 
   let device_extensions =
@@ -262,17 +259,15 @@ module Device = struct
 
   let x =
     let d = Ctypes.allocate_n Vkt.Device.t 1 in
-    let nl, layers = from_array Ctypes.string [| |] in
-    let n_ext, exts = from_array Ctypes.string [|"VK_KHR_swapchain"|] in
+    let layers = A.of_list Ctypes.string [] in
+    let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
+      let queue_create_infos = A.from_ptr queue_create_info 1 in
       Vkt.Device_create_info.make
         ~s_type: Vkt.Structure_type.Device_create_info
         ~p_next: null
-        ~queue_create_info_count:( 1 )
-        ~p_queue_create_infos: queue_create_info
-        ~enabled_layer_count: nl
+        ~p_queue_create_infos: queue_create_infos
         ~pp_enabled_layer_names: layers
-        ~enabled_extension_count: n_ext
         ~pp_enabled_extension_names: exts
       ()
       in
@@ -298,6 +293,7 @@ module Image = struct
     Device.capabilities#. current_extent
 
   let swap_chain_info =
+    let qfi = A.of_list Vkt.uint32_t [0] in
     Vkt.Swapchain_create_info_khr.make
       ~s_type: Vkt.Structure_type.Swapchain_create_info_khr
       ~p_next: null
@@ -313,8 +309,7 @@ module Image = struct
             sampled
           ])
       ~image_sharing_mode: Vkt.Sharing_mode.Exclusive
-      ~queue_family_index_count:  1
-      ~p_queue_family_indices: (Ctypes.allocate Vkt.uint32_t 0)
+      ~p_queue_family_indices: qfi
       ~pre_transform:
         Vkt.Surface_transform_flags_khr.identity
       ~composite_alpha:
@@ -364,7 +359,7 @@ module Image = struct
       let v = Ctypes.allocate_n Vkt.image_view 1 in
       Vkc.create_image_view device (image_view_info im) None v
       <?> "Creating image view";
-      v in
+      !v in
     Array.map create images
 
 end
@@ -415,15 +410,13 @@ module Pipeline = struct
   end
 
   let null_input =
+    let vbd = A.of_list Vkt.vertex_input_binding_description [] in
+    let vd = A.of_list Vkt.vertex_input_attribute_description [] in
     Vkt.Pipeline_vertex_input_state_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_vertex_input_state_create_info
       ~p_next: null
-      ~vertex_binding_description_count: 0
-      ~p_vertex_binding_descriptions:
-        (nullptr Vkt.vertex_input_binding_description)
-      ~vertex_attribute_description_count: 0
-      ~p_vertex_attribute_descriptions:
-        (nullptr Vkt.vertex_input_attribute_description)
+      ~p_vertex_binding_descriptions: vbd
+      ~p_vertex_attribute_descriptions: vd
       ()
 
   let input_assembly =
@@ -500,26 +493,27 @@ module Pipeline = struct
 
 
   let blend_state_info =
+    let attachs =
+      A.of_list Vkt.pipeline_color_blend_attachment_state [!no_blend] in
     let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~s_type: Vkt.Structure_type.Pipeline_color_blend_state_create_info
      ~p_next: null
      ~logic_op_enable: false
      ~logic_op: Vkt.Logic_op.Copy
-     ~attachment_count:  1
-     ~p_attachments: no_blend
+     ~p_attachments: attachs
      ~blend_constants: consts
      ()
 
 
   let no_uniform =
+    let layouts = A.of_list Vkt.descriptor_set_layout [] in
+    let pcr = A.of_list Vkt.push_constant_range [] in
     Vkt.Pipeline_layout_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_layout_create_info
       ~p_next: null
-      ~set_layout_count: (0)
-      ~p_set_layouts:(nullptr Vkt.descriptor_set_layout)
-      ~push_constant_range_count:(0)
-      ~p_push_constant_ranges:(nullptr Vkt.push_constant_range)
+      ~p_set_layouts: layouts
+      ~p_push_constant_ranges: pcr
       ()
 
   let simple_layout =
@@ -546,27 +540,26 @@ module Pipeline = struct
       ~layout: Vkt.Image_layout.Color_attachment_optimal
 
   let subpass =
-    let null = nullptr Vkt.Attachment_reference.t in
+    let color = A.from_ptr attachment 1 in
+    let input = A.of_list Vkt.attachment_reference [] in
+    let preserve = A.of_list Vkt.uint32_t [] in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
-      ~color_attachment_count: 1
-      ~p_color_attachments: attachment
-      ~input_attachment_count: 0
-      ~p_input_attachments: null
-      ~preserve_attachment_count: 0
-      ~p_preserve_attachments: (nullptr Vkt.uint32_t)
+      ~p_color_attachments: color
+      ~p_input_attachments: input
+      ~p_preserve_attachments: preserve
       ()
 
   let render_pass_info =
+    let attachments = A.from_ptr color_attachment 1 in
+    let subpasses = A.from_ptr subpass 1 in
+    let deps = A.of_list Vkt.subpass_dependency [] in
     Vkt.Render_pass_create_info.make
       ~s_type: Vkt.Structure_type.Render_pass_create_info
       ~p_next: null
-      ~attachment_count: 1
-      ~p_attachments: color_attachment
-      ~subpass_count: 1
-      ~p_subpasses: subpass
-      ~dependency_count: 0
-      ~p_dependencies: (nullptr Vkt.subpass_dependency)
+      ~p_attachments: attachments
+      ~p_subpasses: subpasses
+      ~p_dependencies: deps
       ()
 
   let simple_render_pass =
@@ -576,12 +569,11 @@ module Pipeline = struct
     !x
 
   let pipeline_info =
-    let nstages, stages = from_array Vkt.pipeline_shader_stage_create_info
-        Shaders.[| !vert_stage; !frag_stage |] in
+    let stages = A.of_list Vkt.pipeline_shader_stage_create_info
+        Shaders.[ !vert_stage; !frag_stage ] in
     Vkt.Graphics_pipeline_create_info.make
       ~s_type: Vkt.Structure_type.Graphics_pipeline_create_info
       ~p_next: null
-      ~stage_count: nstages
       ~p_stages: stages
       ~p_vertex_input_state: null_input
       ~p_input_assembly_state: input_assembly
@@ -609,12 +601,12 @@ end
 module Cmd = struct
 
   let framebuffer_info image =
+    let images = A.of_list Vkt.image_view [image] in
     Vkt.Framebuffer_create_info.make
       ~s_type: Vkt.Structure_type.Framebuffer_create_info
       ~p_next: null
       ~render_pass: Pipeline.simple_render_pass
-      ~attachment_count: 1
-      ~p_attachments: image
+      ~p_attachments: images
       ~width: Image.extent#.Vkt.Extent_2d.width
       ~height: Image.extent#.Vkt.Extent_2d.height
       ~layers:  1
@@ -685,15 +677,14 @@ module Cmd = struct
     x
 
   let render_pass_info fmb =
+    let clear_values = A.of_list Vkt.clear_value [clear_values] in
     Vkt.Render_pass_begin_info.make
       ~s_type: Vkt.Structure_type.Render_pass_begin_info
       ~p_next: null
       ~render_pass: Pipeline.simple_render_pass
       ~framebuffer: fmb
       ~render_area: !Pipeline.scissor
-      ~clear_value_count: 1
-      ~p_clear_values: (Ctypes.addr clear_values)
-      ()
+      ~p_clear_values: clear_values
 
   let cmd b fmb =
     Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
@@ -733,26 +724,23 @@ module Render = struct
     Ctypes.allocate view @@ singleton top_of_pipe
 
   let submit_info index =
+    let wait_sems = A.from_ptr im_semaphore 1 in
+    let sign_sems = A.from_ptr render_semaphore 1 in
     Vkt.Submit_info.make
       ~s_type: Vkt.Structure_type.Submit_info
       ~p_next: null
-      ~wait_semaphore_count: 1
-      ~p_wait_semaphores: im_semaphore
+      ~p_wait_semaphores: wait_sems
       ~p_wait_dst_stage_mask: wait_stage
-      ~command_buffer_count: 1
-      ~p_command_buffers: (A.start Cmd.cmd_buffers +@ index)
-      ~signal_semaphore_count: 1
-      ~p_signal_semaphores: render_semaphore
-      ()
+      ~p_command_buffers: Cmd.cmd_buffers
+      ~p_signal_semaphores: sign_sems
 
-  let swapchains = Ctypes.allocate Vkt.swapchain_khr Image.swap_chain
+  let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
   let present_info index =
     Vkt.Present_info_khr.make
       ~s_type: Vkt.Structure_type.Present_info_khr
       ~p_next: null
       ~wait_semaphore_count: 1
       ~p_wait_semaphores: render_semaphore
-      ~swapchain_count:  1
       ~p_swapchains: swapchains
       ~p_image_indices: index
       ()

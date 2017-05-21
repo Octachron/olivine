@@ -204,21 +204,39 @@ module Structured = struct
     Fmt.pf ppf "@;let () = Ctypes.seal t@;"
 
   let pp_make ppf (fields: Ty.field list) =
-    let fields = Ty.flatten_fields fields (*FIXME*) in
     let gen = "generated__x__" in
     let is_option = function
-      | Ty.Const Option _
-        | Ty.Option _ -> true
-        | _ -> false in
-    let pp_label ppf (f,ty) =
-      let kind= if is_option ty then "?" else "~" in
-      Fmt.pf ppf "%s%a:arg_%a" kind L.pp_var f L.pp_var f in
+      | Ty.Simple (_, Const Option _)
+      | Ty.Simple (_, Option _) -> true
+      | _ -> false in
+    let array_len ppf ((_,typ), (name,_)) =
+      let size_t = Name_study.{ mu with main = [word "size"; word "t"]} in
+      (* FIXME *)
+      let rec opt pp ppf (typ,expr) = match typ with
+        | Ty.Option typ  -> Fmt.pf ppf "Some(%a)" (opt pp) (typ,expr)
+        | Name x when x = size_t ->
+          Fmt.pf ppf  "Unsigned.Size_t.of_int(%a)" pp expr
+        | _ -> pp ppf expr in
+      let len ppf = Fmt.pf ppf "Ctypes.CArray.length arg_%a" L.pp_var in
+      opt len ppf (typ,name) in
+    let label_name ppf = function
+      | Ty.Simple (n,_) -> L.pp_var ppf n
+      | Ty.Array_f { array=(n,_); _ } -> L.pp_var ppf n in
+    let pp_label ppf f =
+      let kind= if is_option f then "?" else "~" in
+      Fmt.pf ppf "%s%a:arg_%a" kind label_name f label_name f in
     let pp_terminator fields ppf =
-      if List.exists (fun (_,x) -> is_option x) fields then
+      if List.exists is_option fields then
         Fmt.pf ppf "()"
       else () in
-    let set_field ppf (f,_) = Fmt.pf ppf "Ctypes.setf %s %a arg_%a;" gen
-        L.pp_var f L.pp_var f in
+    let set_field ppf  = function
+      | Ty.Simple (f,_) ->
+        Fmt.pf ppf "Ctypes.setf %s %a arg_%a;" gen L.pp_var f L.pp_var f
+      | Ty.Array_f { index; array } ->
+        Fmt.pf ppf "Ctypes.setf %s %a (%a);@;\
+                    Ctypes.setf %s %a (Ctypes.CArray.start arg_%a);"
+          gen L.pp_var (fst index) array_len (index,array)
+          gen L.pp_var (fst array) L.pp_var (fst array) in
     Fmt.pf ppf "@;@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
                %a\
                Ctypes.addr %s
