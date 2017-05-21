@@ -13,7 +13,7 @@ module Utils = struct
     | Some x -> pp ppf x
 
   let ($=) field value str= set str field value
-  let ( % ) = get
+  let ( #. ) = get
 
   let make typ updates =
     let str=Ctypes.make typ in
@@ -111,7 +111,7 @@ end
 
   let print_extension_property e =
     let open Vkt.Extension_properties in
-    Format.printf "%s\n" (to_string @@ e % extension_name)
+    Format.printf "%s\n" (to_string e#.extension_name)
 
 module Instance = struct
   (** Creating a vulkan instance *)
@@ -172,7 +172,7 @@ module Device = struct
   let print_property device =
     let p = property device in
     debug "Device: %s\n"
-      (to_string @@ p % Vkt.Physical_device_properties.device_name)
+      (to_string p#.Vkt.Physical_device_properties.device_name)
 
   ;; Array.iter print_property phy_devices
 
@@ -184,7 +184,7 @@ module Device = struct
 
   let print_queue_property ppf property =
     Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
-      (property % Vkt.Queue_family_properties.queue_flags)
+      property#.Vkt.Queue_family_properties.queue_flags
 
   ;; Array.iter (print_queue_property Format.std_formatter)
     queue_family_properties
@@ -223,17 +223,17 @@ module Device = struct
 
   let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
     Format.fprintf ppf "[%d×%d]"
-      (extent%width) (extent%height)
+      extent#.width extent#.height
 
   let pp_capability ppf cap = let open Vkt.Surface_capabilities_khr in
     Format.fprintf ppf
       "@[min_image:%d; max_image_count:%d; current_extent:%a;@;\
        transform:%a;@ composite_alpha:%a;@ usage_flags:%a@]"
-      (cap%min_image_count) (cap%max_image_count)
-      pp_extent_2d (cap%current_extent)
-      (pp_opt Vkt.Surface_transform_flags_khr.pp) (cap%supported_transforms)
-      (pp_opt Vkt.Composite_alpha_flags_khr.pp) (cap%supported_composite_alpha)
-      (pp_opt Vkt.Image_usage_flags.pp) (cap%supported_usage_flags)
+      cap#.min_image_count cap#.max_image_count
+      pp_extent_2d cap#.current_extent
+      (pp_opt Vkt.Surface_transform_flags_khr.pp) cap#.supported_transforms
+      (pp_opt Vkt.Composite_alpha_flags_khr.pp) cap#.supported_composite_alpha
+      (pp_opt Vkt.Image_usage_flags.pp) cap#.supported_usage_flags
 
   ;; debug "Surface capabilities: %a" pp_capability capabilities
 
@@ -244,7 +244,7 @@ module Device = struct
 
   let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
     Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
-      Vkt.Format.pp (sformat%format) Vkt.Color_space_khr.pp (sformat%color_space)
+      Vkt.Format.pp sformat#.format Vkt.Color_space_khr.pp sformat#.color_space
 
   ;; Array.iter (debug "%a" pp_sformat) supported_formats
 
@@ -291,11 +291,11 @@ module Image = struct
 
   let format, colorspace =
     let open Vkt.Surface_format_khr in
-    surface_format % format, surface_format % color_space
+    surface_format#.format, surface_format#.color_space
 
   let image_count, extent = let open Vkt.Surface_capabilities_khr in
-    (Device.capabilities % min_image_count,
-     Device.capabilities % current_extent)
+    Device.capabilities#.min_image_count,
+    Device.capabilities#. current_extent
 
   let swap_chain_info =
     Vkt.Swapchain_create_info_khr.make
@@ -418,10 +418,10 @@ module Pipeline = struct
     Vkt.Pipeline_vertex_input_state_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_vertex_input_state_create_info
       ~p_next: null
-      ~vertex_binding_description_count:( 0)
+      ~vertex_binding_description_count: 0
       ~p_vertex_binding_descriptions:
         (nullptr Vkt.vertex_input_binding_description)
-      ~vertex_attribute_description_count:( 0)
+      ~vertex_attribute_description_count: 0
       ~p_vertex_attribute_descriptions:
         (nullptr Vkt.vertex_input_attribute_description)
       ()
@@ -436,8 +436,8 @@ module Pipeline = struct
     ()
 
   let viewport =
-    let width = float @@ Image.extent%(Vkt.Extent_2d.width)
-    and height = float @@ Image.extent%(Vkt.Extent_2d.height) in
+    let width = float Image.extent#.Vkt.Extent_2d.width
+    and height = float Image.extent#.Vkt.Extent_2d.height in
   Vkt.Viewport.make ~x: 0. ~y: 0. ~width ~height
       ~min_depth: 0.
       ~max_depth: 1.
@@ -542,7 +542,7 @@ module Pipeline = struct
 
   let attachment =
     Vkt.Attachment_reference.make
-      ~attachment:( 0 )
+      ~attachment: 0
       ~layout: Vkt.Image_layout.Color_attachment_optimal
 
   let subpass =
@@ -615,8 +615,8 @@ module Cmd = struct
       ~render_pass: Pipeline.simple_render_pass
       ~attachment_count: 1
       ~p_attachments: image
-      ~width:(Image.extent % Vkt.Extent_2d.width )
-      ~height:(Image.extent % Vkt.Extent_2d.height)
+      ~width: Image.extent#.Vkt.Extent_2d.width
+      ~height: Image.extent#.Vkt.Extent_2d.height
       ~layers:  1
       ()
 
@@ -691,7 +691,7 @@ module Cmd = struct
       ~render_pass: Pipeline.simple_render_pass
       ~framebuffer: fmb
       ~render_area: !Pipeline.scissor
-      ~clear_value_count: (1)
+      ~clear_value_count: 1
       ~p_clear_values: (Ctypes.addr clear_values)
       ()
 
@@ -736,12 +736,12 @@ module Render = struct
     Vkt.Submit_info.make
       ~s_type: Vkt.Structure_type.Submit_info
       ~p_next: null
-      ~wait_semaphore_count: ( 1)
+      ~wait_semaphore_count: 1
       ~p_wait_semaphores: im_semaphore
       ~p_wait_dst_stage_mask: wait_stage
-      ~command_buffer_count: ( 1)
+      ~command_buffer_count: 1
       ~p_command_buffers: (A.start Cmd.cmd_buffers +@ index)
-      ~signal_semaphore_count: (1)
+      ~signal_semaphore_count: 1
       ~p_signal_semaphores: render_semaphore
       ()
 
