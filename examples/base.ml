@@ -35,8 +35,10 @@ module Utils = struct
   let (~:) = Unsigned.UInt32.of_int
   let to_int = Unsigned.UInt32.to_int
 
-  let true' = ~: Vk.Const.true'
-  let false' = ~: Vk.Const.false'
+  module Bool = Vkt.Bool_3_2
+  let bool32 = Bool.ctype
+  let true' = Bool.make ~: Vk.Const.true'
+  let false' = Bool.make ~: Vk.Const.false'
 
 
   let (+@) = Ctypes.(+@)
@@ -253,7 +255,7 @@ module Device = struct
   ;; Array.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
 
   let support =
-    let x = Ctypes.(allocate uint32_t) false' in
+    let x = Ctypes.allocate bool32 false' in
     Surface.get_physical_device_surface_support_khr phy queue_family
       surface_khr x <?> "Compatibility surface/device";
     assert (!x = true' )

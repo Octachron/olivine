@@ -8,7 +8,7 @@ module Arith = Ctype.Arith
 
 module Full_name = struct type name = L.name let pp = L.pp_var end
 module Ty = Ctype.Typexpr(Full_name)
-
+module Name_set = Set.Make(struct type t = L.name let compare = compare end)
 
 type 'a with_deps = { x:'a; deps: Deps.t }
 
@@ -56,6 +56,7 @@ type lib = {
   result: int Result.Map.t;
   root: string;
   preambule: string;
+  builtins: Name_set.t
 }
 
 let make ?(args=[]) ?(submodules=[]) ?(sig'=[]) ?(preambule="") path name =
@@ -301,6 +302,9 @@ let filter_extension dict registry name0 =
     not (L.is_extension dict name || sys_specific name)
   | Const _ -> true
 
+let builtins dict =
+  Name_set.of_list @@ List.map (L.make dict) ["bool_64"]
+
 let generate root preambule dict (spec:Typed.spec) =
   let registry = spec.entities in
   let submodules =
@@ -320,5 +324,6 @@ let generate root preambule dict (spec:Typed.spec) =
       submodules = content.submodules
                    @ generate_extensions dict registry spec.extensions
     } in
-  { root; preambule; result = result_info dict registry; content}
+  { root; preambule; result = result_info dict registry; content;
+    builtins = builtins dict}
 

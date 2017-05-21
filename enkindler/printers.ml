@@ -432,16 +432,22 @@ let is_bits name =
   | ("bits", _) :: _  -> true
   | _ -> false
 
-let pp_alias ppf (name,origin) =
-  Fmt.pf ppf "let %a = view (fun x -> x) (fun x -> x) %a\n"
-    L.pp_var name
-    L.pp_type origin
+let pp_alias builtins ppf (name,origin) =
+  if not @@ B.Name_set.mem name builtins then
+    Fmt.pf ppf
+      "@[module %a = Alias(struct type t = %a let ctype = %a end)@]@.\
+       @[let %a = %a.ctype@]@."
+      L.pp_module name
+      L.pp_type origin
+      L.pp_var origin
+      L.pp_var name
+      L.pp_module name
 
-let pp_type results ppf (name,ty) =
+let pp_type builtins results ppf (name,ty) =
   match ty with
   | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> ()
   | Result {ok;bad} -> Result.pp results ppf (name,ok,bad)
-  | Name t -> pp_alias ppf (name,t)
+  | Name t -> pp_alias builtins ppf (name,t)
   | FunPtr fn -> Funptr.pp ppf (name,fn)
   | Union fields -> Structured.(pp Union) ppf (name,fields)
   | Bitset { field_type = Some _; _ } -> ()
@@ -459,24 +465,24 @@ let pp_type results ppf (name,ty) =
   | Record r ->
     Structured.(pp Record) ppf (name,r.fields)
 
-let pp_item results ppf (name, item) =
+let pp_item builtins results ppf (name, item) =
   match item with
-  | B.Type t -> pp_type results ppf (name,t)
+  | B.Type t -> pp_type builtins results ppf (name,t)
   | Const c -> Const.pp ppf (name,c)
   | Fn f -> Fn.pp ppf f
 
 
-let rec pp_module results ppf (m:B.module') =
+let rec pp_module builtins results ppf (m:B.module') =
   Fmt.pf ppf
     "module %s%a= @[<v 2> struct@;%aend@]@.
     "
     (String.capitalize_ascii m.name)
     pp_args m.args
-    (pp_sig results) m
-and pp_sig results ppf (m:B.module') =
+    (pp_sig builtins results) m
+and pp_sig builtins results ppf (m:B.module') =
     Fmt.pf ppf "%a@;@;%a@;"
-    (Fmt.list @@ pp_item results) m.sig'
-    (Fmt.list @@ pp_module results) m.submodules
+    (Fmt.list @@ pp_item builtins results) m.sig'
+    (Fmt.list @@ pp_module builtins results) m.submodules
 
 and pp_args ppf = function
   | [] -> ()
@@ -499,5 +505,5 @@ let lib (lib:B.lib) =
   let pp_sub (m:B.module') =
     let ppf = open_file ("vk__" ^ m.name ^ ".ml") in
     pp_preambule ppf m;
-    pp_sig lib.result ppf m in
+    pp_sig lib.builtins lib.result ppf m in
   List.iter pp_sub lib.content.submodules
