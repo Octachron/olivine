@@ -1,7 +1,8 @@
-module Ty = Lib_builder.Ty
+module B = Lib_builder
+module T = B.T
+module Ty = B.Ty
 module L = Name_study
 module Arith = Ctype.Arith
-module B = Lib_builder
 
 let sep ppf () = Fmt.pf ppf "\n"
 let arrow ppf () = Fmt.pf ppf "@ @->"
@@ -11,12 +12,12 @@ module Enum = struct
   let contiguous_range =
     let rec range first current = function
       | [] -> Some(min first current, max first current)
-      | (_, Ty.Abs n) :: q when abs(current - n) = 1 ->
+      | (_, T.Abs n) :: q when abs(current - n) = 1 ->
         range first n q
       | _ -> None in
     function
     | [] -> None
-    | (_, Ty.Abs n) :: q -> range n n q
+    | (_, T.Abs n) :: q -> range n n q
     | _ -> None
 
   type implementation = Std | Poly
@@ -42,7 +43,7 @@ module Enum = struct
   let to_int impl ppf name constrs =
     Fmt.pf ppf "\n  let to_int = function\n";
     let constr ppf = function
-      | (_, Ty.Abs n as c) ->
+      | (_, T.Abs n as c) ->
         Fmt.pf ppf "    | %a -> %d" (pp_constr name impl) c n
       | _ -> () in
     Fmt.list ~sep constr ppf constrs
@@ -50,7 +51,7 @@ module Enum = struct
   let of_int impl ppf name constrs =
     Fmt.pf ppf "\n  let of_int = function\n";
     let constr ppf = function
-      | (_, Ty.Abs n as c) ->
+      | (_, T.Abs n as c) ->
         Fmt.pf ppf "    | %d -> %a" n (pp_constr name impl) c
       | _ -> () in
     Fmt.list ~sep constr ppf constrs;
@@ -113,7 +114,7 @@ module Result = struct
 
   let view m ppf name constrs =
     let constrs =
-      List.map (fun name -> name, Ty.Abs (find name m)) constrs in
+      List.map (fun name -> name, T.Abs (find name m)) constrs in
     Fmt.pf ppf "module %a = struct\n" L.pp_module name;
     Enum.(of_int Poly) ppf name constrs;
     Enum.(to_int Poly) ppf name constrs;

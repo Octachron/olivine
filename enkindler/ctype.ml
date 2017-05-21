@@ -52,10 +52,17 @@ module type name = sig
   val pp: Format.formatter -> name -> unit
 end
 
+
+type direction =
+  | In
+  | Out
+  | In_Out
+
+type pos = Abs of int | Bit of int | Offset of int
+
 module Typexpr(X:name) = struct
   include X
 
-  type pos = Abs of int | Bit of int | Offset of int
   type constructor = name * pos
 
   type 'a constexpr =
@@ -64,11 +71,6 @@ module Typexpr(X:name) = struct
     | Const of name
     | Null_terminated
     | Math_expr
-
-  type direction =
-    | In
-    | Out
-    | In_Out
 
   let pp_dir ppf x =
     Fmt.pf ppf "%s" (match x with
@@ -109,7 +111,7 @@ module Typexpr(X:name) = struct
   let flatten_fields l =
     let f acc = function
       | Simple f -> f :: acc
-      | Composite c -> c.subfields @ acc in
+      | Composite c -> List.rev c.subfields @ acc in
     List.rev @@ List.fold_left f [] l
 
   let flatten_fn_fields fs =

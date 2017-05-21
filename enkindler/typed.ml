@@ -1,6 +1,7 @@
 exception Type_error of string
 module N = Misc.StringMap
 module M = Xml.Map
+module T = Ctype
 module Ty = Ctype.Ty
 module Arith = Ctype.Arith
 open Xml.Infix
@@ -76,7 +77,7 @@ module Extension = struct
     let decorate_enum = function
       | Ty.Enum constrs ->
         let add' b = function
-          | _, Ty.Abs n -> add b n
+          | _, T.Abs n -> add b n
           | _ -> b in
         List.fold_left add' all constrs, constrs
       | _ -> raise Not_found
@@ -96,7 +97,7 @@ module Extension = struct
         let b, l = find key m  in
         let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
         let pos = if x.upward then +pos else -pos in
-        let elt = add b pos, (x.name, Ty.Abs pos) ::l in
+        let elt = add b pos, (x.name, T.Abs pos) ::l in
         N.add key elt m in
       List.fold_left add N.empty
 
@@ -270,15 +271,27 @@ let typedef spec node =
   let name, ty = map2 (refine node) @@ parse Parser.typedef s in
   register name (Type ty) spec
 
+let fields_refine =
+  let rec refine extended = function
+    | (name, (Ty.Array(Some (Var index'), _) as styp) )
+      :: (index, index_typ) :: q when index = index' ->
+      refine
+        (Ty.Composite { subfields = [index, index_typ; name, styp];
+                        typ = styp } :: extended)
+        q
+  | (n,t) :: q -> refine (Ty.Simple(n,t)::extended) q
+  | [] -> extended in
+  refine []
+
 let structure spec node =
   let name = node%("name") in
   let field fields = function
     | Xml.Node ({ name = "member"; children; _ } as n) ->
       let s = flatten children in
       let name, s = parse Parser.field s in
-      Ty.Simple(name, refine n s) :: fields
+      (name, refine n s) :: fields
     | _ -> fields in
-  let fields = (List.rev @@ List.fold_left field [] node.children) in
+  let fields = fields_refine @@ List.fold_left field [] node.children in
   let is_private = match node%?("returnedonly") with
     | None -> false | Some b -> bool_of_string b in
   let ty = Ty.Record {fields; is_private} in
@@ -391,8 +404,8 @@ let enum_data constrs x =
   | Xml.Node ({ name = "enum"; _ } as n) ->
     let pos =
       begin match n%?("value"), n%?("offset") with
-        | Some x, _  -> Ty.Abs (int_of_string x)
-        | None, Some x -> Ty.Offset (int_of_string x)
+        | Some x, _  -> T.Abs (int_of_string x)
+        | None, Some x -> T.Offset (int_of_string x)
         | None, None -> assert false
       end in
     (n%("name"), pos) :: constrs
@@ -465,8 +478,9 @@ let arg l = function
   | Node n -> raise @@
     Type_error ("expected param node, got "^ n.name ^ " node")
 
-let args_refine =
-  List.rev_map (fun f -> {Ty.dir=In_Out; field = Simple f})
+let args_refine args =
+  List.map (fun field -> {Ty.dir=In_Out; field })
+@@ fields_refine args
 
 let command spec = function
   | Xml.Data s -> raise @@

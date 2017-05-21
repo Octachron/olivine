@@ -3,8 +3,9 @@ type path = string list
 
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
-module Cty = Ctype.Ty
-module Arith = Ctype.Arith
+module T = Ctype
+module Cty = T.Ty
+module Arith = T.Arith
 
 module Full_name = struct type name = L.name let pp = L.pp_var end
 module Ty = Ctype.Typexpr(Full_name)
@@ -50,7 +51,7 @@ module Result = struct
   let make constrs =
     List.fold_left
       (fun m (x,n) -> match n with
-         | Ty.Abs n -> Map.add x n m
+         | T.Abs n -> Map.add x n m
          | _ -> m) Map.empty constrs
 end
 
@@ -147,19 +148,11 @@ module Rename = struct
                                  typ = typ (!) r.typ
                                }
   and fn_field (!) (r:Cty.fn_field) =
-    { Ty.dir = dir r.dir; field = field (!) r.field }
+    { Ty.dir = r.dir; field = field (!) r.field }
   and sfields (!) = List.map @@ sfield (!)
   and fields (!) = List.map @@ field (!)
   and fn_fields (!) = List.map @@ fn_field (!)
-  and constr (!) (n, p) = !n, pos p
-  and pos = function
-    | Cty.Abs n -> Ty.Abs n
-    | Offset n -> Ty.Offset n
-    | Bit n -> Ty.Bit n
-  and dir = function
-    | Cty.In -> Ty.In
-    | Out -> Ty.Out
-    | In_Out -> Ty.In_Out
+  and constr (!) (n, p) = !n, p
 end
 
 let rec dep_typ (dict,gen as g) (items,lib as build) =
@@ -329,3 +322,4 @@ let generate root preambule dict (spec:Typed.spec) =
     } in
   { root; preambule; result = result_info dict registry; content;
     builtins = builtins dict}
+
