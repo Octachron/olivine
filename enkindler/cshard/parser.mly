@@ -95,7 +95,7 @@ qualifier:
   | {fun x -> x}
   | CONST q = qualifier {fun x -> Const (q x) }
   | STAR q = qualifier { fun x -> Ptr (q x) }
-  | LSQ RSQ q = qualifier { fun x -> Array(None, q x) }
+  | LSQ RSQ q = qualifier { fun x -> (Array(None, q x):typexpr) }
   | LSQ n = intexp RSQ q = qualifier { fun x -> Array(Some n, q x)}
 ;;
 

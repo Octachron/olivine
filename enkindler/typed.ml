@@ -273,12 +273,9 @@ let typedef spec node =
 
 let fields_refine =
   let rec refine extended = function
-    | (name, (Ty.Array(Some (Var index'), _) as styp) )
-      :: (index, index_typ) :: q when index = index' ->
-      refine
-        (Ty.Composite { subfields = [index, index_typ; name, styp];
-                        typ = styp } :: extended)
-        q
+    | (_, Ty.Array(Some (Var index'), _) as array )
+      :: (name, _ as index) :: q when name = index' ->
+      refine (Ty.Array_f { index; array } :: extended) q
   | (n,t) :: q -> refine (Ty.Simple(n,t)::extended) q
   | [] -> extended in
   refine []

@@ -184,9 +184,9 @@ module Structured = struct
 
   let field name ppf = function
     | Ty.Simple f -> sfield name ppf f
-    | Composite { subfields; _ } (*fixme*) ->
-       Fmt.list (sfield name) ppf subfields
-
+    | Array_f { index; array } ->
+      (* FIXME *)
+      Fmt.pf ppf "%a@;%a" (sfield name) index (sfield name) array
   let def (type a) (kind: a kind) ppf name (fields:a list) =
     Fmt.pf ppf "type t@;";
     Fmt.pf ppf "type %a = t@;" L.pp_type name;

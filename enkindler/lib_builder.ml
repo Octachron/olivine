@@ -144,9 +144,9 @@ module Rename = struct
   and sfield (!) (n,ty) = !n, typ (!) ty
   and field (!) = function
     | Cty.Simple f -> Ty.Simple(sfield (!) f)
-    | Composite r -> Composite { subfields = sfields (!) r.subfields;
-                                 typ = typ (!) r.typ
-                               }
+    | Array_f r ->
+      Array_f { index = sfield (!) r.index;
+                array = sfield (!) r.array }
   and fn_field (!) (r:Cty.fn_field) =
     { Ty.dir = r.dir; field = field (!) r.field }
   and sfields (!) = List.map @@ sfield (!)
