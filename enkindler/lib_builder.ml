@@ -34,6 +34,9 @@ and item =
 
 and sig' = item M.t
 
+let rec is_empty m =
+    m.sig' = [] && List.for_all is_empty m.submodules
+
 let sys_specific name =
   let check =
     function "xlib" | "xcb" | "wl" |
@@ -326,4 +329,3 @@ let generate root preambule dict (spec:Typed.spec) =
     } in
   { root; preambule; result = result_info dict registry; content;
     builtins = builtins dict}
-

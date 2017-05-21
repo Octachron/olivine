@@ -503,7 +503,10 @@ let lib (lib:B.lib) =
     Fmt.pf ppf "%s\n%s\n" lib.preambule m.preambule in
   atlas (open_file "vk.ml") lib.content.submodules;
   let pp_sub (m:B.module') =
-    let ppf = open_file ("vk__" ^ m.name ^ ".ml") in
-    pp_preambule ppf m;
-    pp_sig lib.builtins lib.result ppf m in
+    if not (B.is_empty m) then
+      begin
+        let ppf = open_file ("vk__" ^ m.name ^ ".ml") in
+        pp_preambule ppf m;
+        pp_sig lib.builtins lib.result ppf m
+      end in
   List.iter pp_sub lib.content.submodules
