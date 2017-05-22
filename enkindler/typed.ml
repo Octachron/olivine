@@ -475,9 +475,14 @@ let arg l = function
   | Node n -> raise @@
     Type_error ("expected param node, got "^ n.name ^ " node")
 
-let args_refine args =
-  List.map (fun field -> {Ty.dir=In_Out; field })
-@@ fields_refine args
+let args_refine _name args =
+  let rec refine = function
+    | [] -> []
+    | [Ty.Simple (name,Ty.Ptr _) as field] -> [Ty.{field; dir = Out }]
+    | Array_f { index=(_,Ty.Ptr _); _ } as field :: q ->
+      { field; dir = Out } :: refine q
+    | field :: q -> { field; dir = In_Out} :: refine q in
+  refine @@ fields_refine args
 
 let command spec = function
   | Xml.Data s -> raise @@
@@ -490,7 +495,7 @@ let command spec = function
     let return = result_refine r return in
     register name
       (Fn { Ty.return; name;
-            args = args_refine @@ List.fold_left arg [] args })
+            args = args_refine name @@ List.fold_left arg [] args })
       spec
   | Node n -> raise @@
     Type_error ("expected command node, got "^ n.name ^ " node")
