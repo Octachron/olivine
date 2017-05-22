@@ -31,6 +31,12 @@ module Utils = struct
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
 
+  let (<!>) x s = match x with
+    | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
+    | Error k ->
+      Format.eprintf "Error %a: %s @."
+        Vkt.Result.pp k s; exit 1
+
   let (<??>) x s = match x with
     | Ok (`Success|`Suboptimal_khr) -> ()
     | Error k ->
@@ -137,9 +143,7 @@ module Instance = struct
   ;; debug "Info created"
 
   let x =
-    let r, x = Vkc.create_instance info () in
-    r <?> "instance";
-    x
+    Vkc.create_instance info () <!> "instance"
 
   let extension_properties =
     get_array (msg "Extension properties") Vkt.extension_properties

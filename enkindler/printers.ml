@@ -43,6 +43,16 @@ module H = struct
       Fmt.pf ppf "()"
     else ()
 
+
+  let is_result_name = function
+    | {Name_study.main = ["result", _]; prefix=[]; postfix = [] } ->
+      true
+    | _ -> false
+
+  let is_result = function
+    | Ty.Result _ -> true
+    | _ -> false
+
 end
 
 module Enum = struct
@@ -108,6 +118,10 @@ module Enum = struct
     Fmt.pf ppf
       "\n  let view = Ctypes.view ~write:to_int ~read:of_int int\n"
 
+  let view_result ppf () =
+    Fmt.pf ppf
+    "\n  let view = Vk__result.view ~ok:(of_int,to_int) ~error:(of_int,to_int)\n"
+
   let view_opt ppf () =
     Fmt.pf ppf
        "\n  let view_opt =\
@@ -120,7 +134,7 @@ module Enum = struct
     Fmt.pf ppf "@[<v 2> module %a = struct\n" L.pp_module name;
     List.iter (fun f -> f impl ppf name constrs)
     [def; to_int; of_int; pp ];
-    view ppf ();
+    if H.is_result_name name then view_result ppf () else view ppf ();
     view_opt ppf ();
     Fmt.pf ppf "@; @]end\n";
     Fmt.pf ppf "let %a, %a_opt = %a.(view,view_opt)\n\
@@ -486,6 +500,15 @@ module Fn = struct
     Fmt.pf ppf "%a, %a"
       (H.opt pp_len) (fst array, snd index) pp_start array
 
+  let result ppf inp seq s =
+    Fmt.pf ppf "@[<v 2>match %t with@;\
+                | Error _ as e -> e@;\
+                | Ok %t -> @[<v 2> begin@;%aend@]@;\
+                @]" inp inp seq s
+
+  let zip inp pp_out ppf out = Fmt.pf ppf "Ok(%t,%a)" inp pp_out out
+
+
   let pp_smart ppf (fn:Ty.fn) =
     let input, output = List.partition
         (fun {Ty.dir; _ } -> dir = In || dir = In_Out) fn.args in
@@ -531,9 +554,9 @@ module Fn = struct
       | _ -> () in
     let apply_twice = List.exists
         (function { Ty.field = Array_f _ ; _ } -> true | _ -> false) output in
-    let res = "generated__res__" in
+    let res ppf = Fmt.pf ppf "generated__res__" in
     let apply ppf =
-      Fmt.pf ppf "let %s = %a %a in@;"
+      Fmt.pf ppf "let %t = %a %a in@;"
         res L.pp_var fn.name (list L.pp_var) all in
     let comma ppf () = Fmt.pf ppf "," in
     let out_result ppf f = match f.Ty.field with
@@ -543,12 +566,28 @@ module Fn = struct
     Fmt.list out_def ppf output;
     List.iter (in_expand ppf) input;
     apply ppf;
-    if apply_twice then
-      (Fmt.list out_redef ppf output; apply ppf);
-    if List.length output > 0 then
-      Fmt.pf ppf "%s,%a" res (Fmt.list ~sep:comma out_result) output
+    let with_out =  List.length output > 0 in
+    let pp_out =  Fmt.list ~sep:comma out_result in
+    let pp_redef ppf output =  Fmt.list out_redef ppf output; apply ppf in
+    if not (H.is_result fn.return) || not with_out then
+      begin
+        if apply_twice then
+          pp_redef ppf output;
+        if with_out then
+          Fmt.pf ppf "%t,%a" res pp_out output
+        else
+          res ppf
+      end
     else
-      Fmt.pf ppf "%s" res;
+      begin
+        if not apply_twice then
+          result ppf res (zip res pp_out) output
+        else
+          result ppf res (fun ppf out ->
+              pp_redef ppf out;
+              result ppf res (zip res pp_out) out
+            ) output
+      end;
     Fmt.pf ppf "@]@."
 
 
