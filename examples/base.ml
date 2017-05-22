@@ -26,7 +26,13 @@ module Utils = struct
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
   let (<?>) x s = match x with
-    | Ok _ -> Format.printf "Success: %s@." s
+    | Ok x -> Format.printf "%a: %s@." Vkt.Result.pp x s
+    | Error k ->
+      Format.eprintf "Error %a: %s @."
+        Vkt.Result.pp k s; exit 1
+
+  let (<??>) x s = match x with
+    | Ok (`Success|`Suboptimal_khr) -> ()
     | Error k ->
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
@@ -131,11 +137,9 @@ module Instance = struct
   ;; debug "Info created"
 
   let x =
-    let x = Ctypes.allocate_n Vkt.instance 1 in
-    debug "Instance pointer allocated";
-    Vkr.create_instance info None x
-    <?> "instance";
-    !x
+    let r, x = Vkc.create_instance info () in
+    r <?> "instance";
+    x
 
   let extension_properties =
     get_array (msg "Extension properties") Vkt.extension_properties
@@ -720,36 +724,46 @@ module Render = struct
       ()
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
-  let present_info index =
+
+  let present_indices = Ctypes.allocate Vkt.uint32_t 0
+  (* Warning need to be alive as long as present_info can be used! *)
+
+  let present_info =
     Vkt.Present_info_khr.make
       ~s_type: Vkt.Structure_type.Present_info_khr
       ~p_next: null
       ~wait_semaphore_count: 1
       ~p_wait_semaphores: render_semaphore
       ~p_swapchains: swapchains
-      ~p_image_indices: index
+      ~p_image_indices: present_indices
       ()
 
   let debug_draw () =
-    let n = Ctypes.allocate Vkt.uint32_t 0 in
+    let n = present_indices in
     Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
       Unsigned.UInt64.max_int (Some !im_semaphore) None n
     <?> "Acquire image";
     debug "Image %d acquired" !n;
     Vkr.queue_submit Cmd.queue (Some 1) (submit_info !n) None
     <?> "Submitting command to queue";
-    Swapchain.queue_present_khr Cmd.queue (present_info n)
+    Swapchain.queue_present_khr Cmd.queue present_info
     <?> "Image presented"
 
+  let rec acquire_next () =
+      let n = Ctypes.allocate Vkt.uint32_t 0 in
+      match  Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
+               Unsigned.UInt64.max_int (Some !im_semaphore) None n with
+      | Ok (`Success|`Suboptimal_khr) -> !n
+      | Ok (`Timeout|`Not_ready) -> acquire_next ()
+      | Error x ->
+        (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
+
   let draw () =
-        let n = Ctypes.allocate Vkt.uint32_t 0 in
-    Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
-      Unsigned.UInt64.max_int (Some !im_semaphore) None n
-    |> ignore;
-    Vkr.queue_submit Cmd.queue (Some 1) (submit_info !n) None
-    |> ignore;
-    Swapchain.queue_present_khr Cmd.queue (present_info n)
-    |> ignore
+    present_indices <-@ acquire_next ();
+    Vkr.queue_submit Cmd.queue (Some 1) (submit_info !present_indices) None
+    <??> "Submit to queue";
+    Swapchain.queue_present_khr Cmd.queue present_info
+    <??> "Present to queue"
 
 end
 

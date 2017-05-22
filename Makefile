@@ -34,6 +34,8 @@ libsdlvulkan.so: sdl/vulkan_sdl.c
 shader: shaders/base.frag shaders/base.vert
 	cd shaders && $(SPIR) base.frag && $(SPIR) base.vert
 
+test: base.native
+	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./base.native
 
 clean:
 	$(CC) -clean; rm lib/vk.ml
