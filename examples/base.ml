@@ -263,7 +263,6 @@ module Device = struct
     assert (!x = true )
 
   let x =
-    let d = Ctypes.allocate_n Vkt.Device.t 1 in
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
       let queue_create_infos = A.from_ptr queue_create_info 1 in
@@ -275,9 +274,8 @@ module Device = struct
         ~pp_enabled_extension_names: exts
       ()
       in
-    Vkr.create_device phy info None d
-    <?> "Create logical device";
-    !d
+    Vkc.create_device phy info () <!> "Create logical device"
+
 end
 let device = Device.x
 let surface_khr = Device.surface_khr
@@ -360,10 +358,8 @@ module Image = struct
 
   let views =
     let create im =
-      let v = Ctypes.allocate_n Vkt.image_view 1 in
-      Vkr.create_image_view device (image_view_info im) None v
-      <?> "Creating image view";
-      !v in
+      Vkc.create_image_view device (image_view_info im) ()
+      <!> "Creating image view" in
     Array.map create images
 
 end
@@ -391,10 +387,7 @@ module Pipeline = struct
 
     let create_shader name s =
       let info = shader_module_info s in
-      let x = Ctypes.allocate_n Vkt.shader_module 1 in
-      Vkr.create_shader_module device info None x
-      <?> "Shader creation :" ^ name;
-      !x
+      Vkc.create_shader_module device info () <!> "Shader creation :" ^ name
 
     let frag_shader = create_shader "fragment" frag
     let vert_shader = create_shader "vertex" vert
@@ -513,10 +506,8 @@ module Pipeline = struct
       ()
 
   let simple_layout =
-    let x = Ctypes.allocate_n Vkt.pipeline_layout 1 in
-    Vkr.create_pipeline_layout device no_uniform None x
-    <?> "Creating pipeline layout";
-    !x
+    Vkc.create_pipeline_layout device no_uniform ()
+    <!> "Creating pipeline layout"
 
   let color_attachment =
     Vkt.Attachment_description.make
@@ -553,10 +544,7 @@ module Pipeline = struct
       ()
 
   let simple_render_pass =
-    let x = Ctypes.allocate_n Vkt.render_pass 1 in
-    Vkr.create_render_pass device render_pass_info None x
-    <?> "Creating render pass";
-    !x
+    Vkc.create_render_pass device render_pass_info () <!> "Creating render pass"
 
   let pipeline_info =
     let stages = A.of_list Vkt.pipeline_shader_stage_create_info
@@ -577,12 +565,11 @@ module Pipeline = struct
       ~base_pipeline_index: 0l
       ()
 
-
-  let x =
+  let pipeline_infos = A.from_ptr pipeline_info 1
+  let x = (* RAW *)
     debug "Pipeline creation";
     let x = Ctypes.allocate_n Vkt.pipeline 1 in
-    Vkr.create_graphics_pipelines device None 1
-      pipeline_info None x
+    Vkc.create_graphics_pipelines device pipeline_infos x ()
     <?> "Graphics pipeline creation";
     !x
 
