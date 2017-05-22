@@ -116,8 +116,6 @@ end
 module Instance = struct
   (** Creating a vulkan instance *)
 
-  let layers = A.of_list Ctypes.string []
-
   let extensions =
     A.of_list Ctypes.string ["VK_KHR_surface"; "VK_KHR_xlib_surface" ]
 
@@ -126,8 +124,8 @@ module Instance = struct
       ~s_type: Vkt.Structure_type.Instance_create_info
       ~p_next: null
       ~flags: Vkt.Instance_create_flags.empty
-      ~pp_enabled_layer_names: layers
       ~pp_enabled_extension_names: extensions
+      (* ?layers: validation layers *)
       ()
 
   ;; debug "Info created"
@@ -259,7 +257,6 @@ module Device = struct
 
   let x =
     let d = Ctypes.allocate_n Vkt.Device.t 1 in
-    let layers = A.of_list Ctypes.string [] in
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
       let queue_create_infos = A.from_ptr queue_create_info 1 in
@@ -267,7 +264,7 @@ module Device = struct
         ~s_type: Vkt.Structure_type.Device_create_info
         ~p_next: null
         ~p_queue_create_infos: queue_create_infos
-        ~pp_enabled_layer_names: layers
+        (*  ~pp_enabled_layer_names: layers *)
         ~pp_enabled_extension_names: exts
       ()
       in
@@ -410,13 +407,9 @@ module Pipeline = struct
   end
 
   let null_input =
-    let vbd = A.of_list Vkt.vertex_input_binding_description [] in
-    let vd = A.of_list Vkt.vertex_input_attribute_description [] in
     Vkt.Pipeline_vertex_input_state_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_vertex_input_state_create_info
       ~p_next: null
-      ~p_vertex_binding_descriptions: vbd
-      ~p_vertex_attribute_descriptions: vd
       ()
 
   let input_assembly =
@@ -507,13 +500,9 @@ module Pipeline = struct
 
 
   let no_uniform =
-    let layouts = A.of_list Vkt.descriptor_set_layout [] in
-    let pcr = A.of_list Vkt.push_constant_range [] in
     Vkt.Pipeline_layout_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_layout_create_info
       ~p_next: null
-      ~p_set_layouts: layouts
-      ~p_push_constant_ranges: pcr
       ()
 
   let simple_layout =
@@ -541,25 +530,19 @@ module Pipeline = struct
 
   let subpass =
     let color = A.from_ptr attachment 1 in
-    let input = A.of_list Vkt.attachment_reference [] in
-    let preserve = A.of_list Vkt.uint32_t [] in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
       ~p_color_attachments: color
-      ~p_input_attachments: input
-      ~p_preserve_attachments: preserve
       ()
 
   let render_pass_info =
     let attachments = A.from_ptr color_attachment 1 in
     let subpasses = A.from_ptr subpass 1 in
-    let deps = A.of_list Vkt.subpass_dependency [] in
     Vkt.Render_pass_create_info.make
       ~s_type: Vkt.Structure_type.Render_pass_create_info
       ~p_next: null
       ~p_attachments: attachments
       ~p_subpasses: subpasses
-      ~p_dependencies: deps
       ()
 
   let simple_render_pass =
@@ -685,6 +668,7 @@ module Cmd = struct
       ~framebuffer: fmb
       ~render_area: !Pipeline.scissor
       ~p_clear_values: clear_values
+      ()
 
   let cmd b fmb =
     Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
@@ -723,7 +707,7 @@ module Render = struct
   let wait_stage = let open Vkt.Pipeline_stage_flags in
     Ctypes.allocate view @@ singleton top_of_pipe
 
-  let submit_info index =
+  let submit_info _index (* CHECK-ME *) =
     let wait_sems = A.from_ptr im_semaphore 1 in
     let sign_sems = A.from_ptr render_semaphore 1 in
     Vkt.Submit_info.make
@@ -733,6 +717,7 @@ module Render = struct
       ~p_wait_dst_stage_mask: wait_stage
       ~p_command_buffers: Cmd.cmd_buffers
       ~p_signal_semaphores: sign_sems
+      ()
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
   let present_info index =

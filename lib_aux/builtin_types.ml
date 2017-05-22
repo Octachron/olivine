@@ -39,3 +39,5 @@ module Alias(X:aliased): sig
   val ctype: t Ctypes.typ
 end =
 struct type t = X.t let make x = x let ctype = X.ctype end
+
+let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)

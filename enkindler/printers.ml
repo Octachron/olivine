@@ -206,8 +206,8 @@ module Structured = struct
   let pp_make ppf (fields: Ty.field list) =
     let gen = "generated__x__" in
     let is_option = function
-      | Ty.Simple (_, Const Option _)
-      | Ty.Simple (_, Option _) -> true
+      | Ty.Simple (_, (Option _ | Const Option _) )
+      | Ty.Array_f { index = _, (Option _  | Const Option _ ); _ } -> true
       | _ -> false in
     let array_len ppf ((_,typ), (name,_)) =
       let size_t = Name_study.{ mu with main = [word "size"; word "t"]} in
@@ -232,13 +232,28 @@ module Structured = struct
     let set_field ppf  = function
       | Ty.Simple (f,_) ->
         Fmt.pf ppf "Ctypes.setf %s %a arg_%a;" gen L.pp_var f L.pp_var f
+      | Ty.Array_f { index; array } as t when is_option t ->
+        Fmt.pf ppf "begin match arg_%a with\
+                    | None ->\
+                      Ctypes.setf %s %a None;@;\
+                      Ctypes.setf %s %a (Obj.magic @@@@ Ctypes.null)\
+                    |Some arg_%a ->
+                      Ctypes.setf %s %a (%a);@;\
+                      Ctypes.setf %s %a (Ctypes.CArray.start arg_%a)\
+                   end;"
+          L.pp_var (fst array)
+          gen L.pp_var (fst index)
+          gen L.pp_var (fst array)
+          L.pp_var (fst array)
+          gen L.pp_var (fst index) array_len (index,array)
+          gen L.pp_var (fst array) L.pp_var (fst array)
       | Ty.Array_f { index; array } ->
         Fmt.pf ppf "Ctypes.setf %s %a (%a);@;\
                     Ctypes.setf %s %a (Ctypes.CArray.start arg_%a);"
           gen L.pp_var (fst index) array_len (index,array)
           gen L.pp_var (fst array) L.pp_var (fst array) in
     Fmt.pf ppf "@;@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
-               %a\
+               %a@;\
                Ctypes.addr %s
              @]"
       Fmt.(list pp_label) fields
