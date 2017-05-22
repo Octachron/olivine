@@ -49,6 +49,11 @@ module H = struct
       true
     | _ -> false
 
+  let is_void = function
+    | Ty.Name {Name_study.main = ["void", _]; prefix=[]; postfix = [] } ->
+      true
+    | _ -> false
+
   let is_result = function
     | Ty.Result _ -> true
     | _ -> false
@@ -573,7 +578,9 @@ module Fn = struct
       begin
         if apply_twice then
           pp_redef ppf output;
-        if with_out then
+        if with_out && H.is_void fn.return then
+          Fmt.pf ppf "%a" pp_out output
+        else if with_out then
           Fmt.pf ppf "%t,%a" res pp_out output
         else
           res ppf

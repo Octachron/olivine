@@ -166,9 +166,8 @@ module Device = struct
     d
 
   let property device =
-    let p = Ctypes.make Vkt.physical_device_properties in
     debug "Device properties acquisition";
-    Vkr.get_physical_device_properties device (Ctypes.addr p);
+    let p = Vkc.get_physical_device_properties device in
     debug "Device properties acquired";
     p
 
