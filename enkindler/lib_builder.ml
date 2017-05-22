@@ -30,7 +30,7 @@ type module' = {
 
 and item =
   | Const of const
-  | Fn of fn
+  | Fn of { simple: bool; fn:fn }
   | Type of type'
 
 and sig' = item M.t
@@ -220,7 +220,13 @@ let rec generate_ideal dict registry (items, lib as build) p =
   | Typed.Fn fn ->
     let items, lib = dep_fn (dict, generate_ideal dict registry) fn build in
     let fn = Rename.fn renamer fn in
-    let lib = add ["core"] name (Fn fn) lib in
+    let lib =
+      if Ty.is_simple fn then
+        lib |> add ["core"] name (Fn { simple=true; fn})
+      else
+        lib
+        |> add ["core"] name (Fn {simple=false; fn})
+        |> add ["raw"] name (Fn {simple=true; fn}) in
     items, lib
   | Typed.Type typ ->
     let items, lib = deps (dict,generate_ideal dict registry) build typ in
@@ -265,25 +271,26 @@ let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
     let mname = Format.asprintf "%a" L.pp_module name in
     let ext_m = make ~args ~preambule ["vk"; branch]  mname in
     let m = generate_core dict registry (items, ext_m) in
-    let sig' = match m.submodules with
-      | [{name="core"; _} as core; ({name="subresult"; _ } as sub)]
-      | [({name="subresult"; _ } as sub); ({name="core"; _} as core) ]
-        -> core.sig' @ sub.sig'
-      | [{name="core"; _} as core ] -> core.sig'
-      | [] -> []
-      | s -> List.iter (fun m -> Fmt.epr "Submodule:%s@." m.name) s;
-        assert false in
+    begin if List.length m.submodules > 3 then
+        ( List.iter (fun m -> Fmt.epr "Submodule:%s@." m.name) m.submodules;
+          assert false
+        )
+    end;
+
+    let map = List.fold_left (fun m x -> M.add x.name x m) M.empty m.submodules in
+       let (#.) map n = try [M.find n map] with Not_found -> [] in
+    let sig' = List.fold_left (fun acc x -> x.sig' @ acc) [] map#."core"  in
+    let submodules = map#."raw" @ map#."subresult" in
     { m with
-      submodules = [];
+      submodules;
       sig'
     } :: l
 
+let opens l = String.concat "" @@ List.map (fun s -> "open Vk__" ^ s ^ "\n") l
+
 let generate_extensions dict registry extensions =
   let exts = List.fold_left (classify_extension dict) M.empty extensions in
-  let preambule = "open Vk__const\n\
-                   open Vk__types\n\
-                   open Vk__extension_sig\n\
-                   open Vk__subresult\n" in
+  let preambule = opens [ "const"; "types"; "extension_sig"; "subresult"] in
   let gen_branch name exts acc =
     let submodules =
       List.fold_left (generate_subextension dict registry name) [] exts in
@@ -301,12 +308,15 @@ let filter_extension dict registry name0 =
 let builtins dict =
   Name_set.of_list @@ List.map (L.make dict) ["vkBool32"]
 
+
+
 let generate root preambule dict (spec:Typed.spec) =
   let registry = spec.entities in
   let submodules =
-    [make ~preambule:"open Vk__const\nopen Vk__types\nopen Vk__subresult"
-       ["vk"] "core";
-     make ~preambule:"open Vk__const\ninclude Builtin_types\n" ["vk"] "types";
+    let raw_open = ["const"; "types"; "subresult"] in
+    [make ~preambule:(opens @@ raw_open @ ["raw"]) ["vk"] "core";
+     make ~preambule:(opens raw_open) ["vk"] "raw";
+     make ~preambule:( opens ["const"] ^ "include Builtin_types\n") ["vk"] "types";
     ] in
   let items =
        S.of_list
@@ -322,4 +332,3 @@ let generate root preambule dict (spec:Typed.spec) =
     } in
   { root; preambule; result = result_info dict registry; content;
     builtins = builtins dict}
-

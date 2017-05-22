@@ -1,7 +1,7 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
 module Vkc = Vk.Core
-
+module Vkr = Vk.Raw
 
 module Utils = struct
   (** Ctype utility functions *)
@@ -133,7 +133,7 @@ module Instance = struct
   let x =
     let x = Ctypes.allocate_n Vkt.instance 1 in
     debug "Instance pointer allocated";
-    Vkc.create_instance info None x
+    Vkr.create_instance info None x
     <?> "instance";
     !x
 
@@ -160,7 +160,7 @@ module Device = struct
   let property device =
     let p = Ctypes.make Vkt.physical_device_properties in
     debug "Device properties acquisition";
-    Vkc.get_physical_device_properties device (Ctypes.addr p);
+    Vkr.get_physical_device_properties device (Ctypes.addr p);
     debug "Device properties acquired";
     p
 
@@ -212,7 +212,7 @@ module Device = struct
 
   let capabilities =
     let x = Ctypes.allocate_n Vkt.surface_capabilities_khr 1 in
-    Surface.get_physical_device_surface_capabilities_khr phy surface_khr x
+    Surface.Raw.get_physical_device_surface_capabilities_khr phy surface_khr x
     <?> "Surface capabilities";
     !x
 
@@ -251,7 +251,7 @@ module Device = struct
 
   let support =
     let x = Ctypes.allocate Vkt.bool false in
-    Surface.get_physical_device_surface_support_khr phy queue_family
+    Surface.Raw.get_physical_device_surface_support_khr phy queue_family
       surface_khr x <?> "Compatibility surface/device";
     assert (!x = true )
 
@@ -268,7 +268,7 @@ module Device = struct
         ~pp_enabled_extension_names: exts
       ()
       in
-    Vkc.create_device phy info None d
+    Vkr.create_device phy info None d
     <?> "Create logical device";
     !d
 end
@@ -318,7 +318,7 @@ module Image = struct
 
   let swap_chain =
     let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
-    Swapchain.create_swapchain_khr device swap_chain_info None s
+    Swapchain.Raw.create_swapchain_khr device swap_chain_info None s
     <?> "swap_chain";
     !s
 
@@ -354,7 +354,7 @@ module Image = struct
   let views =
     let create im =
       let v = Ctypes.allocate_n Vkt.image_view 1 in
-      Vkc.create_image_view device (image_view_info im) None v
+      Vkr.create_image_view device (image_view_info im) None v
       <?> "Creating image view";
       !v in
     Array.map create images
@@ -385,7 +385,7 @@ module Pipeline = struct
     let create_shader name s =
       let info = shader_module_info s in
       let x = Ctypes.allocate_n Vkt.shader_module 1 in
-      Vkc.create_shader_module device info None x
+      Vkr.create_shader_module device info None x
       <?> "Shader creation :" ^ name;
       !x
 
@@ -507,7 +507,7 @@ module Pipeline = struct
 
   let simple_layout =
     let x = Ctypes.allocate_n Vkt.pipeline_layout 1 in
-    Vkc.create_pipeline_layout device no_uniform None x
+    Vkr.create_pipeline_layout device no_uniform None x
     <?> "Creating pipeline layout";
     !x
 
@@ -547,7 +547,7 @@ module Pipeline = struct
 
   let simple_render_pass =
     let x = Ctypes.allocate_n Vkt.render_pass 1 in
-    Vkc.create_render_pass device render_pass_info None x
+    Vkr.create_render_pass device render_pass_info None x
     <?> "Creating render pass";
     !x
 
@@ -574,7 +574,7 @@ module Pipeline = struct
   let x =
     debug "Pipeline creation";
     let x = Ctypes.allocate_n Vkt.pipeline 1 in
-    Vkc.create_graphics_pipelines device None 1
+    Vkr.create_graphics_pipelines device None 1
       pipeline_info None x
     <?> "Graphics pipeline creation";
     !x
@@ -597,7 +597,7 @@ module Cmd = struct
 
   let framebuffer index =
     let x  = Ctypes.allocate_n Vkt.framebuffer 1 in
-    Vkc.create_framebuffer device (framebuffer_info index) None
+    Vkr.create_framebuffer device (framebuffer_info index) None
       x <?> "Framebuffer creation";
     !x
 
@@ -608,7 +608,7 @@ module Cmd = struct
 
   let queue =
     let x = Ctypes.allocate_n Vkt.queue 1 in
-    Vkc.get_device_queue device Device.queue_family 0 x;
+    Vkr.get_device_queue device Device.queue_family 0 x;
     !x
 
   let command_pool_info =
@@ -620,7 +620,7 @@ module Cmd = struct
 
   let command_pool =
     let x  = Ctypes.allocate_n Vkt.Command_pool.t 1 in
-    Vkc.create_command_pool device command_pool_info None x
+    Vkr.create_command_pool device command_pool_info None x
     <?> "Command pool creation";
     !x
 
@@ -697,7 +697,7 @@ module Render = struct
 
   let create_semaphore () =
     let x = Ctypes.allocate_n Vkt.semaphore 1 in
-    Vkc.create_semaphore device semaphore_info None x
+    Vkr.create_semaphore device semaphore_info None x
     <?> "Created semaphore";
     x
 
@@ -732,21 +732,21 @@ module Render = struct
 
   let debug_draw () =
     let n = Ctypes.allocate Vkt.uint32_t 0 in
-    Swapchain.acquire_next_image_khr device Image.swap_chain
+    Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
       Unsigned.UInt64.max_int (Some !im_semaphore) None n
     <?> "Acquire image";
     debug "Image %d acquired" !n;
-    Vkc.queue_submit Cmd.queue (Some 1) (submit_info !n) None
+    Vkr.queue_submit Cmd.queue (Some 1) (submit_info !n) None
     <?> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue (present_info n)
     <?> "Image presented"
 
   let draw () =
         let n = Ctypes.allocate Vkt.uint32_t 0 in
-    Swapchain.acquire_next_image_khr device Image.swap_chain
+    Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
       Unsigned.UInt64.max_int (Some !im_semaphore) None n
     |> ignore;
-    Vkc.queue_submit Cmd.queue (Some 1) (submit_info !n) None
+    Vkr.queue_submit Cmd.queue (Some 1) (submit_info !n) None
     |> ignore;
     Swapchain.queue_present_khr Cmd.queue (present_info n)
     |> ignore

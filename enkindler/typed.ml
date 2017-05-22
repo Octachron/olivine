@@ -228,7 +228,7 @@ let rec optionalize l typ = match l, typ with
   | true :: q, Ptr typ -> Option (Ptr (optionalize q typ))
   | q, Const typ -> Const(optionalize q typ)
   | q, Option typ -> Option(optionalize q typ)
-  | [true], typ ->  debug "%a" Ty.pp typ; Option typ
+  | [true], typ -> Option typ
   | [], typ -> typ
   | _ ->
     Fmt.(pf stderr) "optionalize: %a\n%!" Fmt.(list bool) l;

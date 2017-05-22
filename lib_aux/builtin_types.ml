@@ -31,13 +31,23 @@ let bool = bool_3_2
 let size_t_opt = integer_opt Ctypes.size_t (module S)
 let device_size_opt = integer_opt Ctypes.uint64_t (module U64)
 
-module type aliased = sig type t val ctype:t Ctypes.typ end
+module Size_t = struct let of_int = S.of_int end
+module Uint32_t = struct let of_int x = x end
+module Uint64_t = struct let of_int =  U64.of_int end
+
+
+module type aliased = sig
+  type t
+  val ctype:t Ctypes.typ
+  val of_int: int -> t
+end
 
 module Alias(X:aliased): sig
   type t = private X.t
   val make: X.t -> t
   val ctype: t Ctypes.typ
+  val of_int : int -> t
 end =
-struct type t = X.t let make x = x let ctype = X.ctype end
+struct type t = X.t let make x = x let ctype = X.ctype let of_int = X.of_int  end
 
 let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)

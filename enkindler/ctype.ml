@@ -118,6 +118,12 @@ module Typexpr(X:name) = struct
     let proj x = x.field in
     flatten_fields @@ List.map proj fs
 
+  let is_simple fn =
+    let is_simple = function
+      | { dir = Out; _ } | { field = Array_f _; _ } -> false
+      | _ -> true in
+    List.for_all is_simple fn.args
+
   let fp = Fmt.pf
 
   let pp_list sep = Fmt.list ~sep
