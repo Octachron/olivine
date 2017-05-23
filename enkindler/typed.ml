@@ -248,6 +248,16 @@ let option_refine node =
     |> List.map bool_of_string
     |> optionalize
 
+let structure_refine node t =
+  match node%?("validextensionstructs") with
+  | None -> t
+  | Some l ->
+    let l = l |> String.split_on_char ',' in
+    if List.length l > 1 then
+      Fmt.epr "structure type values @[%a@]@."
+        Fmt.(list ~sep:(fun ppf () -> pf ppf ",@ ") string) l;
+    t
+
 let result_refine (s,e) ty =
   let open Ctype.Ty in
   let sum =String.split_on_char ',' in
@@ -258,7 +268,7 @@ let result_refine (s,e) ty =
   | _ -> ty
 
 let refine node t =
-  option_refine node @@ array_refine node t
+  structure_refine node @@ option_refine node @@ array_refine node t
 
 let map2 f (x,y) = (x,f y)
 

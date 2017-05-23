@@ -236,6 +236,7 @@ module Typexp = struct
       failwith "Anonymous type"
     | Result {ok;bad} ->
       Result.pp_type ppf (ok,bad)
+    | Record_extensions _ -> Fmt.pf ppf "ptr void" (* FIXME *)
     | FunPtr _ ->
       failwith "Not_implemented: funptr"
 end
@@ -733,6 +734,8 @@ let pp_type builtins results ppf (name,ty) =
       end
   | Record r ->
     Structured.(pp Record) ppf (name,r.fields)
+  | Record_extensions _ -> (* FIXME *)
+    Fmt.pf ppf "ptr void"
 
 let pp_item builtins results ppf (name, item) =
   match item with

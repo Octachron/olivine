@@ -130,6 +130,7 @@ module Rename = struct
                    }
     | Result r -> Ty.Result{ ok = List.map (!) r.ok;
                              bad = List.map (!) r.bad }
+    | Record_extensions l -> Ty.Record_extensions (List.map (!) l)
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
     | Var v -> Ty.Var (!v)
@@ -201,6 +202,8 @@ let deps gen build = function
   | Bitset { field_type = Some name'; _ } ->
     snd gen build name'
   | Bitset _ -> build
+  | Record_extensions exts ->
+    List.fold_left (dep_typ gen) build @@ List.map (fun n -> Cty.Name n) exts
 
 let result_info dict registry =
   match M.find "VkResult" registry with

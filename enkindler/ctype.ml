@@ -99,6 +99,7 @@ module Typexpr(X:name) = struct
     | Handle of { parent: name option; dispatchable:bool }
     | Result of { ok: name list; bad: name list }
     | Record of {is_private:bool; fields: field list}
+    | Record_extensions of name list
 
   and simple_field = name * typexpr
   and field =
@@ -182,6 +183,10 @@ module Typexpr(X:name) = struct
       let ppl = pp_list (const "@ | ") X.pp in
       fp ppf "@[either@ [ok:%a]@ [bad:%a]@]"
         ppl ok ppl bad
+    | Record_extensions exts ->
+      let ppl = pp_list (const "@ | ") X.pp in
+      fp ppf "@[record extensions [%a]@ " ppl exts
+
 
   and pp_simple_field ppf (name, t) =
     fp ppf "%a:%a" X.pp name pp t
