@@ -154,7 +154,7 @@ module Instance = struct
 
   let extension_properties =
     get_array (msg "Extension properties") Vkt.extension_properties
-    @@ Vkc.enumerate_instance_extension_properties None
+    @@ Vkr.enumerate_instance_extension_properties None
 
   ;; Array.iter print_extension_property extension_properties
 end
@@ -168,7 +168,7 @@ module Device = struct
   let phy_devices =
     let d =
       get_array (msg "physical device") Vkt.physical_device
-      @@ Vkc.enumerate_physical_devices instance in
+      @@ Vkr.enumerate_physical_devices instance in
     debug "Number of devices: %d \n" (Array.length d);
     d
 
@@ -189,7 +189,7 @@ module Device = struct
 
   let queue_family_properties =
     get_array silent Vkt.queue_family_properties
-    @@ Vkc.get_physical_device_queue_family_properties phy
+    @@ Vkr.get_physical_device_queue_family_properties phy
 
   let print_queue_property ppf property =
     Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
@@ -212,7 +212,7 @@ module Device = struct
   let device_extensions =
     get_array (msg "device extensions")
       Vkt.extension_properties
-      (Vkc.enumerate_device_extension_properties phy None)
+      (Vkr.enumerate_device_extension_properties phy None)
 
   ;; Format.printf "Device extensions:\n@[<v 2>"
   ;; Array.iter print_extension_property device_extensions
@@ -246,7 +246,7 @@ module Device = struct
 
   let supported_formats =
     get_array (msg "Supported surface format") Vkt.surface_format_khr @@
-    Surface.get_physical_device_surface_formats_khr phy
+    Surface.Raw.get_physical_device_surface_formats_khr phy
       surface_khr
 
   let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
@@ -257,7 +257,7 @@ module Device = struct
 
   let present_modes =
     get_array (msg "Surface present modes") Vkt.present_mode_khr @@
-    Surface.get_physical_device_surface_present_modes_khr phy surface_khr
+    Surface.Raw.get_physical_device_surface_present_modes_khr phy surface_khr
 
   ;; Array.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
 
@@ -332,7 +332,7 @@ module Image = struct
   let images =
     (* FIXME: index:ptr opt, array: opt array *)
     get_array (msg "Swapchain images") Vk.Types.image
-    @@ Swapchain.get_swapchain_images_khr device swap_chain
+    @@ Swapchain.Raw.get_swapchain_images_khr device swap_chain
 
   ;; debug "Swapchain: %d images" (Array.length images)
 
@@ -436,15 +436,15 @@ module Pipeline = struct
       ~offset: Vkt.Offset_2d.(!(make ~x:0l ~y:0l))
       ~extent:Image.extent
 
+  let viewports = A.from_ptr viewport 1
+  let scissors = A.from_ptr scissor 1
 
   let viewport_state =
     Vkt.Pipeline_viewport_state_create_info.make
       ~s_type: Vkt.Structure_type.Pipeline_viewport_state_create_info
       ~p_next: null
-      ~viewport_count: (1)
-      ~scissor_count: (1)
-      ~p_viewports: viewport
-      ~p_scissors: scissor
+      ~p_viewports: viewports
+      ~p_scissors: scissors
       ()
 
   let rasterizer =
@@ -720,8 +720,7 @@ module Render = struct
     Vkt.Present_info_khr.make
       ~s_type: Vkt.Structure_type.Present_info_khr
       ~p_next: null
-      ~wait_semaphore_count: 1
-      ~p_wait_semaphores: (A.start sign_sems) (* FIXME: Optional array *)
+      ~p_wait_semaphores: sign_sems
       ~p_swapchains: swapchains
       ~p_image_indices: present_indices
       ()

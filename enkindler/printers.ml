@@ -10,6 +10,14 @@ let arrow ppf () = Fmt.pf ppf "@ @->"
 module H = struct
 
   let is_option = function
+    | Ty.Option _ -> true
+    | _ -> false
+
+  let is_ptr_option = function
+    | Ty.Ptr Option _ -> true
+    | _ -> false
+
+  let is_option_f = function
     | Ty.Simple (_, (Option _ | Const Option _) )
     | Ty.Array_f { index = _, (Option _  | Const Option _ ); _ } -> true
     | _ -> false
@@ -33,16 +41,24 @@ module H = struct
     | Ty.Array_f { array=(n,_); _ } -> L.pp_var ppf n
 
   let pp_label prefix ppf f =
-    let kind= if is_option f then "?" else "~" in
+    let kind= if is_option_f f then "?" else "~" in
     Fmt.pf ppf "%s%a:%t%a" kind label_name f prefix label_name f
 
   let pp_fnlabel prefix ppf f = pp_label prefix ppf f.Ty.field
 
   let pp_terminator fields ppf =
-    if List.exists is_option fields then
+    if List.exists is_option_f fields then
       Fmt.pf ppf "()"
     else ()
 
+
+  let pp_opty ty pp ppf = match ty with
+    | Ty.Option _ -> Fmt.pf ppf "Some(%a)" pp
+    | _ -> pp ppf
+
+  let pp_start pp ppf = Fmt.pf ppf "Ctypes.CArray.start %a" pp
+
+  let pp_fname ppf (n, _ ) = L.pp_var ppf n
 
   let is_result_name = function
     | {Name_study.main = ["result", _]; prefix=[]; postfix = [] } ->
@@ -267,26 +283,28 @@ module Structured = struct
     let set_field ppf  = function
       | Ty.Simple (f,_) ->
         Fmt.pf ppf "Ctypes.setf %s %a %a;" gen L.pp_var f pp_arg f
-      | Ty.Array_f { index; array } as t when H.is_option t ->
-        Fmt.pf ppf "begin match %a with\
-                    | None ->\
-                      Ctypes.setf %s %a None;@;\
-                      Ctypes.setf %s %a (Obj.magic @@@@ Ctypes.null)\
+      | Ty.Array_f { index; array } as t when H.is_option_f t ->
+        Fmt.pf ppf "@[<v 2>begin match %a with@;\
+                    | None ->@;\
+                      (Ctypes.setf %s %a None;@;\
+                       Ctypes.setf %s %a (Obj.magic @@@@ Ctypes.null))@;\
                     |Some %a ->\
-                      Ctypes.setf %s %a (%a);@;\
-                      Ctypes.setf %s %a (Ctypes.CArray.start %a)\
-                   end;"
+                      (Ctypes.setf %s %a (%a);@;\
+                      Ctypes.setf %s %a (%a))@;\
+                   end;@]@;"
           pp_arg (fst array)
           gen L.pp_var (fst index)
           gen L.pp_var (fst array)
           pp_arg (fst array)
           gen L.pp_var (fst index) (H.array_len prx) (index,array)
-          gen L.pp_var (fst array) pp_arg (fst array)
+          gen L.pp_var (fst array)
+          (H.pp_opty (snd array) @@ H.pp_start pp_arg) (fst array)
       | Ty.Array_f { index; array } ->
         Fmt.pf ppf "Ctypes.setf %s %a (%a);@;\
-                    Ctypes.setf %s %a (Ctypes.CArray.start %a);"
+                    Ctypes.setf %s %a (%a);"
           gen L.pp_var (fst index) (H.array_len prx) (index,array)
-          gen L.pp_var (fst array) pp_arg (fst array) in
+          gen L.pp_var (fst array)
+          (H.pp_opty (snd array) @@ H.pp_start pp_arg) (fst array) in
     Fmt.pf ppf "@;@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
                 %a@;\
                 Ctypes.addr %s\
@@ -460,7 +478,7 @@ module Fn = struct
 
   let rec ptr_to_name = function
     | Ty.Name t -> Some(0, t)
-    | Ty.Ptr p ->
+    | Ty.Ptr p | Array(_,p) ->
       begin match ptr_to_name p with
       | Some(n,elt) -> Some(n+1,elt)
       | None -> None
@@ -482,12 +500,16 @@ module Fn = struct
       Fmt.pf ppf "nullptr (%a)" last_pointer x
     | None -> ()
 
-
-  let allocate n ppf t =
+  let allocate n ppf elt =
+    let allocate ppf x =
+      Fmt.pf ppf "Ctypes.allocate_n (%a) %t" last_pointer x n in
+    let t =
+      match elt with
+      | Ty.Option t -> t
+      | t -> t in
     match ptr_to_name t with
-    | Some x ->
-      Fmt.pf ppf "Ctypes.allocate_n (%a) %t" last_pointer x n
-    | None -> ()
+    | Some x -> H.pp_opty elt allocate ppf x
+    | None -> Fmt.epr "Error, elt:%a@." Ty.pp elt
 
   let pp_some pp ppf = Fmt.pf ppf "Some (%a)" pp
   let pp_direct pp ppf = Fmt.pf ppf "%a" pp
@@ -499,21 +521,32 @@ module Fn = struct
       def arg arg pp_extract y
 
   let pp_len ppf (x,_) = Fmt.pf ppf "Ctypes.CArray.length %a" L.pp_var x
-  let pp_start ppf (x,_) = Fmt.pf ppf "Ctypes.CArray.start %a" L.pp_var x
 
   let extract_array ppf (index,array) =
     Fmt.pf ppf "%a, %a"
-      (H.opt pp_len) (fst array, snd index) pp_start array
+      (H.opt pp_len) (fst array, snd index) (H.pp_start H.pp_fname) array
 
   let result ppf inp seq s =
     Fmt.pf ppf "@[<v 2>match %t with@;\
                 | Error _ as e -> e@;\
-                | Ok %t -> @[<v 2> begin@;%aend@]@;\
+                | Ok %t ->@;@[<v 2> begin@;%aend@]@;\
                 @]" inp inp seq s
 
   let zip inp pp_out ppf out = Fmt.pf ppf "Ok(%t,%a)" inp pp_out out
 
   let one ppf = Fmt.pf ppf "%d" 1
+
+  let rec pp_to_int var ppf = function
+    | Ty.Ptr t ->
+      let var ppf = Fmt.pf ppf "Ctypes.(!@@)(%t)" var in
+      pp_to_int var ppf t
+    | Option t ->
+      let var ppf = Fmt.pf ppf "unwrap(%t)" var in
+      pp_to_int var ppf t
+    | Name { Name_study.main = ["uint32",_; "t", _ ] ; prefix =[]; postfix = [] }
+      -> var ppf
+    | Name t -> Fmt.pf ppf "%a.to_int (%t)" L.pp_module t var
+    | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
 
   let pp_smart ppf (fn:Ty.fn) =
     let input, output = List.partition
@@ -540,12 +573,18 @@ module Fn = struct
                     let %a = %a in@;"
           L.pp_var i (allocate one) size
           L.pp_var a nullptr elt
+      | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
+        Fmt.pf ppf "let %a = Ctypes.allocate %a_opt None in@;\
+                    let %a = None in@;"
+          L.pp_var i L.pp_type t
+          L.pp_var a
       | _ ->
         Fmt.epr "Smart function not implemented for: %a@." Ty.pp_fn_field f;
         raise Not_implemented in
     let out_redef ppf (f:Ty.fn_field) = match f.field with
-      | Array_f { array = a, elt; index = i, _  } ->
-        let size ppf = Fmt.pf ppf "Ctypes.(@! %a)" L.pp_var i in
+      | Array_f { array = a, elt; index = i, it  } ->
+        let var ppf = L.pp_var ppf i in
+        let size ppf = Fmt.pf ppf "(%a)" (pp_to_int var) it in
         Fmt.pf ppf "let %a = %a in@;"
           L.pp_var a (allocate size) elt
       | _ -> () in
@@ -553,7 +592,7 @@ module Fn = struct
       | Array_f { array= (a, _ as array) ; index = (i, _ as index)  } as f ->
         let arg ppf = L.pp_var ppf a in
         let def ppf = Fmt.pf ppf "%a,%a" L.pp_var i L.pp_var a in
-        if H.is_option f then
+        if H.is_option_f f then
           extract_opt def arg extract_array ppf (index,array)
         else
           Fmt.pf ppf "let %t = %a in @;"
@@ -659,11 +698,13 @@ let pp_alias builtins ppf (name,origin) =
        type t = %a@ \
        let ctype = %a@ \
        let of_int = %a.of_int@ \
+       let to_int = %a.to_int@ \
        end)@]@.\
        @[let %a = %a.ctype@]@."
       L.pp_module name
       L.pp_type origin
       L.pp_var origin
+      L.pp_module origin
       L.pp_module origin
       L.pp_var name
       L.pp_module name

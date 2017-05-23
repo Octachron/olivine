@@ -31,15 +31,20 @@ let bool = bool_3_2
 let size_t_opt = integer_opt Ctypes.size_t (module S)
 let device_size_opt = integer_opt Ctypes.uint64_t (module U64)
 
-module Size_t = struct let of_int = S.of_int end
-module Uint32_t = struct let of_int x = x end
-module Uint64_t = struct let of_int =  U64.of_int end
+module Size_t = struct let of_int = S.of_int let to_int = S.to_int end
+module Uint32_t = struct let of_int x = x let to_int x = x end
+module Uint64_t = struct let of_int =  U64.of_int let to_int = U64.to_int end
+
+let unwrap = function
+  | Some x -> x
+  | None -> raise (Invalid_argument "unwrap None")
 
 
 module type aliased = sig
   type t
   val ctype:t Ctypes.typ
   val of_int: int -> t
+  val to_int: t -> int
 end
 
 module Alias(X:aliased): sig
@@ -47,7 +52,13 @@ module Alias(X:aliased): sig
   val make: X.t -> t
   val ctype: t Ctypes.typ
   val of_int : int -> t
-end =
-struct type t = X.t let make x = x let ctype = X.ctype let of_int = X.of_int  end
+  val to_int: t -> int
+end = struct
+  type t = X.t
+  let make x = x
+  let ctype = X.ctype
+  let of_int = X.of_int
+  let to_int = X.to_int
+end
 
 let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
