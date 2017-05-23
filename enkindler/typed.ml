@@ -203,7 +203,12 @@ let len_info s =
   let len = function
     | "null-terminated" -> Ty.Null_terminated
     | s when is_prefix "latexmath" s -> Ty.Math_expr
-    | s -> Ty.Var s in
+    | s ->
+      let p = List.filter ((<>) "") @@ String.split_on_char ':' s in
+      match p with
+      | [] -> assert false
+      | [s] -> Ty.Var s
+      | p -> Ty.Path p in
   List.map len lens
 
 let array_refine node =
@@ -478,7 +483,9 @@ let arg l = function
 let args_refine _name args =
   let rec refine = function
     | [] -> []
-    | [Ty.Simple (name,Ty.Ptr _) as field] -> [Ty.{field; dir = Out }]
+    | [Ty.Simple (_,Ty.Ptr _) as field] -> [Ty.{field; dir = Out }]
+    | [Ty.Simple (_,Ty.Array(Some(Var _), Name _ )) as field] ->
+      [Ty.{field; dir = Out }]
     | Array_f { index=(_,Ty.Ptr _); _ } as field :: q ->
       { field; dir = Out } :: refine q
     | field :: q -> { field; dir = In_Out} :: refine q in

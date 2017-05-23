@@ -133,6 +133,7 @@ module Rename = struct
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
     | Var v -> Ty.Var (!v)
+    | Path p -> Ty.Path (List.map (!) p)
     | Const n -> Ty.Const !n
     | Null_terminated -> Ty.Null_terminated
     | Math_expr -> Ty.Math_expr

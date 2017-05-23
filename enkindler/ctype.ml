@@ -68,6 +68,7 @@ module Typexpr(X:name) = struct
   type 'a constexpr =
     | Lit of 'a
     | Var of name
+    | Path of name list
     | Const of name
     | Null_terminated
     | Math_expr
@@ -128,6 +129,8 @@ module Typexpr(X:name) = struct
 
   let pp_list sep = Fmt.list ~sep
   let const f ppf () = fp ppf f
+  let dot ppf () = Fmt.pf ppf "."
+
 
   let pp_constexp pp ppf = function
     | Lit n -> fp ppf "%a" pp n
@@ -135,6 +138,7 @@ module Typexpr(X:name) = struct
     | Null_terminated -> fp ppf "%s" "null-terminated"
     | Math_expr -> fp ppf "%s" "math-expr"
     | Const name -> fp ppf "%a" X.pp name
+    | Path p -> fp ppf "[%a]" (Fmt.list ~sep:dot X.pp) p
 
   let pp_bitfield ppf (name,int) =
     fp ppf "%d:%a" int X.pp name

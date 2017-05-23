@@ -566,12 +566,12 @@ module Pipeline = struct
       ()
 
   let pipeline_infos = A.from_ptr pipeline_info 1
-  let x = (* RAW *)
-    debug "Pipeline creation";
-    let x = Ctypes.allocate_n Vkt.pipeline 1 in
-    Vkc.create_graphics_pipelines device pipeline_infos x ()
-    <?> "Graphics pipeline creation";
-    !x
+
+  let pipelines =
+    Vkc.create_graphics_pipelines device pipeline_infos ()
+    <!> "Graphics pipeline creation"
+
+  let x = A.get pipelines 0
 
 end
 

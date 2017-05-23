@@ -513,6 +513,7 @@ module Fn = struct
 
   let zip inp pp_out ppf out = Fmt.pf ppf "Ok(%t,%a)" inp pp_out out
 
+  let one ppf = Fmt.pf ppf "%d" 1
 
   let pp_smart ppf (fn:Ty.fn) =
     let input, output = List.partition
@@ -526,11 +527,13 @@ module Fn = struct
       Fmt.pf ppf "@[<v 2> let %a @[<hov>%a%t@]=@;" L.pp_var fn.name
         (list pp_label) input
         (H.pp_terminator @@ List.map (fun f -> f.Ty.field) fn.args) in
-    let one ppf = Fmt.pf ppf "%d" 1 in
     let out_def ppf (f:Ty.fn_field) =
       match f.field with
       | Ty.Simple (f, t) when is_ptr_to_name t  ->
         Fmt.pf ppf "let %a = %a in@;" L.pp_var f (allocate one) t
+      | Simple(f, Array(Some(Var i), Name elt)) ->
+        Fmt.pf ppf "let %a = Ctypes.allocate_n (%a) (%a) in @;"
+        L.pp_var f L.pp_type elt L.pp_var i
       | Array_f { array=a, elt; index=i, size }
         when is_ptr_to_name elt && is_ptr_to_name size ->
         Fmt.pf ppf "let %a = %a in@;\
@@ -566,10 +569,13 @@ module Fn = struct
     let comma ppf () = Fmt.pf ppf "," in
     let out_result ppf f = match f.Ty.field with
       | Ty.Array_f { array = (n,_) ; _ } -> L.pp_var ppf n
+      | Simple(f, Array(Some(Var i), Name _ )) ->
+        Fmt.pf ppf "(Ctypes.CArray.from_ptr %a %a)"
+          L.pp_var f L.pp_var i
       | Simple(n, _) -> Fmt.pf ppf "Ctypes.(!@@ %a)" L.pp_var n in
     def ppf;
-    Fmt.list out_def ppf output;
     List.iter (in_expand ppf) input;
+    Fmt.list out_def ppf output;
     apply ppf;
     let with_out =  List.length output > 0 in
     let pp_out =  Fmt.list ~sep:comma out_result in
