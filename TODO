@@ -8,10 +8,12 @@
 * Path field array index:
   Output Array lenght are sometimes defined in term of input.fields_path
 
-* Variable-length output array:
-  Extract correctly the tuple index, array from the function definition
-
 * Remove useless prefix in name
   e.g. p_, s_, pp_
 
 * Improve generated code
+
+Done:
+
+* Variable-length output array:
+  Extract correctly the tuple index, array from the function definition

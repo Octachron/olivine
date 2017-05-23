@@ -12,16 +12,7 @@ module Utils = struct
     | None -> ()
     | Some x -> pp ppf x
 
-  let ($=) field value str= set str field value
   let ( #. ) = get
-
-  let make typ updates =
-    let str=Ctypes.make typ in
-    List.iter (fun f -> f str) updates;
-    str
-
-  let mk_ptr typ updates = Ctypes.addr @@ make typ updates
-
 
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
@@ -51,15 +42,6 @@ module Utils = struct
         Vkt.Result.pp k s; exit 1
 
   let (!) = Ctypes.(!@)
-  let (~:) = Unsigned.UInt32.of_int
-  let to_int = Unsigned.UInt32.to_int
-(*
-  module Bool = Vkt.Bool_3_2
-  let bool32 = Bool.ctype
-  let true' = Bool.make ~: Vk.Const.true'
-  let false' = Bool.make ~: Vk.Const.false'
-*)
-
   let (+@) = Ctypes.(+@)
   let ( <-@ ) = Ctypes.( <-@ )
 
@@ -70,7 +52,6 @@ module Utils = struct
     n, a'
 
   let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
-  let to_array n p = Array.init n (fun i -> !(p +@ i) )
   let to_string carray =
     String.init (A.length carray)
       (fun n -> A.get carray n)
