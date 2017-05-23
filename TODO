@@ -1,0 +1,17 @@
+
+* Structure_type handling:
+  The (s_type, p_next) vulkan idiom should be mapped to
+  `Stype(p_next) and made optional in smart record constructor when there is
+  only one possible `Stype. The possible values need to be extracted from the vulkan
+  spec.
+
+* Path field array index:
+  Output Array lenght are sometimes defined in term of input.fields_path
+
+* Variable-length output array:
+  Extract correctly the tuple index, array from the function definition
+
+* Remove useless prefix in name
+  e.g. p_, s_, pp_
+
+* Improve generated code
