@@ -37,6 +37,13 @@ module Utils = struct
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
 
+
+  let (<!!>) x s = match x with
+    | Ok `Success -> ()
+    | Error k ->
+      Format.eprintf "Error %a: %s @."
+        Vkt.Result.pp k s; exit 1
+
   let (<??>) x s = match x with
     | Ok (`Success|`Suboptimal_khr) -> ()
     | Error k ->
@@ -218,10 +225,8 @@ module Device = struct
     !s
 
   let capabilities =
-    let x = Ctypes.allocate_n Vkt.surface_capabilities_khr 1 in
-    Surface.Raw.get_physical_device_surface_capabilities_khr phy surface_khr x
-    <?> "Surface capabilities";
-    !x
+    Surface.get_physical_device_surface_capabilities_khr phy surface_khr
+    <!> "Surface capabilities"
 
   let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
     Format.fprintf ppf "[%d×%d]"
@@ -257,10 +262,9 @@ module Device = struct
   ;; Array.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
 
   let support =
-    let x = Ctypes.allocate Vkt.bool false in
-    Surface.Raw.get_physical_device_surface_support_khr phy queue_family
-      surface_khr x <?> "Compatibility surface/device";
-    assert (!x = true )
+    let x = Surface.get_physical_device_surface_support_khr phy queue_family
+      surface_khr <!> "Compatibility surface/device" in
+    assert (x = true )
 
   let x =
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
@@ -322,12 +326,11 @@ module Image = struct
       ()
 
   let swap_chain =
-    let s = Ctypes.allocate_n ~count:1 Vkt.swapchain_khr in
-    Swapchain.Raw.create_swapchain_khr device swap_chain_info None s
-    <?> "swap_chain";
-    !s
+    Swapchain.create_swapchain_khr device swap_chain_info ()
+    <!> "swap chain creation"
 
   let images =
+    (* FIXME: index:ptr opt, array: opt array *)
     get_array (msg "Swapchain images") Vk.Types.image
     @@ Swapchain.get_swapchain_images_khr device swap_chain
 
@@ -590,10 +593,8 @@ module Cmd = struct
       ()
 
   let framebuffer index =
-    let x  = Ctypes.allocate_n Vkt.framebuffer 1 in
-    Vkr.create_framebuffer device (framebuffer_info index) None
-      x <?> "Framebuffer creation";
-    !x
+    Vkc.create_framebuffer device (framebuffer_info index) ()
+    <!> "Framebuffer creation"
 
   let framebuffers = A.of_list Vkt.framebuffer @@ Array.to_list
     @@ Array.map framebuffer Image.views
@@ -601,9 +602,7 @@ module Cmd = struct
   let my_fmb = framebuffer
 
   let queue =
-    let x = Ctypes.allocate_n Vkt.queue 1 in
-    Vkr.get_device_queue device Device.queue_family 0 x;
-    !x
+    Vkc.get_device_queue device Device.queue_family 0
 
   let command_pool_info =
     Vkt.Command_pool_create_info.make
@@ -613,10 +612,8 @@ module Cmd = struct
       ()
 
   let command_pool =
-    let x  = Ctypes.allocate_n Vkt.Command_pool.t 1 in
-    Vkr.create_command_pool device command_pool_info None x
-    <?> "Command pool creation";
-    !x
+    Vkc.create_command_pool device command_pool_info ()
+    <!> "Command pool creation"
 
   let my_cmd_pool = command_pool
   let n_cmd_buffers =  (A.length framebuffers)
@@ -631,6 +628,7 @@ module Cmd = struct
   let cmd_buffers =
     let n = n_cmd_buffers in
     let x = A.make Vkt.command_buffer n in
+    (* BUG: AllocateCommandBuffers use an array with a field index *)
     Vkc.allocate_command_buffers device buffer_allocate_info @@ A.start x
     <?> "Command buffers allocation";
     x
@@ -690,28 +688,28 @@ module Render = struct
       ()
 
   let create_semaphore () =
-    let x = Ctypes.allocate_n Vkt.semaphore 1 in
-    Vkr.create_semaphore device semaphore_info None x
-    <?> "Created semaphore";
-    x
+    Vkc.create_semaphore device semaphore_info () <!> "Created semaphore"
 
   let im_semaphore = create_semaphore ()
   let render_semaphore = create_semaphore ()
+
+  let wait_sems = A.of_list Vkt.semaphore [im_semaphore]
+  let sign_sems = A.of_list Vkt.semaphore [render_semaphore]
+
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
     Ctypes.allocate view @@ singleton top_of_pipe
 
   let submit_info _index (* CHECK-ME *) =
-    let wait_sems = A.from_ptr im_semaphore 1 in
-    let sign_sems = A.from_ptr render_semaphore 1 in
+    A.from_ptr (
     Vkt.Submit_info.make
       ~s_type: Vkt.Structure_type.Submit_info
       ~p_next: null
       ~p_wait_semaphores: wait_sems
       ~p_wait_dst_stage_mask: wait_stage
       ~p_command_buffers: Cmd.cmd_buffers
-      ~p_signal_semaphores: sign_sems
-      ()
+      ~p_signal_semaphores: sign_sems ()
+      ) 1
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
 
@@ -723,7 +721,7 @@ module Render = struct
       ~s_type: Vkt.Structure_type.Present_info_khr
       ~p_next: null
       ~wait_semaphore_count: 1
-      ~p_wait_semaphores: render_semaphore
+      ~p_wait_semaphores: (A.start sign_sems) (* FIXME: Optional array *)
       ~p_swapchains: swapchains
       ~p_image_indices: present_indices
       ()
@@ -731,18 +729,18 @@ module Render = struct
   let debug_draw () =
     let n = present_indices in
     Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
-      Unsigned.UInt64.max_int (Some !im_semaphore) None n
+      Unsigned.UInt64.max_int (Some im_semaphore) None n
     <?> "Acquire image";
     debug "Image %d acquired" !n;
-    Vkr.queue_submit Cmd.queue (Some 1) (submit_info !n) None
-    <?> "Submitting command to queue";
+    Vkc.queue_submit ~queue:Cmd.queue ~p_submits:(submit_info !n) ()
+    <!!> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <?> "Image presented"
 
   let rec acquire_next () =
       let n = Ctypes.allocate Vkt.uint32_t 0 in
       match  Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
-               Unsigned.UInt64.max_int (Some !im_semaphore) None n with
+               Unsigned.UInt64.max_int (Some im_semaphore) None n with
       | Ok (`Success|`Suboptimal_khr) -> !n
       | Ok (`Timeout|`Not_ready) -> acquire_next ()
       | Error x ->
@@ -750,8 +748,8 @@ module Render = struct
 
   let draw () =
     present_indices <-@ acquire_next ();
-    Vkr.queue_submit Cmd.queue (Some 1) (submit_info !present_indices) None
-    <??> "Submit to queue";
+    Vkc.queue_submit ~queue:Cmd.queue ~p_submits:(submit_info !present_indices) ()
+    <!!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <??> "Present to queue"
 
