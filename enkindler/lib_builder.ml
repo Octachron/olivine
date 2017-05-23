@@ -149,6 +149,12 @@ module Rename = struct
     | Array_f r ->
       Array_f { index = sfield (!) r.index;
                 array = sfield (!) r.array }
+    | Record_extension { exts; tag; ptr } ->
+      Record_extension {
+        exts = List.map(!) exts;
+        tag = sfield (!) tag;
+        ptr = sfield (!) tag
+      }
   and fn_field (!) (r:Cty.fn_field) =
     { Ty.dir = r.dir; field = field (!) r.field }
   and sfields (!) = List.map @@ sfield (!)

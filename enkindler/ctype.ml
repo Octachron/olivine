@@ -105,6 +105,11 @@ module Typexpr(X:name) = struct
   and field =
     | Simple of simple_field
     | Array_f of { index: simple_field; array: simple_field }
+    | Record_extension of
+        { exts: name list;
+          tag:simple_field;
+          ptr:simple_field
+        }
   and fn_field = { dir:direction; field:field }
   and fn = { name:name; return: typexpr; args: fn_field list }
 
@@ -113,7 +118,9 @@ module Typexpr(X:name) = struct
   let flatten_fields l =
     let f acc = function
       | Simple f -> f :: acc
-      | Array_f {index; array } -> array :: index :: acc in
+      | Array_f {index; array } -> array :: index :: acc
+      | Record_extension {tag;ptr; _ } -> ptr :: tag :: acc
+    in
     List.rev @@ List.fold_left f [] l
 
   let flatten_fn_fields fs =
@@ -196,6 +203,9 @@ module Typexpr(X:name) = struct
     | Array_f {index;array} ->
       fp ppf "[{Array.index:%a; array:%a}@]"
         pp_simple_field index pp_simple_field array
+    | Record_extension {exts; _ } ->
+      fp ppf "[{Record extensions:%a}@]"
+        (Fmt.list X.pp) exts
 
   and pp_fn_field ppf f =
     fp ppf "⟨%a:%a⟩" pp_dir f.dir pp_field f.field

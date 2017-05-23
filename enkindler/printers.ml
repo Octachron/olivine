@@ -19,7 +19,8 @@ module H = struct
 
   let is_option_f = function
     | Ty.Simple (_, (Option _ | Const Option _) )
-    | Ty.Array_f { index = _, (Option _  | Const Option _ ); _ } -> true
+    | Ty.Array_f { index = _, (Option _  | Const Option _ ); _ }
+    | Ty.Record_extension _ -> true
     | _ -> false
 
 
@@ -39,6 +40,7 @@ module H = struct
   let label_name ppf = function
     | Ty.Simple (n,_) -> L.pp_var ppf n
     | Ty.Array_f { array=(n,_); _ } -> L.pp_var ppf n
+    | Ty.Record_extension _ -> Fmt.pf ppf "ext"
 
   let pp_label prefix ppf f =
     let kind= if is_option_f f then "?" else "~" in
@@ -259,8 +261,11 @@ module Structured = struct
   let field name ppf = function
     | Ty.Simple f -> sfield name ppf f
     | Array_f { index; array } ->
-      (* FIXME *)
+      (* FIXME: WHY??? *)
       Fmt.pf ppf "%a@;%a" (sfield name) index (sfield name) array
+    | Record_extension { tag; ptr; _ } ->
+      Fmt.pf ppf "%a@;%a" (sfield name) tag (sfield name) ptr
+
   let def (type a) (kind: a kind) ppf name (fields:a list) =
     Fmt.pf ppf "type t@;";
     Fmt.pf ppf "type %a = t@;" L.pp_type name;
@@ -305,7 +310,10 @@ module Structured = struct
                     Ctypes.setf %s %a (%a);"
           gen L.pp_var (fst index) (H.array_len prx) (index,array)
           gen L.pp_var (fst array)
-          (H.pp_opty (snd array) @@ H.pp_start pp_arg) (fst array) in
+          (H.pp_opty (snd array) @@ H.pp_start pp_arg) (fst array)
+      | Ty.Record_extension _ -> raise @@
+        Invalid_argument "Record extension not yet implemented"
+    in
     Fmt.pf ppf "@;@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
                 %a@;\
                 Ctypes.addr %s\
@@ -615,7 +623,10 @@ module Fn = struct
       | Simple(f, Array(Some(Var i), Name _ )) ->
         Fmt.pf ppf "(Ctypes.CArray.from_ptr %a %a)"
           L.pp_var f L.pp_var i
-      | Simple(n, _) -> Fmt.pf ppf "Ctypes.(!@@ %a)" L.pp_var n in
+      | Simple(n, _) -> Fmt.pf ppf "Ctypes.(!@@ %a)" L.pp_var n
+      | Record_extension _ ->
+        raise @@ Invalid_argument "Record extension used as a function argument"
+    in
     def ppf;
     List.iter (in_expand ppf) input;
     Fmt.list out_def ppf output;
