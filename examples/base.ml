@@ -153,10 +153,9 @@ module Instance = struct
     Vkc.create_instance info () <!> "instance"
 
   let extension_properties =
-    get_array (msg "Extension properties") Vkt.extension_properties
-    @@ Vkr.enumerate_instance_extension_properties None
+    Vkc.enumerate_instance_extension_properties () <!> "Extension properties"
 
-  ;; Array.iter print_extension_property extension_properties
+  ;; A.iter print_extension_property extension_properties
 end
 let instance = Instance.x
 

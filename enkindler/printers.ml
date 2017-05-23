@@ -607,6 +607,9 @@ module Fn = struct
         res L.pp_var fn.name (list L.pp_var) all in
     let comma ppf () = Fmt.pf ppf "," in
     let out_result ppf f = match f.Ty.field with
+      | Ty.Array_f { array = (n, Ty.Option _) ; index = i , it } ->
+        Fmt.pf ppf "Ctypes.CArray.from_ptr (unwrap %a) (%a)"
+          L.pp_var n (pp_to_int @@ fun ppf -> L.pp_var ppf i) it
       | Ty.Array_f { array = (n,_) ; _ } -> L.pp_var ppf n
       | Simple(f, Array(Some(Var i), Name _ )) ->
         Fmt.pf ppf "(Ctypes.CArray.from_ptr %a %a)"
