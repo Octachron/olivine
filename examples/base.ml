@@ -75,21 +75,6 @@ module Utils = struct
     String.init (A.length carray)
       (fun n -> A.get carray n)
 
-  let get_array msg elt f =
-    let n = Ctypes.allocate Vkt.uint32_t_opt None in
-    msg "count" @@ f n None;
-    let count = match !n with
-      | None -> 0 | Some n ->  n  in
-    let e =
-      Ctypes.allocate_n ~count elt in
-    msg "allocation" (f n @@ Some e);
-    to_array count e
-
-  let msg name minor r =
-    r <?> name ^ ":" ^ minor
-
-  let silent _minor _r = ()
-
   let read_spirv filename =
     let chan = open_in_bin filename in
     let len = in_channel_length chan in
@@ -165,10 +150,8 @@ module Surface = Vk.Khr.Surface(Instance)
 
 module Device = struct
   let phy_devices =
-    let d =
-      get_array (msg "physical device") Vkt.physical_device
-      @@ Vkr.enumerate_physical_devices instance in
-    debug "Number of devices: %d \n" (Array.length d);
+    let d = Vkc.enumerate_physical_devices instance <!> "physical device" in
+    debug "Number of devices: %d \n" (A.length d);
     d
 
   let property device =
@@ -182,20 +165,17 @@ module Device = struct
     debug "Device: %s\n"
       (to_string p#.Vkt.Physical_device_properties.device_name)
 
-  ;; Array.iter print_property phy_devices
+  ;; A.iter print_property phy_devices
 
-  let phy = phy_devices.(0)
+  let phy = A.get phy_devices 0
 
-  let queue_family_properties =
-    get_array silent Vkt.queue_family_properties
-    @@ Vkr.get_physical_device_queue_family_properties phy
+  let queue_family_properties = Vkc.get_physical_device_queue_family_properties phy
 
   let print_queue_property ppf property =
     Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
       property#.Vkt.Queue_family_properties.queue_flags
 
-  ;; Array.iter (print_queue_property Format.std_formatter)
-    queue_family_properties
+  ;; A.iter (print_queue_property Format.std_formatter) queue_family_properties
 
   let queue_family = 0
   let priorities = A.of_list Ctypes.float [ 1.]
@@ -209,15 +189,13 @@ module Device = struct
       ()
 
   let device_extensions =
-    get_array (msg "device extensions")
-      Vkt.extension_properties
-      (Vkr.enumerate_device_extension_properties phy None)
+    Vkc.enumerate_device_extension_properties phy () <!> "device extensions"
 
   ;; Format.printf "Device extensions:\n@[<v 2>"
-  ;; Array.iter print_extension_property device_extensions
+  ;; A.iter print_extension_property device_extensions
   ;; Format.printf "@]@."
 
-  let surface_khr =
+  let surface_khr = (* FIXME *)
     let s = Ctypes.allocate_n ~count:1 Vkt.surface_khr in
     Vk__sdl.create_surface instance Sdl.w None s
     <?> "Obtaining surface";
@@ -244,21 +222,20 @@ module Device = struct
   ;; debug "Surface capabilities: %a" pp_capability capabilities
 
   let supported_formats =
-    get_array (msg "Supported surface format") Vkt.surface_format_khr @@
-    Surface.Raw.get_physical_device_surface_formats_khr phy
-      surface_khr
+    Surface.get_physical_device_surface_formats_khr phy surface_khr
+    <!> "supported surface formats"
 
   let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
     Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
       Vkt.Format.pp sformat#.format Vkt.Color_space_khr.pp sformat#.color_space
 
-  ;; Array.iter (debug "%a" pp_sformat) supported_formats
+  ;; A.iter (debug "%a" pp_sformat) supported_formats
 
   let present_modes =
-    get_array (msg "Surface present modes") Vkt.present_mode_khr @@
-    Surface.Raw.get_physical_device_surface_present_modes_khr phy surface_khr
+    Surface.get_physical_device_surface_present_modes_khr phy surface_khr
+    <!> "present modes"
 
-  ;; Array.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
+  ;; A.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
 
   let support =
     let x = Surface.get_physical_device_surface_support_khr phy queue_family
@@ -287,7 +264,7 @@ module Swapchain = Vk.Khr.Swapchain(Device)
 
 module Image = struct
 
-  let surface_format = Device.supported_formats.(0)
+  let surface_format = A.get Device.supported_formats 0
 
   let format, colorspace =
     let open Vkt.Surface_format_khr in
@@ -329,11 +306,10 @@ module Image = struct
     <!> "swap chain creation"
 
   let images =
-    (* FIXME: index:ptr opt, array: opt array *)
-    get_array (msg "Swapchain images") Vk.Types.image
-    @@ Swapchain.Raw.get_swapchain_images_khr device swap_chain
+    Swapchain.get_swapchain_images_khr device swap_chain
+    <!> "Swapchain images"
 
-  ;; debug "Swapchain: %d images" (Array.length images)
+  ;; debug "Swapchain: %d images" (A.length images)
 
   let component_mapping =
     let id = Vkt.Component_swizzle.Identity in
@@ -362,7 +338,7 @@ module Image = struct
     let create im =
       Vkc.create_image_view device (image_view_info im) ()
       <!> "Creating image view" in
-    Array.map create images
+    A.map Vkt.image_view create images
 
 end
 
@@ -595,8 +571,7 @@ module Cmd = struct
     Vkc.create_framebuffer device (framebuffer_info index) ()
     <!> "Framebuffer creation"
 
-  let framebuffers = A.of_list Vkt.framebuffer @@ Array.to_list
-    @@ Array.map framebuffer Image.views
+  let framebuffers = A.map Vkt.framebuffer framebuffer Image.views
 
   let my_fmb = framebuffer
 
@@ -725,22 +700,21 @@ module Render = struct
       ()
 
   let debug_draw () =
-    let n = present_indices in
-    Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
-      Unsigned.UInt64.max_int (Some im_semaphore) None n
-    <?> "Acquire image";
-    debug "Image %d acquired" !n;
-    Vkc.queue_submit ~queue:Cmd.queue ~p_submits:(submit_info !n) ()
+    let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
+      ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
+            <!> "Acquire image" in
+    present_indices <-@ n;
+    debug "Image %d acquired" n;
+    Vkc.queue_submit ~queue:Cmd.queue ~p_submits:(submit_info n) ()
     <!!> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <?> "Image presented"
 
   let rec acquire_next () =
-      let n = Ctypes.allocate Vkt.uint32_t 0 in
-      match  Swapchain.Raw.acquire_next_image_khr device Image.swap_chain
-               Unsigned.UInt64.max_int (Some im_semaphore) None n with
-      | Ok (`Success|`Suboptimal_khr) -> !n
-      | Ok (`Timeout|`Not_ready) -> acquire_next ()
+      match  Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
+               ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore () with
+      | Ok ((`Success|`Suboptimal_khr), n) -> n
+      | Ok ((`Timeout|`Not_ready), _ ) -> acquire_next ()
       | Error x ->
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
 
