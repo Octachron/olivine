@@ -316,8 +316,8 @@ module Pipeline = struct
 
   module Shaders = struct
 
-    let frag = read_spirv "shaders/frag.spv"
-    let vert = read_spirv "shaders/vert.spv"
+    let frag = read_spirv "shaders/triangle/frag.spv"
+    let vert = read_spirv "shaders/triangle/vert.spv"
 
     let shader_module_info s =
       let len = String.length s in
