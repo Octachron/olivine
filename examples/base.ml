@@ -544,13 +544,6 @@ module Cmd = struct
   let cmd_buffers =
     Vkc.allocate_command_buffers device buffer_allocate_info
     <!> "Command buffers allocation"
-    (*
-    let n = n_cmd_buffers in
-    let x = A.make Vkt.command_buffer n in
-    (* BUG: AllocateCommandBuffers use an array with a field index *)
-    Vkc.allocate_command_buffers device buffer_allocate_info @@ A.start x
-    <?> "Command buffers allocation";
-    x*)
 
   ;;debug "Created %d cmd buffers" n_cmd_buffers
 
