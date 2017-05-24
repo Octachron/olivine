@@ -135,7 +135,6 @@ module Rename = struct
         (List.filter (fun x -> not (sys_specific x)) @@ List.map (!) l)
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
-    | Var v -> Ty.Var (!v)
     | Path p -> Ty.Path (List.map (!) p)
     | Const n -> Ty.Const !n
     | Null_terminated -> Ty.Null_terminated
@@ -325,6 +324,8 @@ let builtins dict =
   Name_set.of_list @@ List.map (L.make dict) ["vkBool32"]
 
 
+let find_submodule name lib =
+  List.find (fun m -> m.name = name) lib.content.submodules
 
 let generate root preambule dict (spec:Typed.spec) =
   let registry = spec.entities in

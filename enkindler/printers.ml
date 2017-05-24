@@ -617,7 +617,48 @@ module Fn = struct
     | Name t -> Fmt.pf ppf "%a.to_int (%t)" L.pp_module t var
     | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
 
-  let pp_smart ppf (fn:Ty.fn) =
+
+  let rec find_field_type name = function
+    | [] -> None
+    | Ty.Simple(n,ty) :: _  when n = name -> Some ty
+    | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
+    | _ :: q -> find_field_type name q
+
+  let type_path types fields p =
+    let rec type_path (types) acc (ty, fields) = function
+      | [] -> acc
+      | [a] -> (ty,a) :: acc
+      | a :: q ->
+        match find_field_type a fields with
+        | Some (Ty.Const Ptr Name tn| Ptr Name tn) ->
+          begin
+            match List.assoc tn types with
+            | B.Type Ty.Record{ fields; _ } ->
+              type_path types ( (ty, a) :: acc) (Some tn,fields) q
+            | B.Type ty ->
+              Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
+              raise @@ Invalid_argument "Non-record path, yet a type"
+            | _ ->
+              raise @@ Invalid_argument "Non-record path: not even a type"
+          end
+        | Some ty ->
+          Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
+          raise @@ Invalid_argument "Non-record path"
+        | _ -> raise @@ Invalid_argument "Unknown type in path"
+    in
+    type_path types [] (None, fields) p
+
+  let rec pp_path ppf =
+    function
+    | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
+    | [None, a] -> L.pp_var ppf a
+    | (Some ty, a) :: q ->
+      Fmt.pf ppf "Ctypes.getf (Ctypes.(!@@) (%a)) %a.%a"
+        pp_path q L.pp_module ty L.pp_var a
+    | (None, _) :: _ -> raise @@
+      Invalid_argument "Printers.pp_path: p artially type type path"
+
+  let pp_smart types ppf (fn:Ty.fn) =
     let input, output = List.partition
         (fun {Ty.dir; _ } -> dir = In || dir = In_Out) fn.args in
     let all = List.map fst @@ Ty.flatten_fn_fields fn.args in
@@ -631,11 +672,13 @@ module Fn = struct
         (H.pp_terminator @@ List.map (fun f -> f.Ty.field) fn.args) in
     let out_def ppf (f:Ty.fn_field) =
       match f.field with
+      | Simple(f, Array(Some(Path p), Name elt)) ->
+        let p = type_path types (List.map (fun f -> f.Ty.field) fn.args) p in
+        Fmt.pf ppf "let size_%a = %a in@;" L.pp_var f pp_path p;
+        Fmt.pf ppf "let %a = Ctypes.allocate_n (%a) (size_%a) in @;"
+          L.pp_var f L.pp_type elt L.pp_var f
       | Ty.Simple (f, t) when is_ptr_to_name t  ->
         Fmt.pf ppf "let %a = %a in@;" L.pp_var f (allocate one) t
-      | Simple(f, Array(Some(Var i), Name elt)) ->
-        Fmt.pf ppf "let %a = Ctypes.allocate_n (%a) (%a) in @;"
-        L.pp_var f L.pp_type elt L.pp_var i
       | Array_f { array=a, elt; index=i, size }
         when is_ptr_to_name elt && is_ptr_to_name size ->
         Fmt.pf ppf "let %a = %a in@;\
@@ -680,9 +723,9 @@ module Fn = struct
         Fmt.pf ppf "Ctypes.CArray.from_ptr (unwrap %a) (%a)"
           L.pp_var n (pp_to_int @@ fun ppf -> L.pp_var ppf i) it
       | Ty.Array_f { array = (n,_) ; _ } -> L.pp_var ppf n
-      | Simple(f, Array(Some(Var i), Name _ )) ->
-        Fmt.pf ppf "(Ctypes.CArray.from_ptr %a %a)"
-          L.pp_var f L.pp_var i
+      | Simple(f, Array(Some(Path _), Name _ )) ->
+        Fmt.pf ppf "(Ctypes.CArray.from_ptr %a (size_%a))"
+          L.pp_var f L.pp_var f
       | Simple(n, _) -> Fmt.pf ppf "Ctypes.(!@@ %a)" L.pp_var n
       | Record_extension _ ->
         raise @@ Invalid_argument "Record extension used as a function argument"
@@ -718,7 +761,7 @@ module Fn = struct
     Fmt.pf ppf "@]@."
 
 
-    let pp kind = if kind then pp_raw else pp_smart
+    let pp types kind = if kind then pp_raw else pp_smart types
 
 end
 
@@ -808,28 +851,28 @@ let pp_type builtins results ppf (name,ty) =
   | Record_extensions _ -> (* FIXME *)
     Fmt.pf ppf "(ptr void)"
 
-let pp_item builtins results ppf (name, item) =
+let pp_item (lib:B.lib) ppf (name, item) =
   match item with
-  | B.Type t -> pp_type builtins results ppf (name,t)
+  | B.Type t -> pp_type lib.builtins lib.result ppf (name,t)
   | Const c -> Const.pp ppf (name,c)
-  | Fn f -> Fn.pp f.simple ppf f.fn
+  | Fn f -> Fn.pp (B.find_submodule "types" lib).sig' f.simple ppf f.fn
 
 
 let pp_open ppf m =
   if m.B.args = [] then
     Fmt.pf ppf "open %s@." (String.capitalize_ascii m.B.name)
 
-let rec pp_module builtins results ppf (m:B.module') =
+let rec pp_module lib ppf (m:B.module') =
   Fmt.pf ppf
     "@[<v 2>module %s%a= struct@;%a@;end@]@;%a@;"
     (String.capitalize_ascii m.name)
     pp_args m.args
-    (pp_sig builtins results) m
+    (pp_sig lib) m
     pp_open m
-and pp_sig builtins results ppf (m:B.module') =
+and pp_sig lib ppf (m:B.module') =
     Fmt.pf ppf "%a@;%a@;"
-      (Fmt.list @@ pp_module builtins results) m.submodules
-      (Fmt.list @@ pp_item builtins results) m.sig'
+      (Fmt.list @@ pp_module lib) m.submodules
+      (Fmt.list @@ pp_item lib) m.sig'
 
 and pp_args ppf = function
   | [] -> ()
@@ -855,6 +898,6 @@ let lib (lib:B.lib) =
         let ppf = open_file ("vk__" ^ m.name ^ ".ml") in
         Fmt.pf ppf "%a\n%a%!"
           pp_preambule m
-          (pp_sig lib.builtins lib.result) m
+          (pp_sig lib) m
       end in
   List.iter pp_sub lib.content.submodules

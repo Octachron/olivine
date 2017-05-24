@@ -67,7 +67,6 @@ module Typexpr(X:name) = struct
 
   type 'a constexpr =
     | Lit of 'a
-    | Var of name
     | Path of name list
     | Const of name
     | Null_terminated
@@ -142,7 +141,6 @@ module Typexpr(X:name) = struct
 
   let pp_constexp pp ppf = function
     | Lit n -> fp ppf "%a" pp n
-    | Var name -> fp ppf "%a" X.pp name
     | Null_terminated -> fp ppf "%s" "null-terminated"
     | Math_expr -> fp ppf "%s" "math-expr"
     | Const name -> fp ppf "%a" X.pp name

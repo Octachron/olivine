@@ -207,7 +207,6 @@ let len_info s =
       let p = List.filter ((<>) "") @@ String.split_on_char ':' s in
       match p with
       | [] -> assert false
-      | [s] -> Ty.Var s
       | p -> Ty.Path p in
   List.map len lens
 
@@ -287,8 +286,8 @@ let typedef spec node =
 
 let fields_refine =
   let rec refine extended = function
-    | (_, ( Ty.Array(Some (Var index'), _)
-          | Option Ty.Array(Some (Var index'),_)) as array )
+    | (_, ( Ty.Array(Some Path [index'], _)
+          | Option Ty.Array(Some Path [index'],_)) as array )
       :: (name, _ as index) :: q when name = index' ->
       refine (Ty.Array_f { index; array } :: extended) q
     | ("pNext", Ty.Record_extensions exts as ptr) ::
@@ -502,7 +501,7 @@ let args_refine _name args =
   let rec refine = function
     | [] -> []
     | [Ty.Simple (_,Ty.Ptr _) as field] -> [Ty.{field; dir = Out }]
-    | [Ty.Simple (_,Ty.Array(Some(Var _), Name _ )) as field] ->
+    | [Ty.Simple (_,Ty.Array(Some(Path _), Name _ )) as field] ->
       [Ty.{field; dir = Out }]
     | Array_f { index=(_,Ty.Ptr _); _ } as field :: q ->
       { field; dir = Out } :: refine q
