@@ -41,7 +41,7 @@ let rec is_empty m =
 let sys_specific name =
   let check =
     function "xlib" | "xcb" | "wl" |
-             "android" | "wayland" | "mir" | "win32" -> true | _ -> false in
+             "android" | "wayland" | "mir" | "win" | "win32" -> true | _ -> false in
   List.exists
     (List.exists @@ fun w -> check (Name_study.canon w) )
     Name_study.[name.prefix;name.postfix;name.main]
@@ -130,7 +130,9 @@ module Rename = struct
                    }
     | Result r -> Ty.Result{ ok = List.map (!) r.ok;
                              bad = List.map (!) r.bad }
-    | Record_extensions l -> Ty.Record_extensions (List.map (!) l)
+    | Record_extensions l ->
+      Ty.Record_extensions
+        (List.filter (fun x -> not (sys_specific x)) @@ List.map (!) l)
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
     | Var v -> Ty.Var (!v)
@@ -151,9 +153,9 @@ module Rename = struct
                 array = sfield (!) r.array }
     | Record_extension { exts; tag; ptr } ->
       Record_extension {
-        exts = List.map(!) exts;
+        exts = List.filter (fun x -> not (sys_specific x)) @@ List.map(!) exts;
         tag = sfield (!) tag;
-        ptr = sfield (!) tag
+        ptr = sfield (!) ptr
       }
   and fn_field (!) (r:Cty.fn_field) =
     { Ty.dir = r.dir; field = field (!) r.field }
@@ -182,6 +184,9 @@ let rec dep_typ (dict,gen as g) (items,lib as build) =
         |> add ["subresult"] name (Type t)
       | _ -> assert false
     end
+  | Record_extensions exts ->
+    List.fold_left (dep_typ g) build @@ List.map (fun n -> Cty.Name n)
+      exts
   | _ -> build
 
 
@@ -209,7 +214,8 @@ let deps gen build = function
     snd gen build name'
   | Bitset _ -> build
   | Record_extensions exts ->
-    List.fold_left (dep_typ gen) build @@ List.map (fun n -> Cty.Name n) exts
+    List.fold_left (dep_typ gen) build @@ List.map (fun n -> Cty.Name n)
+    exts
 
 let result_info dict registry =
   match M.find "VkResult" registry with

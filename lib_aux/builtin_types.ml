@@ -9,16 +9,21 @@ let integer_opt (type a) (typ:a Ctypes.typ) (module I:intlike with type t = a) =
   let write = function None -> I.zero | Some x -> x in
   Ctypes.view ~read ~write typ
 
-type uint64_t = U64.t
+type uint_64_t = U64.t
+let uint_64_t = Ctypes.uint64_t
 
 (** {2 Uint32 special handling} *)
-type uint32_t = int (* ASSUME 64 bits *)
-let uint32_t = Ctypes.view ~read:(U32.to_int) ~write:(U32.of_int)
+type uint_32_t = int (* ASSUME 64 bits *)
+let uint_32_t = Ctypes.view ~read:(U32.to_int) ~write:(U32.of_int)
     Ctypes.uint32_t
 module Int = struct type t = int let zero = 0 end
-let uint32_t_opt = integer_opt uint32_t (module Int)
+let uint_32_t_opt = integer_opt uint_32_t (module Int)
+let int_32_t = Ctypes.int32_t
 
-let bool_3_2 =
+let uint_8_t = Ctypes.uint8_t
+
+
+let bool_32 =
   let true' = U32.of_int Vk__const.true'
   and false' = U32.of_int Vk__const.false' in
   Ctypes.view
@@ -26,14 +31,14 @@ let bool_3_2 =
     ~write:( fun x -> if x then true' else false' )
     Ctypes.uint32_t
 
-let bool = bool_3_2
+let bool = bool_32
 
 let size_t_opt = integer_opt Ctypes.size_t (module S)
 let device_size_opt = integer_opt Ctypes.uint64_t (module U64)
 
 module Size_t = struct let of_int = S.of_int let to_int = S.to_int end
-module Uint32_t = struct let of_int x = x let to_int x = x end
-module Uint64_t = struct let of_int =  U64.of_int let to_int = U64.to_int end
+module Uint_32_t = struct let of_int x = x let to_int x = x end
+module Uint_64_t = struct let of_int =  U64.of_int let to_int = U64.to_int end
 
 let unwrap = function
   | Some x -> x

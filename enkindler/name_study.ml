@@ -119,22 +119,32 @@ let split_sticky_camel_case dict s =
   let sub first after = String.sub s first (after-first) in
   let rec lower acc start n =
     let c = s.[n] in
-    if Char.lowercase_ascii c <> c || is_num c then
-      capital (sub start n :: acc) n
+    if Char.lowercase_ascii c <> c then
+      capital lower (sub start n :: acc) n
+    else if is_num c then
+        numeric (sub start n :: acc) n n
     else if n + 1 < mx then
       lower acc start (n+1)
     else
       sub start (n+1) :: acc
-  and capital acc start =
+  and capital k acc start =
     let word_stop, n =
     match Dict.read_word_all s start dict with
     | Some stop -> true, stop
     | None -> false, start+1 in
     let stop = n = mx in
     if stop then sub start n :: acc
-    else if word_stop then capital ( sub start n :: acc ) n
-    else lower acc start n in
-  List.rev @@ capital [] 0
+    else if word_stop then capital k ( sub start n :: acc ) n
+    else k acc start n
+  and numeric acc start n =
+    let c = s.[n] in
+    if not (is_num c) then
+      capital numeric (sub start n::acc) n
+    else if n + 1 < mx then
+      numeric acc start (n+1)
+    else
+      sub start (n+1) :: acc in
+  List.rev @@ capital lower [] 0
 
 
 type word = string * string option
@@ -183,6 +193,7 @@ let string_prefix s s2 =
   String.length s2 >= n &&
   s = String.sub s2 0 n
 
+
 let path dict name =
   let path =
     if string_prefix "PFN" name then
@@ -195,6 +206,60 @@ let path dict name =
       name |> split_sticky_camel_case dict.words
   in
   path |> List.map lower |> clean
+
+let cat x y =match x, y with
+  | (x, None), (y,None) -> (x ^ y, None)
+  | (x, Some s), (y, None) | (x,None), (y,Some s) ->
+    (x^y, Some s)
+  | (x, Some sx), (y,Some sy) -> (x ^ y, Some(sx ^ sy))
+
+let rsplit pred m =
+  let rec check n =
+    if n>0 && pred m.[n] then
+      check (n-1)
+    else
+      (n+1) in
+  check (String.length m - 1)
+
+let rec prepath = function
+  | (("1"|"2"|"3"|"4"|"5"), _ as n) :: ("d", _ as d ) :: q ->
+    (cat n d) :: prepath q
+  | (c, opt as a) :: q ->
+    let n =String.length c in
+    if n > 0 && is_num c.[n-1] && not (is_num c.[0]) then begin
+      let stop =  rsplit is_num c in
+      let num = String.sub c stop (n-stop) in
+      let c' = String.sub c 0 stop in
+      let opt' = match opt with
+        | None -> None
+        | Some x when String.length x = n -> Some (String.sub x 0 stop)
+        | Some x -> Some x
+      in
+      (c',opt') :: (num, None) :: prepath q
+    end else
+      a :: prepath q
+  | [] -> []
+
+(*
+let rec prepath = function
+  | (m, opt as x) :: ("d", _ as d) :: q->
+    let n =String.length m in
+    let dim = String.sub m (n-1) 1 in
+    if is_num dim.[0] then
+      let m' = String.sub m 0 (n-1) in
+      let opt' = match opt with
+        | None -> None
+        | Some x -> Some (String.sub x 0 (n-1)) in
+      (m',opt') :: (cat (dim,None) d) :: prepath q
+    else
+      x :: d :: prepath q
+  | x :: (("1d"|"2d"|"3d"|"4d"), _ as dim) :: q ->
+    x :: dim :: prepath q
+  | x :: (c, _ as y) :: q when is_num c.[0] ->
+    (cat x y) ::  prepath q
+  | [] -> []
+  | a :: q -> a :: prepath q
+*)
 
 let from_path dict path =
   let empty = { prefix = []; main = []; postfix = [] } in
@@ -218,7 +283,7 @@ let from_path dict path =
     | [] -> acc
     | a :: q ->
       postfix { acc with postfix = a :: acc.postfix } q in
-  let r = pre empty path in
+  let r = pre empty @@ prepath path in
   {r with prefix = List.rev r.prefix; main = List.rev r.main }
 
 let to_path n = n.prefix @ n.main @ n.postfix

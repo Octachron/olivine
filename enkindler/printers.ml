@@ -40,11 +40,16 @@ module H = struct
   let label_name ppf = function
     | Ty.Simple (n,_) -> L.pp_var ppf n
     | Ty.Array_f { array=(n,_); _ } -> L.pp_var ppf n
-    | Ty.Record_extension _ -> Fmt.pf ppf "ext"
+    | Ty.Record_extension _ -> Fmt.pf ppf "extension"
+
+    let arg_name pre ppf = function
+    | Ty.Simple (n,_) -> pre ppf; L.pp_var ppf n
+    | Ty.Array_f { array=(n,_); _ } -> pre ppf; L.pp_var ppf n
+    | Ty.Record_extension _ -> Fmt.pf ppf "(%text=No_extension)" pre
 
   let pp_label prefix ppf f =
     let kind= if is_option_f f then "?" else "~" in
-    Fmt.pf ppf "%s%a:%t%a" kind label_name f prefix label_name f
+    Fmt.pf ppf "%s%a:%a" kind label_name f (arg_name prefix) f
 
   let pp_fnlabel prefix ppf f = pp_label prefix ppf f.Ty.field
 
@@ -53,6 +58,16 @@ module H = struct
       Fmt.pf ppf "()"
     else ()
 
+  let is_extension =
+    function
+    | Ty.Record_extension _ -> true
+    | _ -> false
+
+  let record_extension fields =
+    match List.find is_extension fields with
+    | exception Not_found -> None
+    | Ty.Record_extension {exts;_} ->  Some exts
+    | _ -> None
 
   let pp_opty ty pp ppf = match ty with
     | Ty.Option _ -> Fmt.pf ppf "Some(%a)" pp
@@ -213,6 +228,40 @@ module Result = struct
           L.pp_module error_name;
 end
 
+module Record_extension = struct
+
+  let stype ppf = Fmt.pf ppf "generated__stype__"
+  let pnext ppf = Fmt.pf ppf "generated__pnext__"
+
+  let def ppf (name,exts) =
+    let sep _ppf () = () in
+    let name ppf = Fmt.pf ppf "%a_extension" L.pp_type name in
+    let pp_ext ppf ext = Fmt.pf ppf "@;| %a of %a Ctypes.structure Ctypes.ptr"
+        L.pp_constr ext L.pp_type ext in
+    Fmt.pf ppf "@[<v> \
+                exception Unknown_record_extension@;\
+                type %t = ..@;@]\
+                type %t +=@;| No_extension%a@;\
+                @]
+               "
+      name name
+      (Fmt.list ~sep pp_ext) exts
+
+  let extract ppf (name,exts) =
+    let pp_ext ppf ext =
+      Fmt.pf ppf "| %a x ->@;\
+                  Structure_type.%a,@;\
+                  Ctypes.( coerce (ptr %a) (ptr void) x )@;"
+        L.pp_constr ext L.pp_constr ext L.pp_type ext in
+    Fmt.pf ppf
+    "@[<v 2>let %t, %t = match arg__ext with@;\
+     | No_extension -> Structure_type.%a, Ctypes.null@;\
+     %a\
+     | _ -> raise Unknown_record_extension in@;\
+      @]\
+    " stype pnext L.pp_constr name
+    (Fmt.list ~sep:(fun _ _ -> ()) pp_ext) exts
+end
 
 module Typexp = struct
   let rec pp ppf = function
@@ -238,7 +287,8 @@ module Typexp = struct
       failwith "Anonymous type"
     | Result {ok;bad} ->
       Result.pp_type ppf (ok,bad)
-    | Record_extensions _ -> Fmt.pf ppf "ptr void" (* FIXME *)
+    | Record_extensions _ -> Fmt.pf ppf "(ptr void)"
+    (* ^FIXME^?: better typing? *)
     | FunPtr _ ->
       failwith "Not_implemented: funptr"
 end
@@ -282,7 +332,7 @@ module Structured = struct
     end;
     Fmt.pf ppf "@;let () = Ctypes.seal t@;"
 
-  let pp_make ppf (fields: Ty.field list) =
+  let pp_make name ppf (fields: Ty.field list) =
     let gen = "generated__x__" in
     let prx ppf = Fmt.pf ppf "arg__" in
     let pp_arg ppf = Fmt.pf ppf "%t%a" prx L.pp_var in
@@ -311,8 +361,12 @@ module Structured = struct
           gen L.pp_var (fst index) (H.array_len prx) (index,array)
           gen L.pp_var (fst array)
           (H.pp_opty (snd array) @@ H.pp_start pp_arg) (fst array)
-      | Ty.Record_extension _ -> raise @@
-        Invalid_argument "Record extension not yet implemented"
+      | Ty.Record_extension { exts; _ } ->
+        Fmt.pf ppf "%a@;\
+                   Ctypes.setf %s p_next %t;@;\
+                   Ctypes.setf %s s_type %t;@;\
+                   " Record_extension.extract (name, exts)
+          gen Record_extension.pnext gen Record_extension.stype
     in
     Fmt.pf ppf "@;@[let make %a@ %t=@ let %s = Ctypes.make t in@ \
                 %a@;\
@@ -328,7 +382,13 @@ module Structured = struct
     Fmt.pf ppf "@[<hov 2> module %a =@ struct@;" L.pp_module name;
     def kind ppf name fields;
     begin match kind with
-      | Record ->  pp_make ppf fields;
+      | Record ->
+        let exts = H.record_extension fields in
+        begin match exts with
+          | Some exts -> Record_extension.def ppf (name,exts)
+          | None -> ()
+        end;
+        pp_make name ppf fields;
       | Union -> ()
     end;
     Fmt.pf ppf "end@]@.";
@@ -746,7 +806,7 @@ let pp_type builtins results ppf (name,ty) =
   | Record r ->
     Structured.(pp Record) ppf (name,r.fields)
   | Record_extensions _ -> (* FIXME *)
-    Fmt.pf ppf "ptr void"
+    Fmt.pf ppf "(ptr void)"
 
 let pp_item builtins results ppf (name, item) =
   match item with

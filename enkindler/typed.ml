@@ -252,11 +252,10 @@ let structure_refine node t =
   match node%?("validextensionstructs") with
   | None -> t
   | Some l ->
-    let l = l |> String.split_on_char ',' in
-    if List.length l > 1 then
-      Fmt.epr "structure type values @[%a@]@."
-        Fmt.(list ~sep:(fun ppf () -> pf ppf ",@ ") string) l;
-    t
+    let l = l |> String.split_on_char ',' |> List.tl in
+    Fmt.epr "structure type values @[%a@]@."
+      Fmt.(list ~sep:(fun ppf () -> pf ppf ",@ ") string) l;
+    Ty.Record_extensions l
 
 let result_refine (s,e) ty =
   let open Ctype.Ty in
@@ -292,8 +291,16 @@ let fields_refine =
           | Option Ty.Array(Some (Var index'),_)) as array )
       :: (name, _ as index) :: q when name = index' ->
       refine (Ty.Array_f { index; array } :: extended) q
-  | (n,t) :: q -> refine (Ty.Simple(n,t)::extended) q
-  | [] -> extended in
+    | ("pNext", Ty.Record_extensions exts as ptr) ::
+      ("sType", Ty.Name "VkStructureType" as tag) :: q ->
+      refine (Ty.Record_extension { tag; ptr; exts } ::extended) q
+    | ("pNext", _  as ptr) :: ("sType", _ as tag) :: q ->
+      refine (Ty.Record_extension { tag; ptr; exts= [] } ::extended) q
+    | ("pNext", ty ) :: q ->
+      Fmt.epr "pNext: %a@." Ty.pp ty ;refine extended q
+    | ("sType", ty) :: q -> Fmt.epr "sType: %a@." Ty.pp ty ;refine extended q
+    | (n,t) :: q -> refine (Ty.Simple(n,t)::extended) q
+    | [] -> extended in
   refine []
 
 let structure spec node =
