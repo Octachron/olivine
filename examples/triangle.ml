@@ -2,6 +2,7 @@ module A = Ctypes.CArray
 module Vkt = Vk.Types
 module Vkc = Vk.Core
 module Vkr = Vk.Raw
+module Vkw = Vk__sdl
 
 module Utils = struct
   (** Ctype utility functions *)
@@ -172,11 +173,8 @@ module Device = struct
   ;; A.iter print_extension_property device_extensions
   ;; Format.printf "@]@."
 
-  let surface_khr = (* FIXME *)
-    let s = Ctypes.allocate_n ~count:1 Vkt.surface_khr in
-    Vk__sdl.create_surface instance Sdl.w None s
-    <?> "Obtaining surface";
-    !s
+  let surface_khr =
+    Vkw.create_surface instance Sdl.w () <!> "Obtaining surface"
 
   let capabilities =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
