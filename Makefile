@@ -3,15 +3,13 @@ CCO=$(CC) -use-ocamlfind -use-menhir
 SPIR=glslangValidator -V
 
 
-all: info vk.cma base baseml libgen
+all: info vk.cma triangle libgen
 
-base: c/base.c
-	gcc -lvulkan c/base.c -o base
 
-baseml: vk.cma examples/base.ml shaders
-	$(CCO) examples/base.native
+triangle: vk.cma examples/triangle.ml triangle-shaders
+	$(CCO) examples/$@.native
 
-info:  _tags enkindler/*
+specinfo:  _tags enkindler/*
 	$(CCO) $@.native && mv $@.native $@
 
 libgen:  _tags enkindler/*
@@ -20,7 +18,7 @@ libgen:  _tags enkindler/*
 lib/vk.ml: _tags libgen enkindler/*
 	./libgen spec/vk.xml lib
 
-vk.cma: _tags enkindler/*.ml lib_aux/* lib/vk.ml libsdlvulkan.so
+vk.cma: _tags spec/vk.xml enkindler/*.ml lib_aux/* lib/vk.ml libsdlvulkan.so
 	$(CCO) $@
 
 term: enkindler.cma
@@ -31,11 +29,11 @@ enkindler.cma: _tags enkindler/*
 libsdlvulkan.so: sdl/vulkan_sdl.c
 	gcc -shared -o libsdlvulkan.so -fPIC -lvulkan sdl/vulkan_sdl.c
 
-shader: shaders/base.frag shaders/base.vert
-	cd shaders && $(SPIR) base.frag && $(SPIR) base.vert
+triangle-shaders: shaders/triangle.frag shaders/triangle.vert
+	cd shaders && $(SPIR) triangle.frag && $(SPIR) triangle.vert
 
-test: base.native
-	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./base.native
+test-triangle: triangle.native
+	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./triangle.native
 
 clean:
 	$(CC) -clean; rm lib/vk.ml
