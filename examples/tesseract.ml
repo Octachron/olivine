@@ -316,8 +316,8 @@ module Pipeline = struct
 
   module Shaders = struct
 
-    let frag = read_spirv "shaders/frag.spv"
-    let vert = read_spirv "shaders/vert.spv"
+    let frag = read_spirv "shaders/tesseract/frag.spv"
+    let vert = read_spirv "shaders/tesseract/vert.spv"
 
     let shader_module_info s =
       let len = String.length s in
@@ -349,12 +349,93 @@ module Pipeline = struct
     let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
   end
 
-  let null_input =
-    Vkt.Pipeline_vertex_input_state_create_info.make ()
+  let input = A.of_list Ctypes.float
+      [   1.; 0.; 0.;     0.; 0.; 0.
+        ; 0.5; 0.5; 0.;   0.5; 0.; 0.
+        ; 0.5; 0.; 0.5;  0.; 0.5; 0.
+        ; 0.; 1.; 0.;     0.5; 0.5; 0.
+        ; 0.5; 0.5; 0.;   0.; 0.5; 0.
+        ; 0.; 0.5; 0.5;   0.5; 0.; 0.
+      ]
+
+  let fsize = Ctypes.(sizeof float)
+
+  let vertex_binding =
+    Vkt.Vertex_input_binding_description.make
+      ~binding:0
+      ~stride:(6 * fsize)
+      ~input_rate:Vkt.Vertex_input_rate.Vertex
+
+  let attributes = A.make Vkt.vertex_input_attribute_description 2
+
+  let geom_attribute =
+    Vkt.Vertex_input_attribute_description.make
+      ~location:0 ~binding:0 ~format:Vkt.Format.R32g32b_32_sfloat
+      ~offset:(3 * fsize)
+
+  let color_attribute =
+    Vkt.Vertex_input_attribute_description.make
+      ~location:1 ~binding:0 ~format:Vkt.Format.R32g32b_32_sfloat
+      ~offset:0
+
+  ;; A.set attributes 0 !geom_attribute
+  ;; A.set attributes 1 !color_attribute
+
+  let bindings = A.from_ptr vertex_binding 1
+
+  let mem_size = Vkt.Device_size.of_int @@ fsize * A.length input
+  let buffer_info =
+    Vkt.Buffer_create_info.make
+      ~size: mem_size
+      ~usage:Vkt.Buffer_usage_flags.(singleton vertex_buffer)
+      ~sharing_mode:Vkt.Sharing_mode.Exclusive
+      ()
+
+  let buffer = Vkc.create_buffer device buffer_info () <!> "Buffer creation"
+
+  let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer
+  let phymem = Vkc.get_physical_device_memory_properties Device.phy
+
+  let pp_mem ppf m = let open Vkt.Physical_device_memory_properties in
+    A.iter (fun mt ->
+        pp_opt Vkt.Memory_property_flags.pp ppf
+          mt#.Vkt.Memory_type.property_flags;
+        Format.print_cut ()
+      ) m#.memory_types
+
+  ;; debug "memory flags, %a" pp_mem phymem
+
+  let alloc_info =
+    Vkt.Memory_allocate_info.make
+      ~allocation_size:mem_size
+      ~memory_type_index:0
+      ()
+
+  let buffer_memory = Vkc.allocate_memory device alloc_info ()
+                      <!> "Buffer memory allocation"
+
+  let offset = Vkt.Device_size.of_int 0
+  let () =
+    Vkc.bind_buffer_memory device buffer buffer_memory offset
+    <!!> "Bind buffer to buffer datatypes"
+
+  let () =
+    let len = A.length input in
+    let mapped_mem =
+      Vkc.map_memory device buffer_memory offset mem_size () <!> "Memory mapped" in
+    let a = A.from_ptr Ctypes.(coerce (ptr void) (ptr float) mapped_mem) len in
+    for i = 0 to len - 1 do
+      A.set a i (A.get input i)
+    done
+
+  let input_description =
+    Vkt.Pipeline_vertex_input_state_create_info.make
+      ~p_vertex_binding_descriptions:bindings
+      ~p_vertex_attribute_descriptions:attributes
+      ()
 
   let input_assembly =
     Vkt.Pipeline_input_assembly_state_create_info.make
-      ~flags: Vkt.Pipeline_input_assembly_state_create_flags.empty
       ~topology: Vkt.Primitive_topology.Triangle_list
       ~primitive_restart_enable: false
     ()
@@ -476,7 +557,7 @@ module Pipeline = struct
         Shaders.[ !vert_stage; !frag_stage ] in
     Vkt.Graphics_pipeline_create_info.make
       ~p_stages: stages
-      ~p_vertex_input_state: null_input
+      ~p_vertex_input_state: input_description
       ~p_input_assembly_state: input_assembly
       ~p_viewport_state: viewport_state
       ~p_rasterization_state: rasterizer
@@ -568,12 +649,14 @@ module Cmd = struct
       ~p_clear_values: clear_values
       ()
 
+  let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
   let cmd b fmb =
     Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
     Vkc.cmd_begin_render_pass b (render_pass_info fmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
-    Vkc.cmd_draw b 3 1 0 0;
+    Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers |> ignore (* WRONG!! *);
+    Vkc.cmd_draw b 6 1 0 0;
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <?> "Command buffer recorded"
 

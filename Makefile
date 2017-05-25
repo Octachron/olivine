@@ -5,10 +5,10 @@ SPIR=glslangValidator -V
 
 all: infolivine vk.cmxa triangle tesseract libgen
 
-triangle: libsdlvulkan.so vk.cmxa shaders/$@/frag.spv
+triangle: libsdlvulkan.so vk.cmxa shaders/triangle/vert.spv
 	$(CCO) examples/$@.native && mv $@.native $@
 
-tesseract: libsdlvulkan.so vk.cmxa shaders/$@/frag.spv
+tesseract: libsdlvulkan.so vk.cmxa shaders/tesseract/vert.spv shaders/tesseract/frag.spv
 	$(CCO) examples/$@.native && mv $@.native $@
 
 infolivine:  _tags enkindler/*
@@ -31,18 +31,18 @@ enkindler.cma: _tags enkindler/*
 libsdlvulkan.so: sdl/vulkan_sdl.c
 	gcc -shared -o libsdlvulkan.so -fPIC -lvulkan sdl/vulkan_sdl.c
 
-shaders/%/frag.spv : shaders/%/%.frag
-	cd shaders/% && $(SPIR) %.frag
+shaders/%/frag.spv : shaders/%/base.frag
+	cd shaders/$* && $(SPIR) base.frag
 
-shaders/%/vert.spv : shaders/%/%.vert
-	cd shaders/% && $(SPIR) %.vert
+shaders/%/vert.spv : shaders/%/base.vert
+	cd shaders/$* && $(SPIR) base.vert
 
 
 test-triangle: triangle
 	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./triangle
 
 test-tesseract: tesseract
-	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./triangle
+	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./tesseract
 
 
 clean:
