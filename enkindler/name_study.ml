@@ -151,24 +151,17 @@ let lower s =String.lowercase_ascii s
 
 type role = Prefix | Main | Postfix | Extension
 
-type analyzed = { prefix: string list; main: string list; postfix: string list }
+type name = { prefix: string list; main: string list; postfix: string list }
 
-type name = { original:string option; d: analyzed }
+let to_path n = n.prefix @ n.main @ List.rev n.postfix
 
 let rec clean = function
   | "" :: q -> clean q
   | p -> p
 
-let canon n = n.d
-let to_path n = let n = canon n in n.prefix @ n.main @ n.postfix
-
-let original name =
-  match name.original with
-  | Some x -> x
-  | None -> String.concat "_" @@ to_path name
 
 module M = Misc.StringMap
-type dict = { words:Dict.t; roles: role M.t; context:analyzed }
+type dict = { words:Dict.t; roles: role M.t; context:name }
 
 let compose x y = { prefix = x.prefix @ y.prefix;
                     main = x.main @ y.main;
@@ -263,7 +256,7 @@ let from_path dict path =
   {r with prefix = List.rev r.prefix; main = List.rev r.main }
 
 let mu = { main = []; prefix = []; postfix = [] }
-let simple path = { original = None; d = { mu with main = path} }
+let simple path = { mu with main = path}
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =
@@ -273,26 +266,17 @@ let remove_prefix prefix name =
     | _ :: _, _ -> name in
   remove_prefix name prefix name
 
-let remove_context context name =
-  let a = name.d in
-  { original = name.original;
-    d =
-      { prefix = remove_prefix context.prefix a.prefix;
-        main = remove_prefix context.main a.main;
-        postfix = remove_prefix context.postfix a.postfix
-      }
+let remove_context context a =
+  { prefix = remove_prefix context.prefix a.prefix;
+    main = remove_prefix context.main a.main;
+    postfix = remove_prefix context.postfix a.postfix
   }
 
 let make dict original =
   remove_context dict.context
-  @@ { original = Some original;
-       d =
-         from_path dict @@ path dict original
-     }
+  @@ from_path dict @@ path dict original
 
-let artificial d = { d; original = None }
-let synthetize dict l =
- { original = None; d = from_path dict l }
+let synthetize dict l = from_path dict l
 
 let snake ppf () = Fmt.pf ppf "_"
 
@@ -319,9 +303,8 @@ let full_pp ppf n =
   let pp_w ppf s =
     Fmt.string ppf s in
   let list = Fmt.list ~sep:snake pp_w in
-  Fmt.pf ppf "{%a:%a::%a::%a}"
-    Fmt.(option string) n.original
-    list n.d.prefix list n.d.main list n.d.postfix
+  Fmt.pf ppf "{%a::%a::%a}"
+    list n.prefix list n.main list n.postfix
 
 
 let is_extension dict = function

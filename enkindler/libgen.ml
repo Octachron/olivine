@@ -69,7 +69,7 @@ let make_dict spec =
 let preambule =
   "open Ctypes\n\
    let libvulkan = Dl.dlopen ~filename:\"libvulkan.so\" ~flags:Dl.[RTLD_NOW]\n\
-   let foreign name = Foreign.foreign ~from:libvulkan (\"vk\"^name) \n\
+   let foreign name = Foreign.foreign ~from:libvulkan name \n\
    module Printer = Format\n\
   "
 

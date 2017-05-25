@@ -8,9 +8,9 @@ module Cty = T.Ty
 module Arith = T.Arith
 
 module Full_name = struct type name = L.name
-  let pp ppf x = L.pp_var ppf x.L.d end
+  let pp ppf x = L.pp_var ppf x end
 module Ty = Ctype.Typexpr(Full_name)
-module Name_set = Set.Make(struct type t = L.analyzed let compare = compare end)
+module Name_set = Set.Make(struct type t = L.name let compare = compare end)
 
 type 'a with_deps = { x:'a; deps: Deps.t }
 
@@ -163,7 +163,7 @@ module Rename = struct
   and fn_fields (!) = List.map @@ fn_field (!)
   and constr (!) (n, p) = !n, p
   and record_extension (!) l =
-    List.filter (fun x -> not @@ sys_specific @@ Name_study.canon x)
+    List.filter (fun x -> not @@ sys_specific x)
     @@ List.map (!) l
 end
 
@@ -266,7 +266,7 @@ let rec normalize m =
            sig' = List.rev m.sig' }
 
 let classify_extension dict m (ext:Typed.Extension.t) =
-  let path = List.rev @@ L.to_path @@ L.make dict ext.metadata.name in
+  let path = L.to_path @@ L.make dict ext.metadata.name in
   match path with
   | [] -> assert false
   | a :: _ ->
@@ -274,18 +274,18 @@ let classify_extension dict m (ext:Typed.Extension.t) =
     M.add a (ext::exts) m
 
 let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
-  let name = List.rev (L.make dict ext.metadata.name).d.postfix in
+  let name = List.rev (L.make dict ext.metadata.name).postfix in
   let name = L.simple(L.remove_prefix [branch] name) in
-  if sys_specific name.L.d then l else
+  if sys_specific name then l else
   match ext.metadata.type' with
   | None -> l
   | Some t ->
     let args = [Format.asprintf "X:%s" t] in
     let preambule = Format.asprintf "\ninclude Foreign_%s(X)\n" t in
     let items = S.of_list
-      @@ List.filter (fun name -> not @@ sys_specific @@ L.canon @@ L.make dict name)
+      @@ List.filter (fun name -> not @@ sys_specific @@ L.make dict name)
       @@ ext.commands (*@ ext.types*) in
-    let mname = Format.asprintf "%a" L.pp_module name.d in
+    let mname = Format.asprintf "%a" L.pp_module name in
     let ext_m = make ~args ~preambule ["vk"; branch]  mname in
     let m = generate_core dict registry (items, ext_m) in
     begin if List.length m.submodules > 3 then
@@ -317,13 +317,13 @@ let generate_extensions dict registry extensions =
 let filter_extension dict registry name0 =
   let name = L.make dict name0 in
   match M.find name0 registry with
-  | Typed.Type _ -> not @@ sys_specific name.d
+  | Typed.Type _ -> not @@ sys_specific name
   | Fn _ ->
-    not (L.is_extension dict name.d || sys_specific name.d)
+    not (L.is_extension dict name|| sys_specific name)
   | Const _ -> true
 
 let builtins dict =
-  Name_set.of_list @@ List.map ( fun x -> (L.make dict x).L.d ) ["vkBool32"]
+  Name_set.of_list @@ List.map (L.make dict) ["vkBool32"]
 
 
 let find_submodule name lib =
