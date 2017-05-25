@@ -7,9 +7,10 @@ module T = Ctype
 module Cty = T.Ty
 module Arith = T.Arith
 
-module Full_name = struct type name = L.name let pp = L.pp_var end
+module Full_name = struct type name = L.name
+  let pp ppf x = L.pp_var ppf x.L.d end
 module Ty = Ctype.Typexpr(Full_name)
-module Name_set = Set.Make(struct type t = L.name let compare = compare end)
+module Name_set = Set.Make(struct type t = L.analyzed let compare = compare end)
 
 type 'a with_deps = { x:'a; deps: Deps.t }
 
@@ -43,7 +44,7 @@ let sys_specific name =
     function "xlib" | "xcb" | "wl" |
              "android" | "wayland" | "mir" | "win" | "win32" -> true | _ -> false in
   List.exists
-    (List.exists @@ fun w -> check (Name_study.canon w) )
+    (List.exists @@ fun w -> check w )
     Name_study.[name.prefix;name.postfix;name.main]
 
 module Result = struct
@@ -131,17 +132,16 @@ module Rename = struct
     | Result r -> Ty.Result{ ok = List.map (!) r.ok;
                              bad = List.map (!) r.bad }
     | Record_extensions l ->
-      Ty.Record_extensions
-        (List.filter (fun x -> not (sys_specific x)) @@ List.map (!) l)
+      Ty.Record_extensions (record_extension (!) l)
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
     | Path p -> Ty.Path (List.map (!) p)
     | Const n -> Ty.Const !n
     | Null_terminated -> Ty.Null_terminated
     | Math_expr -> Ty.Math_expr
-  and fn (!) {Ctype.Ty.args; name; return } =
+  and fn (!) {Ctype.Ty.args; name; original_name; return } =
     Ty.{ args = fn_fields (!) args;
-         name = ! name;
+         name = ! name; original_name;
          return = typ (!) return }
   and bitfield (!) (name, n) = !name, n
   and sfield (!) (n,ty) = !n, typ (!) ty
@@ -152,7 +152,7 @@ module Rename = struct
                 array = sfield (!) r.array }
     | Record_extension { exts; tag; ptr } ->
       Record_extension {
-        exts = List.filter (fun x -> not (sys_specific x)) @@ List.map(!) exts;
+        exts = record_extension (!) exts;
         tag = sfield (!) tag;
         ptr = sfield (!) ptr
       }
@@ -162,6 +162,9 @@ module Rename = struct
   and fields (!) = List.map @@ field (!)
   and fn_fields (!) = List.map @@ fn_field (!)
   and constr (!) (n, p) = !n, p
+  and record_extension (!) l =
+    List.filter (fun x -> not @@ sys_specific @@ Name_study.canon x)
+    @@ List.map (!) l
 end
 
 let rec dep_typ (dict,gen as g) (items,lib as build) =
@@ -266,24 +269,23 @@ let classify_extension dict m (ext:Typed.Extension.t) =
   let path = List.rev @@ L.to_path @@ L.make dict ext.metadata.name in
   match path with
   | [] -> assert false
-  | w :: _ ->
-    let a  = L.canon w in
+  | a :: _ ->
     let exts = try M.find a m with Not_found -> [] in
     M.add a (ext::exts) m
 
 let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
-  let name = List.rev (L.make dict ext.metadata.name).postfix in
-  let name = L.{ mu with main = remove_prefix [L.word branch] name} in
-  if sys_specific name then l else
+  let name = List.rev (L.make dict ext.metadata.name).d.postfix in
+  let name = L.simple(L.remove_prefix [branch] name) in
+  if sys_specific name.L.d then l else
   match ext.metadata.type' with
   | None -> l
   | Some t ->
     let args = [Format.asprintf "X:%s" t] in
     let preambule = Format.asprintf "\ninclude Foreign_%s(X)\n" t in
     let items = S.of_list
-      @@ List.filter (fun name -> not @@ sys_specific @@ L.make dict name)
+      @@ List.filter (fun name -> not @@ sys_specific @@ L.canon @@ L.make dict name)
       @@ ext.commands (*@ ext.types*) in
-    let mname = Format.asprintf "%a" L.pp_module name in
+    let mname = Format.asprintf "%a" L.pp_module name.d in
     let ext_m = make ~args ~preambule ["vk"; branch]  mname in
     let m = generate_core dict registry (items, ext_m) in
     begin if List.length m.submodules > 3 then
@@ -315,13 +317,13 @@ let generate_extensions dict registry extensions =
 let filter_extension dict registry name0 =
   let name = L.make dict name0 in
   match M.find name0 registry with
-  | Typed.Type _ -> not @@ sys_specific name
+  | Typed.Type _ -> not @@ sys_specific name.d
   | Fn _ ->
-    not (L.is_extension dict name || sys_specific name)
+    not (L.is_extension dict name.d || sys_specific name.d)
   | Const _ -> true
 
 let builtins dict =
-  Name_set.of_list @@ List.map (L.make dict) ["vkBool32"]
+  Name_set.of_list @@ List.map ( fun x -> (L.make dict x).L.d ) ["vkBool32"]
 
 
 let find_submodule name lib =

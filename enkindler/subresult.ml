@@ -4,9 +4,9 @@ module L = Name_study
 
 let atoms_of_name name =
     let open Name_study in
-    S.of_list @@ List.map fst
-    @@ remove_prefix [ word "error"]
-    @@ remove_prefix [ word "vk"]
+       S.of_list
+    @@ remove_prefix [ "error"]
+    @@ remove_prefix [ "vk"]
     @@ to_path name
 
   let atoms names =
@@ -20,8 +20,7 @@ let atoms_of_name name =
     String.concat "_" @@ composite_path ok errors
 
 let composite_nominal ok errors =
-  L.simple @@ List.map L.word @@ composite_path ok errors
+  L.simple @@ composite_path ok errors
 
   let side_name constrs =
-    L.simple @@ List.map L.word @@ S.elements @@ atoms @@ constrs
-
+    L.simple @@ S.elements @@ atoms @@ constrs

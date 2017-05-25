@@ -518,7 +518,7 @@ let command spec = function
     let name, return = proto p in
     let return = result_refine r return in
     register name
-      (Fn { Ty.return; name;
+      (Fn { Ty.return; name; original_name=name;
             args = args_refine name @@ List.fold_left arg [] args })
       spec
   | Node n -> raise @@

@@ -30,7 +30,7 @@ let vendor_tag (dict,out) (x:Typed.short_tag)=
 let empty =
   let open Name_study in
   { words = Dict.empty; roles = R.empty;
-    context = { mu with prefix = [word "vk"]} }
+    context = { mu with prefix = ["vk"]} }
 
 let add_post x dict =
   Name_study.{ dict with roles = R.add x Postfix dict.roles }

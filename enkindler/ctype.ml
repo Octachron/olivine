@@ -110,7 +110,7 @@ module Typexpr(X:name) = struct
           ptr:simple_field
         }
   and fn_field = { dir:direction; field:field }
-  and fn = { name:name; return: typexpr; args: fn_field list }
+  and fn = { original_name:string; name:name; return: typexpr; args: fn_field list }
 
   type type_decl = name * typexpr
 

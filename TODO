@@ -5,6 +5,8 @@
 * Remove useless prefix in name
   e.g. p_, s_, pp_
 
+* Be more cautious when identifying out parameters
+
 * Improve generated code
 
 Done:

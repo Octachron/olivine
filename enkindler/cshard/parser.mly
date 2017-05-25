@@ -47,7 +47,7 @@ typedef:
 def:
   | t = typename n = name { n, t }
   | t = typexp LPAR f = fn RPAR args=args
-  { f, FunPtr { name=f; return=t; args }   }
+  { f, FunPtr { original_name=f; name=f; return=t; args }   }
 ;;
 
 raw_typename:

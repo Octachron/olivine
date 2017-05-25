@@ -147,41 +147,28 @@ let split_sticky_camel_case dict s =
   List.rev @@ capital lower [] 0
 
 
-type word = string * string option
-
-
-let lower s =
-  let c =   String.lowercase_ascii s in
-  c,
-  if c = s then None else Some s
-
-let word = lower
-let expand = function
-  | _, Some x -> x
-  | x, None -> x
+let lower s =String.lowercase_ascii s
 
 type role = Prefix | Main | Postfix | Extension
 
-type name =
-  { prefix: word list; main: word list; postfix: word list }
-let mu = { prefix = []; main = []; postfix = [] }
+type analyzed = { prefix: string list; main: string list; postfix: string list }
 
+type name = { original:string option; d: analyzed }
 
 let rec clean = function
-  | ("",_) :: q -> clean q
+  | "" :: q -> clean q
   | p -> p
 
-let canon w = fst w
+let canon n = n.d
+let to_path n = let n = canon n in n.prefix @ n.main @ n.postfix
 
 let original name =
-  let b = Buffer.create 20 in
-  let expand path =
-    List.iter (fun w -> Buffer.add_string b @@ expand w) path in
-  List.iter expand [name.prefix;name.main;List.rev name.postfix];
-  Buffer.contents b
+  match name.original with
+  | Some x -> x
+  | None -> String.concat "_" @@ to_path name
 
 module M = Misc.StringMap
-type dict = { words:Dict.t; roles: role M.t; context:name }
+type dict = { words:Dict.t; roles: role M.t; context:analyzed }
 
 let compose x y = { prefix = x.prefix @ y.prefix;
                     main = x.main @ y.main;
@@ -207,12 +194,6 @@ let path dict name =
   in
   path |> List.map lower |> clean
 
-let cat x y =match x, y with
-  | (x, None), (y,None) -> (x ^ y, None)
-  | (x, Some s), (y, None) | (x,None), (y,Some s) ->
-    (x^y, Some s)
-  | (x, Some sx), (y,Some sy) -> (x ^ y, Some(sx ^ sy))
-
 let rsplit pred m =
   let rec check n =
     if n>0 && pred m.[n] then
@@ -222,22 +203,17 @@ let rsplit pred m =
   check (String.length m - 1)
 
 let rec prepath = function
-  | (("1"|"2"|"3"|"4"|"5"), _ as n) :: ("d", _ as d ) :: q ->
-    (cat n d) :: prepath q
-  | (c, opt as a) :: q ->
+  | (("1"|"2"|"3"|"4"|"5") as n) :: ("d" as d ) :: q ->
+    (n ^ d) :: prepath q
+  | c :: q ->
     let n =String.length c in
-    if n > 0 && is_num c.[n-1] && not (is_num c.[0]) then begin
+    if n > 0 && is_num c.[n-1] && not (is_num c.[0]) then
       let stop =  rsplit is_num c in
       let num = String.sub c stop (n-stop) in
       let c' = String.sub c 0 stop in
-      let opt' = match opt with
-        | None -> None
-        | Some x when String.length x = n -> Some (String.sub x 0 stop)
-        | Some x -> Some x
-      in
-      (c',opt') :: (num, None) :: prepath q
-    end else
-      a :: prepath q
+      c' :: num :: prepath q
+   else
+      c :: prepath q
   | [] -> []
 
 (*
@@ -266,7 +242,7 @@ let from_path dict path =
   let rec pre acc = function
     | [] -> acc
     | a :: q as l ->
-      begin match M.find (canon a) dict.roles with
+      begin match M.find a dict.roles with
         | exception Not_found -> main acc l
         | Prefix -> pre { acc with prefix = a :: acc.prefix } q
         | Main | Postfix | Extension -> main acc l
@@ -274,7 +250,7 @@ let from_path dict path =
   and main acc = function
     | [] -> acc
     | a :: q as l ->
-      begin match M.find (canon a) dict.roles with
+      begin match M.find a dict.roles with
         | exception Not_found -> main { acc with main = a :: acc.main } q
         | Prefix | Main -> main { acc with main = a :: acc.main } q
         | Postfix | Extension -> postfix acc l
@@ -286,60 +262,70 @@ let from_path dict path =
   let r = pre empty @@ prepath path in
   {r with prefix = List.rev r.prefix; main = List.rev r.main }
 
-let to_path n = n.prefix @ n.main @ n.postfix
-let simple path = { mu with main = path}
+let mu = { main = []; prefix = []; postfix = [] }
+let simple path = { original = None; d = { mu with main = path} }
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =
     match prefix, current with
     | [] , l -> l
-    | (x,_) :: q, (y,_) :: q' when x = y -> remove_prefix name q q'
+    | x :: q, y :: q' when x = y -> remove_prefix name q q'
     | _ :: _, _ -> name in
   remove_prefix name prefix name
 
 let remove_context context name =
-  { prefix = remove_prefix context.prefix name.prefix;
-    main = remove_prefix context.main name.main;
-    postfix = remove_prefix context.postfix name.postfix
+  let a = name.d in
+  { original = name.original;
+    d =
+      { prefix = remove_prefix context.prefix a.prefix;
+        main = remove_prefix context.main a.main;
+        postfix = remove_prefix context.postfix a.postfix
+      }
   }
 
-let make dict string =
-  remove_context dict.context @@ from_path dict @@ path dict @@ string
+let make dict original =
+  remove_context dict.context
+  @@ { original = Some original;
+       d =
+         from_path dict @@ path dict original
+     }
+
+let artificial d = { d; original = None }
 let synthetize dict l =
-  l |>  List.map word |> from_path dict
+ { original = None; d = from_path dict l }
 
 let snake ppf () = Fmt.pf ppf "_"
 
-let escape_word (s,_) =
+let escape_word s =
     begin match s.[0] with
       | '0'..'9' -> "n" ^ s
       | _ -> s
     end
 
 let escape = function
-  | ["module", _ ] -> [ "module'" ]
-  | ["type", _  ] -> [ "typ" ]
-  | ["object", _] -> [ "object'" ]
-  | ["false", _ ] -> [ "false'" ]
-  | ["true", _ ] -> [ "true'" ]
-  | ["inherit",_] -> ["inherit'"]
-  | s :: q -> escape_word s :: List.map fst q
-  | p -> List.map fst p
+  | ["module"] -> [ "module'" ]
+  | ["type"  ] -> [ "typ" ]
+  | ["object"] -> [ "object'" ]
+  | ["false" ] -> [ "false'" ]
+  | ["true" ] -> [ "true'" ]
+  | ["inherit"] -> ["inherit'"]
+  | s :: q -> escape_word s ::  q
+  | p -> p
 
 let flatten name =
   name.prefix @ name.main @ List.rev name.postfix
 
-let full_pp ppf s =
-  let pp_w ppf (s,x) =
-    let s = match x with Some s -> s | None -> s in
+let full_pp ppf n =
+  let pp_w ppf s =
     Fmt.string ppf s in
   let list = Fmt.list ~sep:snake pp_w in
-  Fmt.pf ppf "%a::%a::%a"
-    list s.prefix list s.main list s.postfix
+  Fmt.pf ppf "{%a:%a::%a::%a}"
+    Fmt.(option string) n.original
+    list n.d.prefix list n.d.main list n.d.postfix
 
 
 let is_extension dict = function
-  | { postfix = (a,_) :: _ ; _ } when M.find_opt a dict.roles = Some Extension
+  | { postfix = a :: _ ; _ } when M.find_opt a dict.roles = Some Extension
     -> true
   | _ -> false
 
@@ -349,7 +335,7 @@ let pp_module ppf n =
   | [a] -> Fmt.pf ppf "%s" ( String.capitalize_ascii @@ escape_word a)
   | a :: q ->
     Fmt.pf ppf "%s_%a" (String.capitalize_ascii @@ escape_word a)
-      (Fmt.list ~sep:snake Fmt.string) (List.map fst q)
+      (Fmt.list ~sep:snake Fmt.string) q
 
 let pp_constr ppf = pp_module ppf
 
@@ -365,7 +351,7 @@ type nametree =
   | Node of (int * nametree N.t)
 
 let locate dict name obj nametree =
-  let path = List.map fst @@ path dict name in
+  let path = path dict name in
   let rec locate nametree = function
     | [] -> assert false
     | [a] -> N.add a (Obj obj) nametree
@@ -405,7 +391,7 @@ and pp_branch ppf (name, m) =
 
 
 let count_names dict e =
-  let add_name m (n,_) =
+  let add_name m n =
     let count = try 1 + N.find n m with Not_found -> 1 in
     N.add n count m in
   let add_names k _ m =
