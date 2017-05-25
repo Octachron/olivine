@@ -2,9 +2,6 @@
 
 * Formatter for record types
 
-* Remove useless prefix in name
-  e.g. p_, s_, pp_
-
 * Improve generated code
 
 * Better recognition of out parameters
@@ -26,3 +23,6 @@ Done:
   Output Array lenght are sometimes defined in term of input.fields_path
 
 * Be more cautious when identifying out parameters
+
+* Remove useless prefix in name
+  e.g. p_, s_, pp_
