@@ -194,20 +194,23 @@ let rsplit pred m =
     else
       (n+1) in
   check (String.length m - 1)
-
-let rec prepath = function
-  | (("1"|"2"|"3"|"4"|"5") as n) :: ("d" as d ) :: q ->
-    (n ^ d) :: prepath q
-  | c :: q ->
-    let n =String.length c in
-    if n > 0 && is_num c.[n-1] && not (is_num c.[0]) then
-      let stop =  rsplit is_num c in
-      let num = String.sub c stop (n-stop) in
-      let c' = String.sub c 0 stop in
-      c' :: num :: prepath q
-   else
-      c :: prepath q
+let prepath =
+  let rec fixnum = function
+    | (("1"|"2"|"3"|"4"|"5") as n) :: ("d" as d ) :: q ->
+      (n ^ d) :: fixnum q
+    | c :: q ->
+      let n =String.length c in
+      if n > 0 && is_num c.[n-1] && not (is_num c.[0]) then
+        let stop =  rsplit is_num c in
+        let num = String.sub c stop (n-stop) in
+        let c' = String.sub c 0 stop in
+        c' :: num :: fixnum q
+      else
+        c :: fixnum q
+    | [] -> [] in
+  function
   | [] -> []
+  | ("p"|"pp") :: q | q -> fixnum q
 
 (*
 let rec prepath = function

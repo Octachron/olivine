@@ -108,7 +108,7 @@ module Instance = struct
   let info =
     Vkt.Instance_create_info.make
       ~flags: Vkt.Instance_create_flags.empty
-      ~pp_enabled_extension_names: extensions
+      ~enabled_extension_names: extensions
       (* ?layers: validation layers *)
       ()
 
@@ -163,7 +163,7 @@ module Device = struct
   let queue_create_info =
     Vkt.Device_queue_create_info.make
       ~queue_family_index:queue_family
-      ~p_queue_priorities: priorities
+      ~queue_priorities: priorities
       ()
 
   let device_extensions =
@@ -222,9 +222,9 @@ module Device = struct
     let info =
       let queue_create_infos = A.from_ptr queue_create_info 1 in
       Vkt.Device_create_info.make
-        ~p_queue_create_infos: queue_create_infos
+        ~queue_create_infos
         (*  ~pp_enabled_layer_names: layers *)
-        ~pp_enabled_extension_names: exts
+        ~enabled_extension_names: exts
       ()
       in
     Vkc.create_device phy info () <!> "Create logical device"
@@ -262,7 +262,7 @@ module Image = struct
             sampled
           ])
       ~image_sharing_mode: Vkt.Sharing_mode.Exclusive
-      ~p_queue_family_indices: qfi
+      ~queue_family_indices: qfi
       ~pre_transform:
         Vkt.Surface_transform_flags_khr.identity
       ~composite_alpha:
@@ -327,7 +327,7 @@ module Pipeline = struct
       String.iteri (fun n x -> A.set c' n x) s;
       Vkt.Shader_module_create_info.make
         ~code_size:(Unsigned.Size_t.of_int len)
-        ~p_code:(A.start c)
+        ~code:(A.start c)
         ()
 
     let create_shader name s =
@@ -342,7 +342,7 @@ module Pipeline = struct
         ~flags: Vkt.Pipeline_shader_stage_create_flags.empty
         ~stage
         ~module'
-        ~p_name: "main"
+        ~name: "main"
         ()
 
     let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
@@ -430,8 +430,8 @@ module Pipeline = struct
 
   let input_description =
     Vkt.Pipeline_vertex_input_state_create_info.make
-      ~p_vertex_binding_descriptions:bindings
-      ~p_vertex_attribute_descriptions:attributes
+      ~vertex_binding_descriptions:bindings
+      ~vertex_attribute_descriptions:attributes
       ()
 
   let input_assembly =
@@ -457,9 +457,7 @@ module Pipeline = struct
 
   let viewport_state =
     Vkt.Pipeline_viewport_state_create_info.make
-      ~p_viewports: viewports
-      ~p_scissors: scissors
-      ()
+      ~viewports ~scissors ()
 
   let rasterizer =
     Vkt.Pipeline_rasterization_state_create_info.make
@@ -499,13 +497,13 @@ module Pipeline = struct
 
 
   let blend_state_info =
-    let attachs =
+    let attachments =
       A.of_list Vkt.pipeline_color_blend_attachment_state [!no_blend] in
     let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~logic_op_enable: false
      ~logic_op: Vkt.Logic_op.Copy
-     ~p_attachments: attachs
+     ~attachments
      ~blend_constants: consts
      ()
 
@@ -538,16 +536,14 @@ module Pipeline = struct
     let color = A.from_ptr attachment 1 in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
-      ~p_color_attachments: color
+      ~color_attachments: color
       ()
 
   let render_pass_info =
     let attachments = A.from_ptr color_attachment 1 in
     let subpasses = A.from_ptr subpass 1 in
     Vkt.Render_pass_create_info.make
-      ~p_attachments: attachments
-      ~p_subpasses: subpasses
-      ()
+      ~attachments ~subpasses ()
 
   let simple_render_pass =
     Vkc.create_render_pass device render_pass_info () <!> "Creating render pass"
@@ -556,13 +552,13 @@ module Pipeline = struct
     let stages = A.of_list Vkt.pipeline_shader_stage_create_info
         Shaders.[ !vert_stage; !frag_stage ] in
     Vkt.Graphics_pipeline_create_info.make
-      ~p_stages: stages
-      ~p_vertex_input_state: input_description
-      ~p_input_assembly_state: input_assembly
-      ~p_viewport_state: viewport_state
-      ~p_rasterization_state: rasterizer
-      ~p_multisample_state: no_multisampling
-      ~p_color_blend_state: blend_state_info
+      ~stages
+      ~vertex_input_state: input_description
+      ~input_assembly_state: input_assembly
+      ~viewport_state: viewport_state
+      ~rasterization_state: rasterizer
+      ~multisample_state: no_multisampling
+      ~color_blend_state: blend_state_info
       ~layout: simple_layout
       ~render_pass: simple_render_pass
       ~subpass: 0
@@ -585,7 +581,7 @@ module Cmd = struct
     let images = A.of_list Vkt.image_view [image] in
     Vkt.Framebuffer_create_info.make
       ~render_pass: Pipeline.simple_render_pass
-      ~p_attachments: images
+      ~attachments: images
       ~width: Image.extent#.Vkt.Extent_2d.width
       ~height: Image.extent#.Vkt.Extent_2d.height
       ~layers:  1
@@ -646,7 +642,7 @@ module Cmd = struct
       ~render_pass: Pipeline.simple_render_pass
       ~framebuffer: fmb
       ~render_area: !Pipeline.scissor
-      ~p_clear_values: clear_values
+      ~clear_values
       ()
 
   let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
@@ -689,10 +685,10 @@ module Render = struct
   let submit_info _index (* CHECK-ME *) =
     A.from_ptr (
     Vkt.Submit_info.make
-      ~p_wait_semaphores: wait_sems
-      ~p_wait_dst_stage_mask: wait_stage
-      ~p_command_buffers: Cmd.cmd_buffers
-      ~p_signal_semaphores: sign_sems ()
+      ~wait_semaphores: wait_sems
+      ~wait_dst_stage_mask: wait_stage
+      ~command_buffers: Cmd.cmd_buffers
+      ~signal_semaphores: sign_sems ()
       ) 1
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
@@ -702,9 +698,9 @@ module Render = struct
 
   let present_info =
     Vkt.Present_info_khr.make
-      ~p_wait_semaphores: sign_sems
-      ~p_swapchains: swapchains
-      ~p_image_indices: present_indices
+      ~wait_semaphores: sign_sems
+      ~swapchains
+      ~image_indices: present_indices
       ()
 
   let debug_draw () =
@@ -713,7 +709,7 @@ module Render = struct
             <!> "Acquire image" in
     present_indices <-@ n;
     debug "Image %d acquired" n;
-    Vkc.queue_submit ~queue:Cmd.queue ~p_submits:(submit_info n) ()
+    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
     <!!> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <?> "Image presented"
@@ -728,7 +724,7 @@ module Render = struct
 
   let draw () =
     present_indices <-@ acquire_next ();
-    Vkc.queue_submit ~queue:Cmd.queue ~p_submits:(submit_info !present_indices) ()
+    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <??> "Present to queue"

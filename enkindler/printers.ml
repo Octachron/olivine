@@ -33,9 +33,9 @@ module H = struct
       Fmt.pf ppf  "%a.of_int(%a)" L.pp_module x pp f
     | _ -> pp ppf f
 
-  let array_len prefix ppf ((_,typ), (name,_)) =
+  let array_len var ppf ((_,typ), (name,_)) =
     let len ppf (n,_) =
-      Fmt.pf ppf "Ctypes.CArray.length %t%a" prefix L.pp_var n in
+      Fmt.pf ppf "Ctypes.CArray.length %a" var n in
     opt len ppf (name,typ)
 
   let label_name ppf = function
@@ -76,7 +76,7 @@ module H = struct
 
   let pp_start pp ppf = Fmt.pf ppf "Ctypes.CArray.start %a" pp
 
-  let pp_fname ppf (n, _ ) = L.pp_var ppf n
+  let pp_fname var ppf (n, _ ) = var ppf n
 
   let is_result_name = function
     | {Name_study.main = ["result"]; prefix=[]; postfix = [] } ->
@@ -354,18 +354,18 @@ module Structured = struct
           gen L.pp_var (name index)
           gen L.pp_var (name array)
           pp_arg (name array)
-          gen L.pp_var (name index) (H.array_len prx) (index,array)
+          gen L.pp_var (name index) (H.array_len pp_arg) (index,array)
           gen L.pp_var (name array)
           (H.pp_opty (ty array) @@ H.pp_start pp_arg) (name array)
       | Ty.Array_f { index; array } ->
         Fmt.pf ppf "Ctypes.setf %s %a (%a);@;\
                     Ctypes.setf %s %a (%a);"
-          gen L.pp_var (name index) (H.array_len prx) (index,array)
+          gen L.pp_var (name index) (H.array_len pp_arg) (index,array)
           gen L.pp_var (name array)
           (H.pp_opty (snd array) @@ H.pp_start pp_arg) (name array)
       | Ty.Record_extension { exts; _ } ->
         Fmt.pf ppf "%a@;\
-                   Ctypes.setf %s p_next %t;@;\
+                   Ctypes.setf %s next %t;@;\
                    Ctypes.setf %s s_type %t;@;\
                    " Record_extension.extract (tyname, exts)
           gen Record_extension.pnext gen Record_extension.stype
@@ -374,7 +374,7 @@ module Structured = struct
                 %a@;\
                 Ctypes.addr %s\
                 @]@;"
-      Fmt.(list @@ H.pp_label prx) fields
+      Fmt.(list ~sep:cut @@ H.pp_label prx) fields
       (H.pp_terminator fields)
       gen
       Fmt.(list set_field) fields
@@ -591,11 +591,12 @@ module Fn = struct
                 | Some %t -> %a in @;"
       def arg arg pp_extract y
 
-  let pp_len ppf (x,_) = Fmt.pf ppf "Ctypes.CArray.length %a" L.pp_var x
+  let pp_len var ppf (x,_) = Fmt.pf ppf "Ctypes.CArray.length %a" var x
 
-  let extract_array ppf (index,array) =
+  let extract_array var ppf (index,array) =
     Fmt.pf ppf "%a, %a"
-      (H.opt pp_len) (fst array, snd index) (H.pp_start H.pp_fname) array
+      (H.opt @@ pp_len var) (fst array, snd index)
+      (H.pp_start @@ H.pp_fname var) array
 
   let result ppf inp seq s =
     Fmt.pf ppf "@[<v 2>match %t with@;\
@@ -650,13 +651,13 @@ module Fn = struct
     in
     type_path types [] (None, fields) p
 
-  let rec pp_path ppf =
+  let rec pp_path pp ppf =
     function
     | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
-    | [None, a] -> L.pp_var ppf a
+    | [None, a] -> pp ppf a
     | (Some ty, a) :: q ->
-      Fmt.pf ppf "Ctypes.getf (Ctypes.(!@@) (%a)) %a.%a"
-        pp_path q L.pp_module ty L.pp_var a
+      Fmt.pf ppf "Ctypes.getf@ (Ctypes.(!@@)@ (%a)) %a.%a"
+        (pp_path pp) q L.pp_module ty L.pp_var a
     | (None, _) :: _ -> raise @@
       Invalid_argument "Printers.pp_path: p artially type type path"
 
@@ -666,69 +667,77 @@ module Fn = struct
     let all = List.map (fun x -> (fst x)) @@ Ty.flatten_fn_fields fn.args in
     let space ppf () = Fmt.pf ppf "@ " in
     let list x = Fmt.list ~sep:space x in
-    let prx _ppf = () in
+    let prx ppf = Fmt.string ppf "gen__" in
+    let var_out ppf x = Fmt.pf ppf "%t%a" prx L.pp_var x in
+    let var_in = var_out in
+    let var_all = var_out in
+    let pp_size ppf = Fmt.pf ppf "size__%a" L.pp_var in
     let pp_label = H.pp_fnlabel prx in
     let def ppf =
-      Fmt.pf ppf "@[<v 2> let %a @[<hov>%a%t@]=@;" L.pp_var fn.name
+      Fmt.pf ppf "@[<v 2> let %a %a %t@ =@;" L.pp_var fn.name
         (list pp_label) input
         (H.pp_terminator @@ List.map (fun f -> f.Ty.field) fn.args) in
     let out_def ppf (f:Ty.fn_field) =
       match f.field with
       | Simple(f, Array(Some(Path p), Name elt)) ->
         let p = type_path types (List.map (fun f -> f.Ty.field) fn.args) p in
-        Fmt.pf ppf "let size_%a = %a in@;" L.pp_var f pp_path p;
-        Fmt.pf ppf "let %a = Ctypes.allocate_n (%a) (size_%a) in @;"
-          L.pp_var f L.pp_type elt L.pp_var f
+        Fmt.pf ppf "let %a = %a in@;" pp_size f (pp_path var_in) p;
+        Fmt.pf ppf "let %a = Ctypes.allocate_n (%a) %a in @;"
+          var_out f L.pp_type elt pp_size f
       | Ty.Simple (f, t) when is_ptr_to_name t  ->
-        Fmt.pf ppf "let %a = %a in@;" L.pp_var f (allocate one) t
+        Fmt.pf ppf "let %a = %a in@;" var_out f (allocate one) t
       | Array_f { array=a, elt; index=i, size }
         when is_ptr_to_name elt && is_ptr_to_name size ->
         Fmt.pf ppf "let %a = %a in@;\
                     let %a = %a in@;"
-          L.pp_var i (allocate one) size
-          L.pp_var a nullptr elt
+          var_out i (allocate one) size
+          var_out a nullptr elt
       | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
         Fmt.pf ppf "let %a = Ctypes.allocate %a_opt None in@;\
                     let %a = None in@;"
-          L.pp_var i L.pp_type t
-          L.pp_var a
+          var_out i L.pp_type t
+          var_out a
       | _ ->
         Fmt.epr "Smart function not implemented for: %a@." Ty.pp_fn_field f;
         raise Not_implemented in
     let out_redef ppf (f:Ty.fn_field) = match f.field with
       | Array_f { array = a, elt; index = i, it  } ->
-        let var ppf = L.pp_var ppf i in
+        let var ppf = var_out ppf i in
         let size ppf = Fmt.pf ppf "(%a)" (pp_to_int var) it in
         Fmt.pf ppf "let %a = %a in@;"
-          L.pp_var a (allocate size) elt
+          var_out a (allocate size) elt
       | _ -> () in
     let in_expand ppf (f:Ty.fn_field) = match f.field with
       | Array_f { array= (a, _ as array) ; index = (i, _ as index)  } as f ->
-        let arg ppf = L.pp_var ppf a in
-        let def ppf = Fmt.pf ppf "%a,%a" L.pp_var i L.pp_var a in
+        let arg ppf = var_in ppf a in
+        let def ppf = Fmt.pf ppf "%a,%a" var_in i var_in a in
         if H.is_option_f f then
-          extract_opt def arg extract_array ppf (index,array)
+          extract_opt def arg (extract_array var_in) ppf (index,array)
         else
           Fmt.pf ppf "let %t = %a in @;"
             def
-            extract_array (index, array)
+            (extract_array var_in) (index, array)
       | _ -> () in
     let apply_twice = List.exists
         (function { Ty.field = Array_f _ ; _ } -> true | _ -> false) output in
-    let res ppf = Fmt.pf ppf "generated__res__" in
+    let resname ppf = Fmt.pf ppf "generated__res__" in
+    let res_pat ppf = if H.is_void fn.return then Fmt.string ppf "_"
+      else resname ppf in
+    let res_val ppf = if H.is_void fn.return then Fmt.string ppf "()"
+      else resname ppf in
     let apply ppf =
       Fmt.pf ppf "let %t = %a %a in@;"
-        res L.pp_var fn.name (list L.pp_var) all in
+        res_pat L.pp_var fn.name (list var_all) all in
     let comma ppf () = Fmt.pf ppf "," in
     let out_result ppf f = match f.Ty.field with
       | Ty.Array_f { array = (n, Ty.Option _) ; index = i , it } ->
         Fmt.pf ppf "Ctypes.CArray.from_ptr (unwrap %a) (%a)"
-          L.pp_var n (pp_to_int @@ fun ppf -> L.pp_var ppf i) it
-      | Ty.Array_f { array = (n,_) ; _ } -> L.pp_var ppf n
+          var_out n (pp_to_int @@ fun ppf -> var_out ppf i) it
+      | Ty.Array_f { array = (n,_) ; _ } -> var_out ppf n
       | Simple(f, Array(Some(Path _), Name _ )) ->
-        Fmt.pf ppf "(Ctypes.CArray.from_ptr %a (size_%a))"
-          L.pp_var f L.pp_var f
-      | Simple(n, _) -> Fmt.pf ppf "Ctypes.(!@@ %a)" L.pp_var n
+        Fmt.pf ppf "(Ctypes.CArray.from_ptr %a %a)"
+          var_out f pp_size f
+      | Simple(n, _) -> Fmt.pf ppf "Ctypes.(!@@)(%a)" var_out n
       | Record_extension _ ->
         raise @@ Invalid_argument "Record extension used as a function argument"
     in
@@ -746,18 +755,18 @@ module Fn = struct
         if with_out && H.is_void fn.return then
           Fmt.pf ppf "%a" pp_out output
         else if with_out then
-          Fmt.pf ppf "%t,%a" res pp_out output
+          Fmt.pf ppf "%t,%a" res_val pp_out output
         else
-          res ppf
+          res_val ppf
       end
     else
       begin
         if not apply_twice then
-          result ppf res (zip res pp_out) output
+          result ppf res_val (zip res_pat pp_out) output
         else
-          result ppf res (fun ppf out ->
+          result ppf res_val (fun ppf out ->
               pp_redef ppf out;
-              result ppf res (zip res pp_out) out
+              result ppf res_val (zip res_pat pp_out) out
             ) output
       end;
     Fmt.pf ppf "@]@."
