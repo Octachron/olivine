@@ -499,12 +499,12 @@ let arg l = function
 
 let args_refine _name args =
   let rec refine = function
-    | [] -> []
+    | [] -> [](*
     | [Ty.Simple (_,Ty.Ptr _) as field] -> [Ty.{field; dir = Out }]
     | [Ty.Simple (_,Ty.Array(Some(Path _), Name _ )) as field] ->
-      [Ty.{field; dir = Out }]
-    | Array_f { index=(_,Ty.Ptr _); _ } as field :: q ->
-      { field; dir = Out } :: refine q
+      [Ty.{field; dir = Out }] (*Not enough information here*) *)
+    | Ty.Array_f { index=(_,Ty.Ptr _); _ } as field :: q ->
+      { Ty.field; dir = Out } :: refine q
     | field :: q -> { field; dir = In_Out} :: refine q in
   refine @@ fields_refine args
 

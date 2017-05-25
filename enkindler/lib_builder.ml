@@ -201,6 +201,23 @@ let dep_fn gen (fn: Cty.fn) build =
   fn.return |> dep_typ gen build |> dep_fields gen
     (Cty.flatten_fn_fields fn.args)
 
+(** Once the name of the function analyzed, it become easier to identify
+    out parameter *)
+let refine_fn (fn:Ty.fn) =
+  let rec identify_out (args:Ty.fn_field list) =
+    match args with
+    | [] -> []
+    | [ { field = Simple (_, Ptr _); _ } as f ] ->
+       [{f with dir = Out }]
+    | [ {field = Ty.Simple (_,Ty.Array(Some(Path _), Name _ )); _ } as f] ->
+      [{ f with dir = Out }]
+    | a :: q -> a :: identify_out q in
+  match Name_study.to_path fn.name with
+  | ("create" | "get" | "enumerate"|"allocate"|"acquire") :: _
+  | "map" :: "memory" :: _
+    ->
+    { fn with args = identify_out fn.args }
+  | _ -> fn
 
 let deps gen build = function
   | Cty.Option t | Ptr t | Array(_,t) | (Name _ as t) ->
@@ -237,7 +254,7 @@ let rec generate_ideal dict registry (items, lib as build) p =
     items,lib
   | Typed.Fn fn ->
     let items, lib = dep_fn (dict, generate_ideal dict registry) fn build in
-    let fn = Rename.fn renamer fn in
+    let fn = refine_fn @@ Rename.fn renamer fn in
     let lib =
       if Ty.is_simple fn then
         lib |> add ["core"] name (Fn { simple=true; fn})

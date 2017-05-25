@@ -5,9 +5,11 @@
 * Remove useless prefix in name
   e.g. p_, s_, pp_
 
-* Be more cautious when identifying out parameters
-
 * Improve generated code
+
+* Better recognition of out parameters
+
+* Handle shared size between array input
 
 Done:
 
@@ -22,3 +24,5 @@ Done:
 
 * Path field array index:
   Output Array lenght are sometimes defined in term of input.fields_path
+
+* Be more cautious when identifying out parameters

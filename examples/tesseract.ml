@@ -646,12 +646,13 @@ module Cmd = struct
       ()
 
   let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
+  let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
   let cmd b fmb =
     Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
     Vkc.cmd_begin_render_pass b (render_pass_info fmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
-    Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers |> ignore (* WRONG!! *);
+    Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers (A.start offsets);
     Vkc.cmd_draw b 6 1 0 0;
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <?> "Command buffer recorded"
