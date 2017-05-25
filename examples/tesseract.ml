@@ -287,12 +287,12 @@ module Image = struct
     Vkt.Component_mapping.make ~r:id ~g:id ~b:id ~a:id
 
   let subresource_range =
-    !(Vkt.Image_subresource_range.make
+    (!) @@ Vkt.Image_subresource_range.make
     ~aspect_mask:Vkt.Image_aspect_flags.(singleton color)
     ~base_mip_level: 0
     ~level_count: 1
     ~base_array_layer: 0
-    ~layer_count: 1)
+    ~layer_count: 1
 
   let image_view_info im =
     Vkt.Image_view_create_info.make
@@ -426,7 +426,8 @@ module Pipeline = struct
     let a = A.from_ptr Ctypes.(coerce (ptr void) (ptr float) mapped_mem) len in
     for i = 0 to len - 1 do
       A.set a i (A.get input i)
-    done
+    done;
+    Vkc.unmap_memory device buffer_memory
 
   let input_description =
     Vkt.Pipeline_vertex_input_state_create_info.make
