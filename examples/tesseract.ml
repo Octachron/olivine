@@ -391,10 +391,6 @@ module Pipeline = struct
       ~sharing_mode:Vkt.Sharing_mode.Exclusive
       ()
 
-  let buffer = Vkc.create_buffer device buffer_info () <!> "Buffer creation"
-
-  let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer
-  let phymem = Vkc.get_physical_device_memory_properties Device.phy
 
   let pp_mem ppf m = let open Vkt.Physical_device_memory_properties in
     A.iter (fun mt ->
@@ -403,21 +399,29 @@ module Pipeline = struct
         Format.print_cut ()
       ) m#.memory_types
 
-  ;; debug "memory flags, %a" pp_mem phymem
-
-  let alloc_info =
-    Vkt.Memory_allocate_info.make
-      ~allocation_size:mem_size
-      ~memory_type_index:0
-      ()
-
-  let buffer_memory = Vkc.allocate_memory device alloc_info ()
-                      <!> "Buffer memory allocation"
-
   let offset = Vkt.Device_size.of_int 0
-  let () =
-    Vkc.bind_buffer_memory device buffer buffer_memory offset
-    <!!> "Bind buffer to buffer datatypes"
+
+  let create_buffer mem_size =
+    let buffer = Vkc.create_buffer device buffer_info () <!> "Buffer creation" in
+
+    let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
+    let phymem = Vkc.get_physical_device_memory_properties Device.phy in
+    debug "memory flags, %a" pp_mem phymem;
+
+    let alloc_info =
+      Vkt.Memory_allocate_info.make
+        ~allocation_size:memory_rqr#.Vkt.Memory_requirements.size
+        ~memory_type_index:0
+        () in
+
+    let buffer_memory = Vkc.allocate_memory device alloc_info ()
+                        <!> "Buffer memory allocation" in
+    let () =
+      Vkc.bind_buffer_memory device buffer buffer_memory offset
+      <!!> "Bind buffer to buffer datatypes" in
+    buffer, buffer_memory
+
+  let buffer, buffer_memory = create_buffer mem_size
 
   let () =
     let len = A.length input in
