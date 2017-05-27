@@ -4,6 +4,20 @@ module Vkc = Vk.Core
 module Vkr = Vk.Raw
 module Vkw = Vk__sdl
 
+module Dim = struct let value = 4 end
+
+module Float_array = struct
+  include A
+  let zeroes n = make Ctypes.float n ~initial:0.
+  let map = A.map Ctypes.float
+  let init n f =
+    let a = make Ctypes.float n in
+    for i =0 to (n-1) do A.set a i @@ f i done;
+    a
+  let map2 f a b = init (length a) (fun i -> f (A.get a i) (A.get b i))
+end
+module Vec = Vec.Make(Float_array)(Dim)
+
 module Utils = struct
   (** Ctype utility functions *)
   let get, set = Ctypes.(getf,setf)
@@ -17,8 +31,8 @@ module Utils = struct
 
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
-  let (<?>) x s = match x with
-    | Ok x -> Format.printf "%a: %s@." Vkt.Result.pp x s
+  let (<*>) x s = match x with
+    | Ok (_,x) -> x
     | Error k ->
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
@@ -82,8 +96,8 @@ module Sdl = struct
 
   let () = Sdl.show_window w
   let e = Sdl.Event.create ()
-  let rec event_loop idle e =
-    idle ();
+  let rec event_loop idle data e =
+    let data = idle data in
     let open Sdl.Event in
     if
       Sdl.poll_event @@ Some e
@@ -91,7 +105,7 @@ module Sdl = struct
       && get e keyboard_keycode = Sdl.K.escape
     then
       exit 0
-    else event_loop idle e
+    else event_loop idle data e
 
 end
 
@@ -384,13 +398,6 @@ module Pipeline = struct
   let bindings = A.from_ptr vertex_binding 1
 
   let mem_size = Vkt.Device_size.of_int @@ fsize * A.length input
-  let buffer_info =
-    Vkt.Buffer_create_info.make
-      ~size: mem_size
-      ~usage:Vkt.Buffer_usage_flags.(singleton vertex_buffer)
-      ~sharing_mode:Vkt.Sharing_mode.Exclusive
-      ()
-
 
   let pp_mem ppf m = let open Vkt.Physical_device_memory_properties in
     A.iter (fun mt ->
@@ -399,9 +406,15 @@ module Pipeline = struct
         Format.print_cut ()
       ) m#.memory_types
 
-  let offset = Vkt.Device_size.of_int 0
+  let zero_offset = Vkt.Device_size.of_int 0
 
-  let create_buffer mem_size =
+  let create_buffer flag mem_size =
+    let buffer_info =
+      Vkt.Buffer_create_info.make
+        ~size: mem_size
+        ~usage:Vkt.Buffer_usage_flags.(singleton flag)
+        ~sharing_mode:Vkt.Sharing_mode.Exclusive
+        () in
     let buffer = Vkc.create_buffer device buffer_info () <!> "Buffer creation" in
 
     let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
@@ -417,22 +430,89 @@ module Pipeline = struct
     let buffer_memory = Vkc.allocate_memory device alloc_info ()
                         <!> "Buffer memory allocation" in
     let () =
-      Vkc.bind_buffer_memory device buffer buffer_memory offset
+      Vkc.bind_buffer_memory device buffer buffer_memory zero_offset
       <!!> "Bind buffer to buffer datatypes" in
     buffer, buffer_memory
 
-  let buffer, buffer_memory = create_buffer mem_size
+  let buffer, buffer_memory =
+    create_buffer Vkt.Buffer_usage_flags.vertex_buffer mem_size
 
   let () =
     let len = A.length input in
     let mapped_mem =
-      Vkc.map_memory device buffer_memory offset mem_size () <!> "Memory mapped" in
+      Vkc.map_memory device buffer_memory zero_offset mem_size ()
+      <!> "Memory mapped" in
     let a = A.from_ptr Ctypes.(coerce (ptr void) (ptr float) mapped_mem) len in
     for i = 0 to len - 1 do
       A.set a i (A.get input i)
     done;
     Vkc.unmap_memory device buffer_memory
 
+
+
+module Uniform = struct
+
+  let binding =
+    Vkt.Descriptor_set_layout_binding.make
+      ~binding:0  ~descriptor_count:1
+      ~descriptor_type:Vkt.Descriptor_type.Uniform_buffer
+      ~stage_flags:Vkt.Shader_stage_flags.(singleton vertex) ()
+
+  let bindings =
+    A.from_ptr binding 1
+
+  let layout_info =
+    Vkt.Descriptor_set_layout_create_info.make ~bindings ()
+
+  let layout = Vkc.create_descriptor_set_layout device layout_info ()
+               <!> "Descriptor layout creation"
+
+  let layouts = A.of_list Vkt.descriptor_set_layout [layout]
+
+  let size = Vkt.Device_size.of_int ( 4 * 4 * fsize )
+  let buffer, memory =
+    create_buffer Vkt.Buffer_usage_flags.uniform_buffer size
+
+  let pool_sizes = let open Vkt.Descriptor_pool_size in
+    A.from_ptr (make Vkt.Descriptor_type.Uniform_buffer 1) 1
+
+  let pool_info =
+    Vkt.Descriptor_pool_create_info.make ~max_sets:1 ~pool_sizes ()
+
+  let pool =
+    Vkc.create_descriptor_pool device pool_info () <!> "Descriptor pool"
+
+  let alloc =
+    Vkt.Descriptor_set_allocate_info.make pool layouts ()
+
+  let descriptor_sets=
+    Vkc.allocate_descriptor_sets device alloc <!> "Descriptor set"
+
+  ;; debug "Allocated %d descriptor sets" (A.length descriptor_sets)
+
+  let buffer_info = Vkt.Descriptor_buffer_info.make buffer zero_offset size
+  let write_info =
+    A.from_ptr begin
+      Vkt.Write_descriptor_set.make
+        ~dst_set:(A.get descriptor_sets 0) ~dst_binding:0 ~descriptor_count:1
+        ~dst_array_element:0
+      ~descriptor_type:Vkt.Descriptor_type.Uniform_buffer
+      (* TODO: the three fields belows corresponds to the
+         constructors of a sum type:
+         descriptor_type is the sum flag, and only on of  *)
+      ~buffer_info
+      ~texel_buffer_view:(nullptr Vkt.buffer_view)
+      ~image_info:(nullptr Vkt.descriptor_image_info) ()
+      end 1
+
+    let transfer matrix =
+    let m = Vkc.map_memory device memory zero_offset size () <*> "map memory" in
+    let typed = Ctypes.(coerce (ptr void) (ptr float) m) in
+    let a = A.from_ptr typed (4*4)  in
+    Vec.blit_to ~from:matrix ~to':a;
+    Vkc.unmap_memory device memory
+
+end
   let input_description =
     Vkt.Pipeline_vertex_input_state_create_info.make
       ~vertex_binding_descriptions:bindings
@@ -516,8 +596,13 @@ module Pipeline = struct
   let no_uniform =
     Vkt.Pipeline_layout_create_info.make ()
 
-  let simple_layout =
-    Vkc.create_pipeline_layout device no_uniform ()
+  let simple_uniform =
+    Vkt.Pipeline_layout_create_info.make
+      ~set_layouts:Uniform.layouts
+      ()
+
+  let layout =
+    Vkc.create_pipeline_layout device simple_uniform ()
     <!> "Creating pipeline layout"
 
   let color_attachment =
@@ -564,7 +649,7 @@ module Pipeline = struct
       ~rasterization_state: rasterizer
       ~multisample_state: no_multisampling
       ~color_blend_state: blend_state_info
-      ~layout: simple_layout
+      ~layout
       ~render_pass: simple_render_pass
       ~subpass: 0
       ~base_pipeline_index: 0l
@@ -580,7 +665,11 @@ module Pipeline = struct
 
 end
 
+
 module Cmd = struct
+
+  ;; Vkc.update_descriptor_sets ~device
+    ~descriptor_writes:Pipeline.Uniform.write_info ()
 
   let framebuffer_info image =
     let images = A.of_list Vkt.image_view [image] in
@@ -653,14 +742,18 @@ module Cmd = struct
   let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
   let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
   let cmd b fmb =
-    Vkc.begin_command_buffer b cmd_begin_info <?> "Begin command buffer";
+    Vkc.begin_command_buffer b cmd_begin_info <!!> "Begin command buffer";
     Vkc.cmd_begin_render_pass b (render_pass_info fmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
     Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers (A.start offsets);
+    Vkc.cmd_bind_descriptor_sets ~command_buffer:b
+      ~pipeline_bind_point:Vkt.Pipeline_bind_point.Graphics
+      ~layout:Pipeline.layout ~first_set:0
+      ~descriptor_sets: Pipeline.Uniform.descriptor_sets ();
     Vkc.cmd_draw b 6 1 0 0;
     Vkc.cmd_end_render_pass b;
-    Vkc.end_command_buffer b <?> "Command buffer recorded"
+    Vkc.end_command_buffer b <!!> "Command buffer recorded"
 
   let iter2 f a b =
     for i=0 to min (A.length a) (A.length b) - 1 do
@@ -715,10 +808,11 @@ module Render = struct
             <!> "Acquire image" in
     present_indices <-@ n;
     debug "Image %d acquired" n;
+    let () = Pipeline.Uniform.transfer Vec.id in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
     <!!> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
-    <?> "Image presented"
+    <??> "Image presented"
 
   let rec acquire_next () =
       match  Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
@@ -728,15 +822,22 @@ module Render = struct
       | Error x ->
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
 
-  let draw () =
+
+  let rot = Vec.axis_rotation 0 1
+  let u f = f *. (Random.float 2. -. 1.)
+  let draw (speed, angle) =
     present_indices <-@ acquire_next ();
+    let speed = speed +. u 0.01 in
+    let angle = speed +. angle in
+    let () = Pipeline.Uniform.transfer (rot angle) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
-    <??> "Present to queue"
+    <??> "Present to queue";
+    (speed,angle)
 
 end
 
 ;; Render.(debug_draw(); debug_draw ())
-;; Sdl.(event_loop Render.draw e)
+;; Sdl.(event_loop Render.draw (0., 0.)  e)
 ;; debug "End"
