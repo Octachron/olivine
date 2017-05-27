@@ -363,15 +363,42 @@ module Pipeline = struct
     let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
   end
 
-  let input = A.of_list Ctypes.float
-      [   1.; 0.; 0.;     0.; 0.; 0.
-        ; 0.5; 0.5; 0.;   0.5; 0.; 0.
-        ; 0.5; 0.; 0.5;  0.; 0.5; 0.
-        ; 0.; 1.; 0.;     0.5; 0.5; 0.
-        ; 0.5; 0.5; 0.;   0.; 0.5; 0.
-        ; 0.; 0.5; 0.5;   0.5; 0.; 0.
-      ]
+  let u () = Random.float 1.
+  let c () = u (), u (), u ()
+  let vec (r,g,b) is a k =
+    let k = 6 * k in
+    A.set a k r;
+    A.set a (k+1) g;
+    A.set a (k+2) b;
+    List.iter (fun i  -> A.set a (k+3+i) 0.5) is
+  let face l i j a k =
+    let k = 6 * k in
+    let c = c () in
+    List.iteri (fun v is -> vec c is a @@ k + v)
+    [ l; i::l ; [j] @ l ; [i;j] @ l ; [j] @ l ; [i] @ l ]
 
+  let faces = [face [] 0 1; face [] 0 2; face [] 1 2;
+               face [1] 2 0; face [0] 1 2; face [2] 0 1]
+  let nfaces = List.length faces
+  let input =
+    let a = A.make Ctypes.float (36 * nfaces) ~initial:0. in
+    List.iteri (fun i f -> f a i) faces;
+    a
+
+  let pp_input ppf a=
+    for k = 0 to A.length a/ 6 - 1 do
+      Format.fprintf ppf "@[";
+        for i = 0 to 2 do
+          Format.fprintf ppf "%f " @@ A.get a (6 * k + i)
+        done;
+      Format.fprintf ppf "|";
+      for i = 0 to 2 do
+        Format.fprintf ppf " %f" @@ A.get a (6*k + i + 3)
+      done;
+        Format.fprintf ppf "@]@."
+    done
+
+  ;; debug "Input:@;%a" pp_input input
   let fsize = Ctypes.(sizeof float)
 
   let vertex_binding =
@@ -549,7 +576,7 @@ end
       ~depth_clamp_enable: false
       ~rasterizer_discard_enable: false
       ~polygon_mode: Vkt.Polygon_mode.Fill
-      ~cull_mode: Vkt.Cull_mode_flags.(singleton back)
+      ~cull_mode: Vkt.Cull_mode_flags.none
       ~front_face: Vkt.Front_face.Clockwise
       ~depth_bias_enable: false
       ~depth_bias_constant_factor: 0.
@@ -751,7 +778,7 @@ module Cmd = struct
       ~pipeline_bind_point:Vkt.Pipeline_bind_point.Graphics
       ~layout:Pipeline.layout ~first_set:0
       ~descriptor_sets: Pipeline.Uniform.descriptor_sets ();
-    Vkc.cmd_draw b 6 1 0 0;
+    Vkc.cmd_draw b (6 * Pipeline.nfaces) 1 0 0;
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <!!> "Command buffer recorded"
 
@@ -823,21 +850,25 @@ module Render = struct
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
 
 
-  let rot = Vec.axis_rotation 0 1
+  let rotz = Vec.axis_rotation 0 1
+  let rotx = Vec.axis_rotation 1 2
+  let rot x y = Vec.( rotz y * rotx x)
   let u f = f *. (Random.float 2. -. 1.)
-  let draw (speed, angle) =
+  let draw (speedx, anglex, speedz, anglez) =
     present_indices <-@ acquire_next ();
-    let speed = speed +. u 0.01 in
-    let angle = speed +. angle in
-    let () = Pipeline.Uniform.transfer (rot angle) in
+    let speedx = speedx +. u 0.001 in
+    let anglex = speedx +. anglex in
+    let speedz = speedz +. u 0.001 in
+    let anglez = speedz +. anglez in
+    let () = Pipeline.Uniform.transfer (rot anglex anglez) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <??> "Present to queue";
-    (speed,angle)
+    (speedx,anglex,speedz,anglez)
 
 end
 
 ;; Render.(debug_draw(); debug_draw ())
-;; Sdl.(event_loop Render.draw (0., 0.)  e)
+;; Sdl.(event_loop Render.draw (0., 0., 0., 0.)  e)
 ;; debug "End"
