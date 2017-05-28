@@ -362,7 +362,8 @@ module Depth = struct
       ~array_layers:1
       ~samples: Vkt.Sample_count_flags.n1
       ~tiling: Vkt.Image_tiling.Optimal
-      ~usage:Vkt.Image_usage_flags.(singleton depth_stencil_attachment)
+      ~usage:Vkt.Image_usage_flags.(of_list
+                                      [depth_stencil_attachment; transfer_src])
       ~sharing_mode:Vkt.Sharing_mode.Exclusive
       (** vvv FIXME vvv: this can only be PREINIALIZED or UNDEFINED *)
       ~initial_layout:Vkt.Image_layout.Undefined
@@ -806,7 +807,7 @@ end
         [!color_description; !depth_description] in
     let subpasses = A.from_ptr subpass 1 in
     Vkt.Render_pass_create_info.make
-      ~attachments ~subpasses ()
+      ~attachments ~subpasses ~dependencies ()
 
   let simple_render_pass =
     Vkc.create_render_pass device render_pass_info () <!> "Creating render pass"
@@ -845,11 +846,15 @@ module Cmd = struct
   ;; Vkc.update_descriptor_sets ~device
     ~descriptor_writes:Pipeline.Uniform.write_info ()
 
-  let framebuffer_info image =
-    let images = A.of_list Vkt.image_view [image; Depth.view] in
+
+  let images =
+    Array.init 2 ( fun i ->
+        A.of_list Vkt.image_view [A.get Image.views i; Depth.view])
+  let framebuffer_info i =
+
     Vkt.Framebuffer_create_info.make
       ~render_pass: Pipeline.simple_render_pass
-      ~attachments: images
+      ~attachments: images.(i)
       ~width: Image.extent#.Vkt.Extent_2d.width
       ~height: Image.extent#.Vkt.Extent_2d.height
       ~layers:  1
@@ -874,7 +879,8 @@ module Cmd = struct
 
   let () = (* initialize depth buffer *)
     Depth.one_time queue command_pool Depth.transition
-  let framebuffers = A.map Vkt.framebuffer framebuffer Image.views
+  let framebuffers =
+    A.of_list Vkt.framebuffer [framebuffer 0; framebuffer 1]
 
   let n_cmd_buffers =  (A.length framebuffers)
   let buffer_allocate_info =
@@ -912,7 +918,7 @@ module Cmd = struct
     x
 
   let clear_values =
-    A.of_list Vkt.clear_value [clear_colors;clear_depths]
+    A.of_list Vkt.clear_value [clear_colors;clear_depths; clear_depths]
 
   let render_pass_info fmb =
     Vkt.Render_pass_begin_info.make
@@ -964,7 +970,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    Ctypes.allocate view @@ singleton top_of_pipe
+    Ctypes.allocate view @@ singleton color_attachment_output
 
   let submit_info _index (* CHECK-ME *) =
     A.from_ptr (
