@@ -486,8 +486,8 @@ module Pipeline = struct
     List.iteri (fun v is -> vec c is a @@ k + v)
     [ l; i::l ; [j] @ l ; [i;j] @ l ; [j] @ l ; [i] @ l ]
 
-  let faces = [face [] 0 1; face [] 0 2; face [] 1 2;
-               face [1] 2 0; face [0] 1 2; face [2] 0 1]
+  let faces = [face [] 0 1; face [] 2 0; face [] 1 2;
+               face [1] 0 2; face [0] 2 1; face [2] 1 0]
   let nfaces = List.length faces
   let input =
     let a = A.make Ctypes.float (36 * nfaces) ~initial:0. in
@@ -732,7 +732,7 @@ end
   let blend_state_info =
     let attachments =
       A.of_list Vkt.pipeline_color_blend_attachment_state [!no_blend] in
-    let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
+    let consts = A.of_list Ctypes.float [ 0.; 0.; 0.; 0. ] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~logic_op_enable: false
      ~logic_op: Vkt.Logic_op.Copy
@@ -905,8 +905,8 @@ module Cmd = struct
     let open Vkt.Clear_value in
     let x = Ctypes.make t in
     let c = Ctypes.make Vkt.clear_color_value in
-    let a = A.of_list Ctypes.float [ 0.;1.;0.; 1.] in
-    set c Vkt.Clear_color_value.float_32 @@ A.start a;
+    let a = A.of_list Ctypes.float [ 0.;0.;0.; 1.] in
+    set c Vkt.Clear_color_value.float_32 a;
     set x color c;
     x
 
@@ -918,7 +918,7 @@ module Cmd = struct
     x
 
   let clear_values =
-    A.of_list Vkt.clear_value [clear_colors;clear_depths; clear_depths]
+    A.of_list Vkt.clear_value [clear_colors;clear_depths]
 
   let render_pass_info fmb =
     Vkt.Render_pass_begin_info.make

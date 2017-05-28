@@ -417,7 +417,7 @@ module Pipeline = struct
   let blend_state_info =
     let attachments =
       A.of_list Vkt.pipeline_color_blend_attachment_state [!no_blend] in
-    let consts = snd @@ from_array Ctypes.float [| 0.; 0.; 0.; 0. |] in
+    let consts = A.of_list Ctypes.float [ 0.; 0.; 0.; 0. ] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~logic_op_enable: false
      ~logic_op: Vkt.Logic_op.Copy
@@ -550,7 +550,7 @@ module Cmd = struct
     let x = Ctypes.make t in
     let c = Ctypes.make Vkt.clear_color_value in
     let a = A.of_list Ctypes.float [ 0.;0.;0.; 1.] in
-    set c Vkt.Clear_color_value.float_32 @@ A.start a;
+    set c Vkt.Clear_color_value.float_32 a;
     set x color c;
     x
 
