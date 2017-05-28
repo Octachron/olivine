@@ -265,7 +265,9 @@ module Record_extension = struct
 end
 
 module Typexp = struct
-  let rec pp ppf = function
+  let rec pp degraded ppf =
+    let pp ppf = pp degraded ppf in
+    function
     | Ty.Const t -> pp ppf t
     | Name n ->
       Fmt.pf ppf "%a" L.pp_type n
@@ -282,6 +284,8 @@ module Typexp = struct
     | String -> Fmt.pf ppf "string"
     | Array (Some Const n ,typ) ->
       Fmt.pf ppf "(array %a @@@@ %a)" L.pp_var n pp typ
+    | Array (Some (Lit n) ,typ) when not degraded ->
+      Fmt.pf ppf "(array %d @@@@ %a)" n pp typ
     | Array (_,typ) -> pp ppf (Ty.Ptr typ)
     | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
     | Handle _  ->
@@ -304,10 +308,12 @@ module Structured = struct
     | Union -> Fmt.pf ppf "union"
     | Record -> Fmt.pf ppf "structure"
 
-  let sfield name ppf (field_name,typ)=
-    let field_name = (*L.remove_context name*) field_name in
+  let sfield _name ppf (field_name,typ)=
+    (*Should we remove context? Field names are quite short in general
+      L.remove_context name field_name *)
+    let field_name =  field_name in
     Fmt.pf ppf "  let %a = field t \"%a\" %a"
-      L.pp_var field_name L.pp_var field_name Typexp.pp typ
+      L.pp_var field_name L.pp_var field_name (Typexp.pp false) typ
 
   let field name ppf = function
     | Ty.Simple f -> sfield name ppf f
@@ -511,10 +517,10 @@ module Funptr = struct
 
   let pp_ty ppf (fn:Ty.fn) =
     Fmt.pf ppf "%a@ @->@ returning %a"
-      (Fmt.list ~sep:arrow Typexp.pp)
+      (Fmt.list ~sep:arrow (Typexp.pp true))
       (List.map snd @@ Ty.flatten_fn_fields fn.args)
       (* Composite fields does not make sense here *)
-      Typexp.pp fn.return
+      (Typexp.pp true) fn.return
 
   let pp  ppf (tyname, (fn:Ty.fn)) =
     match List.map snd @@ Ty.flatten_fn_fields fn.args with
@@ -542,8 +548,8 @@ module Fn = struct
     Fmt.pf ppf "@[<v 2>let %a =\n\
                 foreign@ \"%s\"@ (%a@ @->@ returning %a)@]@."
       L.pp_var fn.name fn.original_name
-      (Fmt.list ~sep:arrow Typexp.pp) args'
-      Typexp.pp fn.return
+      (Fmt.list ~sep:arrow (Typexp.pp true)) args'
+      (Typexp.pp true) fn.return
 
   exception Not_implemented
 
