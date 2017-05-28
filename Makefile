@@ -44,6 +44,9 @@ test-triangle: triangle
 test-tesseract: tesseract
 	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./tesseract
 
+spec:
+	mkdir -p spec\
+	&& wget "https://github.com/KhronosGroup/Vulkan-Docs/blob/1.0/src/spec/vk.xml" -o spec/vk.xml
 
 clean:
 	$(CC) -clean; rm lib/vk.ml
