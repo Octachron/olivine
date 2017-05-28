@@ -48,6 +48,7 @@ let make_dict spec =
   |> add  Main "ID"
   |> add Main "D3D12"
   |> add Main "MacOS"
+  |> add Main "LOD"
   |> add Extension "EXT"
   |> add Extension "KHX"
   |> add Main "IOS"

@@ -5,7 +5,7 @@ SPIR=glslangValidator -V
 
 all: infolivine vk.cmxa triangle tesseract libgen
 
-triangle: libsdlvulkan.so vk.cmxa shaders/triangle/vert.spv
+triangle: libsdlvulkan.so vk.cmxa shaders/triangle/vert.spv shaders/triangle/frag.spv
 	$(CCO) examples/$@.native && mv $@.native $@
 
 tesseract: libsdlvulkan.so vk.cmxa shaders/tesseract/vert.spv shaders/tesseract/frag.spv
@@ -44,9 +44,9 @@ test-triangle: triangle
 test-tesseract: tesseract
 	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./tesseract
 
-spec:
+vkspec:
 	mkdir -p spec\
-	&& wget "https://github.com/KhronosGroup/Vulkan-Docs/blob/1.0/src/spec/vk.xml" -o spec/vk.xml
+	&& wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml" -o spec/vk.xml
 
 clean:
 	$(CC) -clean; rm lib/vk.ml

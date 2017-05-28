@@ -4,6 +4,7 @@ module Vkc = Vk.Core
 module Vkr = Vk.Raw
 module Vkw = Vk__sdl
 
+;; Gc.set
 module Dim = struct let value = 4 end
 
 module Float_array = struct
@@ -43,6 +44,11 @@ module Utils = struct
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
 
+  let (<!*>) x s = match x with
+    | Ok r -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
+    | Error k ->
+      Format.eprintf "Error %a: %s @."
+        Vkt.Result.pp k s; exit 1
 
   let (<!!>) x s = match x with
     | Ok `Success -> ()
@@ -247,6 +253,8 @@ end
 let device = Device.x
 let surface_khr = Device.surface_khr
 
+let zero_offset = Vkt.Device_size.of_int 0
+
 module Swapchain = Vk.Khr.Swapchain(Device)
 
 module Image = struct
@@ -296,32 +304,132 @@ module Image = struct
 
   ;; debug "Swapchain: %d images" (A.length images)
 
-  let component_mapping =
+  let components =
     let id = Vkt.Component_swizzle.Identity in
-    Vkt.Component_mapping.make ~r:id ~g:id ~b:id ~a:id
+    (!) @@ Vkt.Component_mapping.make ~r:id ~g:id ~b:id ~a:id
 
-  let subresource_range =
+  let subresource_range aspect_mask =
     (!) @@ Vkt.Image_subresource_range.make
-    ~aspect_mask:Vkt.Image_aspect_flags.(singleton color)
+    ~aspect_mask
     ~base_mip_level: 0
     ~level_count: 1
     ~base_array_layer: 0
     ~layer_count: 1
 
-  let image_view_info im =
+  let image_view_info aspect format im =
     Vkt.Image_view_create_info.make
       ~image: im
       ~view_type: Vkt.Image_view_type.N2d
       ~format
-      ~subresource_range
-      ~components:!(component_mapping)
+      ~subresource_range:(subresource_range aspect)
+      ~components
       ()
 
   let views =
+    let aspect = Vkt.Image_aspect_flags.(singleton color) in
     let create im =
-      Vkc.create_image_view device (image_view_info im) ()
+      Vkc.create_image_view device (image_view_info aspect format im) ()
       <!> "Creating image view" in
     A.map Vkt.image_view create images
+
+end
+
+module Depth = struct
+
+  let layout = Vkt.Image_layout.Depth_stencil_attachment_optimal
+  let format = Vkt.Format.D_32_sfloat
+
+  let format_properties =
+    Vkc.get_physical_device_format_properties Device.phy format
+
+  let () = let open Vkt.Format_properties in
+    debug "Depth format {linear tiling:%a; optimal tiling:%a; buffer feature:%a}"
+      (pp_opt Vkt.Format_feature_flags.pp)
+      format_properties#.linear_tiling_features
+      (pp_opt Vkt.Format_feature_flags.pp)
+      format_properties#.optimal_tiling_features
+      (pp_opt Vkt.Format_feature_flags.pp) format_properties#.buffer_features
+  let extent = (!) @@
+    let open Vkt.Extent_2d in
+    Vkt.Extent_3d.make ~width:Image.extent#.width
+      ~height:Image.extent#.height
+      ~depth:1
+
+  let info = Vkt.Image_create_info.make
+      ~image_type:Vkt.Image_type.N2d
+      ~format ~extent
+      ~mip_levels:1
+      ~array_layers:1
+      ~samples: Vkt.Sample_count_flags.n1
+      ~tiling: Vkt.Image_tiling.Optimal
+      ~usage:Vkt.Image_usage_flags.(singleton depth_stencil_attachment)
+      ~sharing_mode:Vkt.Sharing_mode.Exclusive
+      (** vvv FIXME vvv: this can only be PREINIALIZED or UNDEFINED *)
+      ~initial_layout:Vkt.Image_layout.Undefined
+      ()
+  let image = Vkc.create_image device info () <!> "Depth image creation"
+
+  let reqr = Vkc.get_image_memory_requirements device image
+  let size = reqr#.Vkt.Memory_requirements.size
+  ;; debug "Depth buffer size:%d" (Vkt.Device_size.to_int size)
+
+  let allocate_info =
+    Vkt.Memory_allocate_info.make
+      ~allocation_size:size
+      ~memory_type_index:0 ()
+
+  let memory = Vkc.allocate_memory device allocate_info () <!> "Depth memory"
+  let () = Vkc.bind_image_memory device image memory zero_offset
+           <!!> "Depth binding"
+
+  let view =
+    let aspect = Vkt.Image_aspect_flags.(of_list [depth]) in
+    Vkc.create_image_view device (Image.image_view_info aspect format image) ()
+    <!> "Depth view"
+
+  let one_time  queue command_pool f =
+    let alloc =
+      Vkt.Command_buffer_allocate_info.make
+        ~command_pool ~level:Vkt.Command_buffer_level.Primary
+        ~command_buffer_count:1 () in
+    let buffers =
+      Vkc.allocate_command_buffers device alloc <!> "one time buffer"  in
+    let b = A.get buffers 0 in
+    let begin_info = Vkt.Command_buffer_begin_info.make
+        ~flags:Vkt.Command_buffer_usage_flags.(singleton one_time_submit) () in
+    Vkc.begin_command_buffer b begin_info <!!> "Begin one-time command";
+    f b;
+    Vkc.end_command_buffer b <!!> "End one time-command";
+    let submits = A.from_ptr
+        begin Vkt.Submit_info.make
+        (* vvvv FIXME: wait_dst_stage_mask should be zipped
+            with wait_semaphores *)
+        ~wait_dst_stage_mask:(nullptr Vkt.pipeline_stage_flags)
+        ~command_buffers:buffers ()
+    end 1 in
+    Vkc.queue_submit ~queue ~submits () <!!> "Submit one-time command";
+    Vkc.queue_wait_idle queue <!!> "Wait end one-time command";
+    debug "Transition done";
+    Vkc.free_command_buffers device command_pool buffers
+
+  let transition b =
+    let subresource_range =
+      Image.subresource_range Vkt.Image_aspect_flags.(of_list [depth])
+    in
+    let dst_access_mask= let open Vkt.Access_flags in
+      of_list [depth_stencil_attachment_read; depth_stencil_attachment_write]
+    in
+    let barrier = Vkt.Image_memory_barrier.make
+        ~old_layout:Vkt.Image_layout.Undefined
+        ~new_layout:Vkt.Image_layout.Depth_stencil_attachment_optimal
+        ~dst_access_mask
+        ~src_queue_family_index:0 ~dst_queue_family_index:0
+        ~image ~subresource_range ()
+    in
+    let stage = Vkt.Pipeline_stage_flags.(singleton top_of_pipe) in
+    Vkc.cmd_pipeline_barrier
+      ~command_buffer:b ~src_stage_mask:stage ~dst_stage_mask:stage
+      ~image_memory_barriers:(A.from_ptr barrier 1) ()
 
 end
 
@@ -432,8 +540,6 @@ module Pipeline = struct
           mt#.Vkt.Memory_type.property_flags;
         Format.print_cut ()
       ) m#.memory_types
-
-  let zero_offset = Vkt.Device_size.of_int 0
 
   let create_buffer flag mem_size =
     let buffer_info =
@@ -576,7 +682,7 @@ end
       ~depth_clamp_enable: false
       ~rasterizer_discard_enable: false
       ~polygon_mode: Vkt.Polygon_mode.Fill
-      ~cull_mode: Vkt.Cull_mode_flags.none
+      ~cull_mode: Vkt.Cull_mode_flags.(singleton front)
       ~front_face: Vkt.Front_face.Clockwise
       ~depth_bias_enable: false
       ~depth_bias_constant_factor: 0.
@@ -587,7 +693,6 @@ end
 
   let no_multisampling =
     Vkt.Pipeline_multisample_state_create_info.make
-      ~flags: Vkt.Pipeline_multisample_state_create_flags.empty
       ~rasterization_samples: Vkt.Sample_count_flags.n1
       ~sample_shading_enable: false
       ~min_sample_shading: 1.
@@ -607,6 +712,21 @@ end
      ~alpha_blend_op: Vkt.Blend_op.Add
      ()
 
+  let depth_info =
+    let st = Ctypes.make Vkt.stencil_op_state in
+    Vkt.Pipeline_depth_stencil_state_create_info.make
+      ~depth_test_enable:true
+      ~depth_write_enable:true
+      ~depth_compare_op:Vkt.Compare_op.Less
+      (* Fixme vv Option group vv *)
+      ~depth_bounds_test_enable:false
+      ~min_depth_bounds:0.
+      ~max_depth_bounds:1.
+      (* Fixme vv Option group vv *)
+      ~stencil_test_enable:false
+      ~front:st
+      ~back:st
+      ()
 
   let blend_state_info =
     let attachments =
@@ -632,32 +752,58 @@ end
     Vkc.create_pipeline_layout device simple_uniform ()
     <!> "Creating pipeline layout"
 
-  let color_attachment =
+  let make_attachment store_op format final_layout =
     Vkt.Attachment_description.make
-      ~format: Image.format
+      ~format
       ~samples: Vkt.Sample_count_flags.n1
       ~load_op: Vkt.Attachment_load_op.Clear
-      ~store_op: Vkt.Attachment_store_op.Store
+      ~store_op
       ~stencil_load_op: Vkt.Attachment_load_op.Dont_care
       ~stencil_store_op: Vkt.Attachment_store_op.Dont_care
       ~initial_layout: Vkt.Image_layout.Undefined
-      ~final_layout: Vkt.Image_layout.Present_src_khr
+      ~final_layout
       ()
 
-  let attachment =
+  let store = Vkt.Attachment_store_op.Store
+  let dont = Vkt.Attachment_store_op.Dont_care
+  let color_description =
+    make_attachment store Image.format Vkt.Image_layout.Present_src_khr
+
+  let depth_description = make_attachment store Depth.format Depth.layout
+
+  let color_attachment =
     Vkt.Attachment_reference.make
       ~attachment: 0
       ~layout: Vkt.Image_layout.Color_attachment_optimal
 
+  let depth_stencil_attachment =
+    Vkt.Attachment_reference.make
+      ~attachment: 1
+      ~layout:Depth.layout
+
+  let dependencies = A.from_ptr begin
+    let stage = Vkt.Pipeline_stage_flags.(singleton color_attachment_output) in
+    Vkt.Subpass_dependency.make
+      ~src_subpass:(Unsigned.UInt.to_int Vk.Const.subpass_external)
+      ~dst_subpass:0
+      ~src_stage_mask:stage
+      ~dst_stage_mask:stage
+      ~dst_access_mask:
+        Vkt.Access_flags.(of_list [color_attachment_read;
+                                   color_attachment_write])
+      () end 1
+
   let subpass =
-    let color = A.from_ptr attachment 1 in
+    let color = A.from_ptr color_attachment 1 in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
       ~color_attachments: color
+      ~depth_stencil_attachment
       ()
 
   let render_pass_info =
-    let attachments = A.from_ptr color_attachment 1 in
+    let attachments = A.of_list Vkt.attachment_description
+        [!color_description; !depth_description] in
     let subpasses = A.from_ptr subpass 1 in
     Vkt.Render_pass_create_info.make
       ~attachments ~subpasses ()
@@ -676,6 +822,7 @@ end
       ~rasterization_state: rasterizer
       ~multisample_state: no_multisampling
       ~color_blend_state: blend_state_info
+      ~depth_stencil_state:depth_info
       ~layout
       ~render_pass: simple_render_pass
       ~subpass: 0
@@ -699,7 +846,7 @@ module Cmd = struct
     ~descriptor_writes:Pipeline.Uniform.write_info ()
 
   let framebuffer_info image =
-    let images = A.of_list Vkt.image_view [image] in
+    let images = A.of_list Vkt.image_view [image; Depth.view] in
     Vkt.Framebuffer_create_info.make
       ~render_pass: Pipeline.simple_render_pass
       ~attachments: images
@@ -711,10 +858,6 @@ module Cmd = struct
   let framebuffer index =
     Vkc.create_framebuffer device (framebuffer_info index) ()
     <!> "Framebuffer creation"
-
-  let framebuffers = A.map Vkt.framebuffer framebuffer Image.views
-
-  let my_fmb = framebuffer
 
   let queue =
     Vkc.get_device_queue device Device.queue_family 0
@@ -728,11 +871,15 @@ module Cmd = struct
     Vkc.create_command_pool device command_pool_info ()
     <!> "Command pool creation"
 
-  let my_cmd_pool = command_pool
+
+  let () = (* initialize depth buffer *)
+    Depth.one_time queue command_pool Depth.transition
+  let framebuffers = A.map Vkt.framebuffer framebuffer Image.views
+
   let n_cmd_buffers =  (A.length framebuffers)
   let buffer_allocate_info =
     Vkt.Command_buffer_allocate_info.make
-      ~command_pool: my_cmd_pool
+      ~command_pool
       ~level: Vkt.Command_buffer_level.Primary
       ~command_buffer_count: n_cmd_buffers
       ()
@@ -748,17 +895,26 @@ module Cmd = struct
       ~flags: Vkt.Command_buffer_usage_flags.(singleton simultaneous_use)
       ()
 
-  let clear_values =
+  let clear_colors =
     let open Vkt.Clear_value in
     let x = Ctypes.make t in
     let c = Ctypes.make Vkt.clear_color_value in
-    let a = A.of_list Ctypes.float [ 0.;0.;0.; 1.] in
+    let a = A.of_list Ctypes.float [ 0.;1.;0.; 1.] in
     set c Vkt.Clear_color_value.float_32 @@ A.start a;
     set x color c;
     x
 
+  let clear_depths =
+    let open Vkt.Clear_value in
+    let x = Ctypes.make t in
+    let f = Vkt.Clear_depth_stencil_value.make ~depth:1. ~stencil:0 in
+    set x depth_stencil !f;
+    x
+
+  let clear_values =
+    A.of_list Vkt.clear_value [clear_colors;clear_depths]
+
   let render_pass_info fmb =
-    let clear_values = A.of_list Vkt.clear_value [clear_values] in
     Vkt.Render_pass_begin_info.make
       ~render_pass: Pipeline.simple_render_pass
       ~framebuffer: fmb
@@ -766,11 +922,13 @@ module Cmd = struct
       ~clear_values
       ()
 
+  let render_pass_infos = A.map (Ctypes.ptr Vkt.render_pass_begin_info)
+      render_pass_info framebuffers
   let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
   let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
-  let cmd b fmb =
+  let cmd b ifmb =
     Vkc.begin_command_buffer b cmd_begin_info <!!> "Begin command buffer";
-    Vkc.cmd_begin_render_pass b (render_pass_info fmb)
+    Vkc.cmd_begin_render_pass b (A.get render_pass_infos ifmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
     Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers (A.start offsets);
@@ -782,12 +940,12 @@ module Cmd = struct
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <!!> "Command buffer recorded"
 
-  let iter2 f a b =
-    for i=0 to min (A.length a) (A.length b) - 1 do
-      f (A.get a i) (A.get b i)
+  let iteri f a =
+    for i=0 to A.length a - 1 do
+      f (A.get a i) i
     done
 
-  let () = iter2 cmd cmd_buffers framebuffers
+  let () = iteri cmd cmd_buffers
 end
 
 module Render = struct
@@ -842,7 +1000,8 @@ module Render = struct
     <??> "Image presented"
 
   let rec acquire_next () =
-      match  Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
+    match  Swapchain.acquire_next_image_khr ~device
+             ~swapchain:Image.swap_chain
                ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore () with
       | Ok ((`Success|`Suboptimal_khr), n) -> n
       | Ok ((`Timeout|`Not_ready), _ ) -> acquire_next ()

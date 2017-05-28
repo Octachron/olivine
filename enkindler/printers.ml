@@ -305,7 +305,7 @@ module Structured = struct
     | Record -> Fmt.pf ppf "structure"
 
   let sfield name ppf (field_name,typ)=
-    let field_name = L.remove_context name field_name in
+    let field_name = (*L.remove_context name*) field_name in
     Fmt.pf ppf "  let %a = field t \"%a\" %a"
       L.pp_var field_name L.pp_var field_name Typexp.pp typ
 
