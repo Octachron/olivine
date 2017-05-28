@@ -8,6 +8,8 @@
 
 * Handle shared size between array input
 
+* Handle constant-size arrays
+
 Done:
 
 * Variable-length output array:
