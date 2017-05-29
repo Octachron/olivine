@@ -1,29 +1,32 @@
 
+
+type singleton = private Singleton
+type plural = private Plural
+
 module type S = sig
-  type t
-  type index
+
+  type +'a set
+  type index = singleton set
+  type t = plural set
   exception Out_of_bound of int
 
-  val empty: t
-  val make_index: int -> index
-  val mem: index -> t -> bool
+  val empty: 'a set
+  val make_index: int -> 'a set
+  val mem: index -> 'a set -> bool
 
-  val union: t -> t -> t
-  val (+): t -> t -> t
+  val union: 'a set -> 'a set -> t
+  val (+): 'a set -> 'a set -> t
 
-  val diff: t -> t -> t
-  val (-): t -> t -> t
+  val diff: 'a set -> 'a set -> t
+  val (-): 'a set -> 'a set -> t
 
-  val not: t -> t
-  val (~-): t -> t
+  val not: 'a set -> t
+  val (~-): 'a set -> t
 
-  val intersection: t -> t -> t
-  val ( * ) : t -> t -> t
+  val intersection: 'a set -> 'a set -> t
+  val ( * ) : 'a set -> 'a set -> t
 
-  val singleton: index -> t
-  val of_list: index list -> t
-
-  val of_int: int -> t
+  val of_int: int -> 'a set
   val view: t Ctypes.typ
   val view_opt: t option Ctypes.typ
   val index_view: index Ctypes.typ
@@ -31,8 +34,9 @@ module type S = sig
 end
 
 module Make(): S = struct
-  type t = int
-  type index = int
+  type 'a set = int
+  type index = singleton set
+  type t = plural set
   exception Out_of_bound of int
 
   let empty = 0
@@ -55,10 +59,6 @@ module Make(): S = struct
 
   let intersection = (land)
   let ( * ) = intersection
-
-  let singleton k = k
-  let of_list =
-    List.fold_left ( fun acc x -> acc + singleton x) empty
 
   let of_int n = n
   let id x = x

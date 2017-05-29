@@ -256,11 +256,7 @@ module Image = struct
       ~image_color_space: colorspace
       ~image_extent: extent
       ~image_array_layers:  1
-      ~image_usage:Vkt.Image_usage_flags.(
-          of_list [
-            color_attachment;
-            sampled
-          ])
+      ~image_usage:Vkt.Image_usage_flags.(color_attachment + sampled)
       ~image_sharing_mode: Vkt.Sharing_mode.Exclusive
       ~queue_family_indices: qfi
       ~pre_transform:
@@ -288,7 +284,7 @@ module Image = struct
 
   let subresource_range =
     !(Vkt.Image_subresource_range.make
-    ~aspect_mask:Vkt.Image_aspect_flags.(singleton color)
+    ~aspect_mask:Vkt.Image_aspect_flags.color
     ~base_mip_level: 0
     ~level_count: 1
     ~base_array_layer: 0
@@ -382,7 +378,7 @@ module Pipeline = struct
       ~depth_clamp_enable: false
       ~rasterizer_discard_enable: false
       ~polygon_mode: Vkt.Polygon_mode.Fill
-      ~cull_mode: Vkt.Cull_mode_flags.(singleton back)
+      ~cull_mode: Vkt.Cull_mode_flags.back
       ~front_face: Vkt.Front_face.Clockwise
       ~depth_bias_enable: false
       ~depth_bias_constant_factor: 0.
@@ -404,7 +400,7 @@ module Pipeline = struct
   let no_blend =
     Vkt.Pipeline_color_blend_attachment_state.make
      ~blend_enable: false
-     ~color_write_mask: Vkt.Color_component_flags.(of_list[r;g;b;a])
+     ~color_write_mask: Vkt.Color_component_flags.(r+g+b+a)
      ~src_color_blend_factor: Vkt.Blend_factor.One
      ~dst_color_blend_factor: Vkt.Blend_factor.Zero
      ~color_blend_op: Vkt.Blend_op.Add
@@ -542,7 +538,7 @@ module Cmd = struct
 
   let cmd_begin_info =
     Vkt.Command_buffer_begin_info.make
-      ~flags: Vkt.Command_buffer_usage_flags.(singleton simultaneous_use)
+      ~flags: Vkt.Command_buffer_usage_flags.simultaneous_use
       ()
 
   let clear_values =
@@ -596,7 +592,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    Ctypes.allocate view @@ singleton top_of_pipe
+    Ctypes.allocate view top_of_pipe
 
   let submit_info _index (* CHECK-ME *) =
     A.from_ptr (

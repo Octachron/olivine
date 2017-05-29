@@ -278,11 +278,7 @@ module Image = struct
       ~image_color_space: colorspace
       ~image_extent: extent
       ~image_array_layers:  1
-      ~image_usage:Vkt.Image_usage_flags.(
-          of_list [
-            color_attachment;
-            sampled
-          ])
+      ~image_usage:Vkt.Image_usage_flags.(color_attachment + sampled)
       ~image_sharing_mode: Vkt.Sharing_mode.Exclusive
       ~queue_family_indices: qfi
       ~pre_transform:
@@ -326,7 +322,7 @@ module Image = struct
       ()
 
   let views =
-    let aspect = Vkt.Image_aspect_flags.(singleton color) in
+    let aspect = Vkt.Image_aspect_flags.color in
     let create im =
       Vkc.create_image_view device (image_view_info aspect format im) ()
       <!> "Creating image view" in
@@ -362,8 +358,7 @@ module Depth = struct
       ~array_layers:1
       ~samples: Vkt.Sample_count_flags.n1
       ~tiling: Vkt.Image_tiling.Optimal
-      ~usage:Vkt.Image_usage_flags.(of_list
-                                      [depth_stencil_attachment; transfer_src])
+      ~usage:Vkt.Image_usage_flags.(depth_stencil_attachment + transfer_src)
       ~sharing_mode:Vkt.Sharing_mode.Exclusive
       (** vvv FIXME vvv: this can only be PREINIALIZED or UNDEFINED *)
       ~initial_layout:Vkt.Image_layout.Undefined
@@ -384,7 +379,7 @@ module Depth = struct
            <!!> "Depth binding"
 
   let view =
-    let aspect = Vkt.Image_aspect_flags.(of_list [depth]) in
+    let aspect = Vkt.Image_aspect_flags.depth in
     Vkc.create_image_view device (Image.image_view_info aspect format image) ()
     <!> "Depth view"
 
@@ -397,7 +392,7 @@ module Depth = struct
       Vkc.allocate_command_buffers device alloc <!> "one time buffer"  in
     let b = A.get buffers 0 in
     let begin_info = Vkt.Command_buffer_begin_info.make
-        ~flags:Vkt.Command_buffer_usage_flags.(singleton one_time_submit) () in
+        ~flags:Vkt.Command_buffer_usage_flags.one_time_submit () in
     Vkc.begin_command_buffer b begin_info <!!> "Begin one-time command";
     f b;
     Vkc.end_command_buffer b <!!> "End one time-command";
@@ -415,10 +410,9 @@ module Depth = struct
 
   let transition b =
     let subresource_range =
-      Image.subresource_range Vkt.Image_aspect_flags.(of_list [depth])
-    in
+      Image.subresource_range Vkt.Image_aspect_flags.depth in
     let dst_access_mask= let open Vkt.Access_flags in
-      of_list [depth_stencil_attachment_read; depth_stencil_attachment_write]
+      depth_stencil_attachment_read + depth_stencil_attachment_write
     in
     let barrier = Vkt.Image_memory_barrier.make
         ~old_layout:Vkt.Image_layout.Undefined
@@ -427,7 +421,7 @@ module Depth = struct
         ~src_queue_family_index:0 ~dst_queue_family_index:0
         ~image ~subresource_range ()
     in
-    let stage = Vkt.Pipeline_stage_flags.(singleton top_of_pipe) in
+    let stage = Vkt.Pipeline_stage_flags.top_of_pipe  in
     Vkc.cmd_pipeline_barrier
       ~command_buffer:b ~src_stage_mask:stage ~dst_stage_mask:stage
       ~image_memory_barriers:(A.from_ptr barrier 1) ()
@@ -546,7 +540,7 @@ module Pipeline = struct
     let buffer_info =
       Vkt.Buffer_create_info.make
         ~size: mem_size
-        ~usage:Vkt.Buffer_usage_flags.(singleton flag)
+        ~usage:flag
         ~sharing_mode:Vkt.Sharing_mode.Exclusive
         () in
     let buffer = Vkc.create_buffer device buffer_info () <!> "Buffer creation" in
@@ -590,7 +584,7 @@ module Uniform = struct
     Vkt.Descriptor_set_layout_binding.make
       ~binding:0  ~descriptor_count:1
       ~descriptor_type:Vkt.Descriptor_type.Uniform_buffer
-      ~stage_flags:Vkt.Shader_stage_flags.(singleton vertex) ()
+      ~stage_flags:Vkt.Shader_stage_flags.vertex ()
 
   let bindings =
     A.from_ptr binding 1
@@ -683,7 +677,7 @@ end
       ~depth_clamp_enable: false
       ~rasterizer_discard_enable: false
       ~polygon_mode: Vkt.Polygon_mode.Fill
-      ~cull_mode: Vkt.Cull_mode_flags.(singleton front)
+      ~cull_mode: Vkt.Cull_mode_flags.front
       ~front_face: Vkt.Front_face.Clockwise
       ~depth_bias_enable: false
       ~depth_bias_constant_factor: 0.
@@ -704,7 +698,7 @@ end
   let no_blend =
     Vkt.Pipeline_color_blend_attachment_state.make
      ~blend_enable: false
-     ~color_write_mask: Vkt.Color_component_flags.(of_list[r;g;b;a])
+     ~color_write_mask: Vkt.Color_component_flags.(r + g + b + a)
      ~src_color_blend_factor: Vkt.Blend_factor.One
      ~dst_color_blend_factor: Vkt.Blend_factor.Zero
      ~color_blend_op: Vkt.Blend_op.Add
@@ -783,15 +777,14 @@ end
       ~layout:Depth.layout
 
   let dependencies = A.from_ptr begin
-    let stage = Vkt.Pipeline_stage_flags.(singleton color_attachment_output) in
+    let stage = Vkt.Pipeline_stage_flags.color_attachment_output in
     Vkt.Subpass_dependency.make
       ~src_subpass:(Unsigned.UInt.to_int Vk.Const.subpass_external)
       ~dst_subpass:0
       ~src_stage_mask:stage
       ~dst_stage_mask:stage
       ~dst_access_mask:
-        Vkt.Access_flags.(of_list [color_attachment_read;
-                                   color_attachment_write])
+        Vkt.Access_flags.(color_attachment_read+color_attachment_write)
       () end 1
 
   let subpass =
@@ -898,7 +891,7 @@ module Cmd = struct
 
   let cmd_begin_info =
     Vkt.Command_buffer_begin_info.make
-      ~flags: Vkt.Command_buffer_usage_flags.(singleton simultaneous_use)
+      ~flags: Vkt.Command_buffer_usage_flags.simultaneous_use
       ()
 
   let clear_colors =
@@ -970,7 +963,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    Ctypes.allocate view @@ singleton color_attachment_output
+    Ctypes.allocate view color_attachment_output
 
   let submit_info _index (* CHECK-ME *) =
     A.from_ptr (
