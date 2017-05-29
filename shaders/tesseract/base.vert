@@ -3,12 +3,16 @@
 
 layout (binding = 0) uniform UniformBufferObject
 { mat4 rotation; } ubo ;
-layout( location = 0 ) in vec3 pos;
+layout( location = 0 ) in vec4 pos;
 layout( location = 1 ) in vec3 color;
 
 layout(location=0) out vec3 fragColors;
 
 void main() {
-    gl_Position = vec4(0,0,0.5,1) + ubo.rotation * vec4(pos, 1.);
+    vec4 newpos = ubo.rotation * pos;
+    vec2 proj = vec2(newpos);
+    float true_z = 1.5 + newpos.z;
+    float z = true_z / 10;
+    gl_Position = vec4(proj,z, true_z ) ;
     fragColors =  color;
 }

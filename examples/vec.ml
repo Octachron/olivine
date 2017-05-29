@@ -30,6 +30,7 @@ module type vec = sig
   type matrix = [`matrix] t
   type vec = [`vec] t
 
+  val pp: Format.formatter -> 'a t -> unit
   val zero: ([<rank] as 'r) -> 'r t
   val id: matrix
   val vec: (int -> float) -> vec
@@ -71,6 +72,19 @@ module Make(Array:array)(D:dim): vec with type data = float Array.t = struct
   type 'a t = float Array.t constraint 'a = [< rank]
   type matrix = [`matrix] t
   type vec = [`vec] t
+
+  let pp ppf v =
+    let fp x = Format.fprintf ppf x in
+    fp "@[<v>[";
+    for i = 0 to Array.length v / dim - 1 do
+      fp "@[<h>";
+      for j = 0 to dim' do
+        fp " %f," v.(j + dim * i)
+      done;
+        fp "@]@;";
+      done;
+    fp "]@]"
+
   let zero = function
     | `vec -> Array.zeroes dim
     | `matrix -> Array.zeroes (dim*dim)
@@ -171,8 +185,8 @@ module Make(Array:array)(D:dim): vec with type data = float Array.t = struct
   let axis_rotation k l theta =
     let sin = sin theta and cos = cos theta in
     let m = Array.copy id in
-    m.{k,k} <- cos; m.{l,l} <- cos;
-    m.{k,l} <- -.sin; m.{l,k} <- sin;
+    m.{k,k} <- cos; m.{l,k} <- sin;
+    m.{k,l} <- -.sin; m.{l,l} <- cos;
     m
 
  end

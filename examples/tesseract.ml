@@ -4,7 +4,7 @@ module Vkc = Vk.Core
 module Vkr = Vk.Raw
 module Vkw = Vk__sdl
 
-;; Gc.set
+;; Random.self_init ()
 module Dim = struct let value = 4 end
 
 module Float_array = struct
@@ -466,37 +466,61 @@ module Pipeline = struct
     let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
   end
 
+
+  let geom_size = Vec.dim
+  let color_size = 3
+  let stride = geom_size + color_size
+
   let u () = Random.float 1.
-  let c () = u (), u (), u ()
-  let vec (r,g,b) is a k =
-    let k = 6 * k in
+  let c = function
+    | 0 -> 1., 0., 0.
+    | 1 -> 0., 1., 0.
+    | 2 -> 0., 0., 1.
+    | 3 -> 0., 1., 1.
+    | 4 -> 1., 0., 1.
+    | 5 -> 1., 1., 0.
+    | _ -> 1., 1., 1.
+
+  let scale = 0.5
+  let point (r,g,b) is a k =
+    (*let r', g', b' = c() in
+    let (<+>) x y= (x +. y) /. 2. in
+      let r,g,b = r <+> r', g <+> g', b <+> b' in *)
+    let k = stride * k in
+    List.iter (fun i  -> A.set a (k+i) scale) is;
+    let k = k + geom_size in
     A.set a k r;
     A.set a (k+1) g;
-    A.set a (k+2) b;
-    List.iter (fun i  -> A.set a (k+3+i) 0.5) is
+    A.set a (k+2) b
+
+  let vertex_by_face = 6
   let face l i j a k =
-    let k = 6 * k in
-    let c = c () in
-    List.iteri (fun v is -> vec c is a @@ k + v)
+    let c = c k in
+    let k = vertex_by_face * k in
+    List.iteri (fun v is -> point c is a @@ k + v)
     [ l; i::l ; [j] @ l ; [i;j] @ l ; [j] @ l ; [i] @ l ]
 
-  let faces = [face [] 0 1; face [] 2 0; face [] 1 2;
-               face [1] 0 2; face [0] 2 1; face [2] 1 0]
+  let cube i j k =
+    [face [] j k; face [] i j; face [] k i;
+     face [k] j i; face [j] i k; face [i] k j]
+
+  let faces = cube 0 1 2
   let nfaces = List.length faces
+  ;; debug "Cube with %d faces" nfaces
   let input =
-    let a = A.make Ctypes.float (36 * nfaces) ~initial:0. in
+    let a = A.make Ctypes.float (stride * vertex_by_face * nfaces) ~initial:0. in
     List.iteri (fun i f -> f a i) faces;
     a
 
   let pp_input ppf a=
-    for k = 0 to A.length a/ 6 - 1 do
+    for k = 0 to A.length a/ stride - 1 do
       Format.fprintf ppf "@[";
-        for i = 0 to 2 do
-          Format.fprintf ppf "%f " @@ A.get a (6 * k + i)
+        for i = 0 to geom_size - 1 do
+          Format.fprintf ppf "%f " @@ A.get a (stride * k + i)
         done;
       Format.fprintf ppf "|";
-      for i = 0 to 2 do
-        Format.fprintf ppf " %f" @@ A.get a (6*k + i + 3)
+      for i = 0 to color_size - 1 do
+        Format.fprintf ppf " %f" @@ A.get a (stride * k + i + geom_size)
       done;
         Format.fprintf ppf "@]@."
     done
@@ -507,20 +531,20 @@ module Pipeline = struct
   let vertex_binding =
     Vkt.Vertex_input_binding_description.make
       ~binding:0
-      ~stride:(6 * fsize)
+      ~stride:(stride * fsize)
       ~input_rate:Vkt.Vertex_input_rate.Vertex
 
   let attributes = A.make Vkt.vertex_input_attribute_description 2
 
   let geom_attribute =
     Vkt.Vertex_input_attribute_description.make
-      ~location:0 ~binding:0 ~format:Vkt.Format.R32g32b_32_sfloat
-      ~offset:(3 * fsize)
+      ~location:0 ~binding:0 ~format:Vkt.Format.R32g32b32a_32_sfloat
+      ~offset:0
 
   let color_attribute =
     Vkt.Vertex_input_attribute_description.make
       ~location:1 ~binding:0 ~format:Vkt.Format.R32g32b_32_sfloat
-      ~offset:0
+      ~offset:(geom_size * fsize)
 
   ;; A.set attributes 0 !geom_attribute
   ;; A.set attributes 1 !color_attribute
@@ -658,7 +682,7 @@ end
     and height = float Image.extent#.Vkt.Extent_2d.height in
   Vkt.Viewport.make ~x: 0. ~y: 0. ~width ~height
       ~min_depth: 0.
-      ~max_depth: 1.
+      ~max_depth: 10.
 
   let scissor =
     Vkt.Rect_2d.make
@@ -678,7 +702,7 @@ end
       ~rasterizer_discard_enable: false
       ~polygon_mode: Vkt.Polygon_mode.Fill
       ~cull_mode: Vkt.Cull_mode_flags.front
-      ~front_face: Vkt.Front_face.Clockwise
+      ~front_face: Vkt.Front_face.Counter_clockwise
       ~depth_bias_enable: false
       ~depth_bias_constant_factor: 0.
       ~depth_bias_clamp: 0.
@@ -715,8 +739,8 @@ end
       ~depth_compare_op:Vkt.Compare_op.Less
       (* Fixme vv Option group vv *)
       ~depth_bounds_test_enable:false
-      ~min_depth_bounds:0.
-      ~max_depth_bounds:1.
+      ~min_depth_bounds:(0.)
+      ~max_depth_bounds:10.
       (* Fixme vv Option group vv *)
       ~stencil_test_enable:false
       ~front:st
@@ -906,7 +930,7 @@ module Cmd = struct
   let clear_depths =
     let open Vkt.Clear_value in
     let x = Ctypes.make t in
-    let f = Vkt.Clear_depth_stencil_value.make ~depth:1. ~stencil:0 in
+    let f = Vkt.Clear_depth_stencil_value.make ~depth:10. ~stencil:0 in
     set x depth_stencil !f;
     x
 
@@ -935,7 +959,7 @@ module Cmd = struct
       ~pipeline_bind_point:Vkt.Pipeline_bind_point.Graphics
       ~layout:Pipeline.layout ~first_set:0
       ~descriptor_sets: Pipeline.Uniform.descriptor_sets ();
-    Vkc.cmd_draw b (6 * Pipeline.nfaces) 1 0 0;
+    Vkc.cmd_draw b Pipeline.( vertex_by_face* nfaces) 1 0 0;
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <!!> "Command buffer recorded"
 
@@ -1008,25 +1032,23 @@ module Render = struct
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
 
 
-  let rotz = Vec.axis_rotation 0 1
-  let rotx = Vec.axis_rotation 1 2
-  let rot x y = Vec.( rotz y * rotx x)
+  let r i j (x,_) = Vec.axis_rotation i j x
   let u f = f *. (Random.float 2. -. 1.)
-  let draw (speedx, anglex, speedz, anglez) =
+
+  let rot x y z = Vec.( r 0 1 x * r 1 2 y * r 2 0 z)
+  let phase (angle,speed) = (angle +. speed, speed +. u 0.001)
+  let draw (x, y, z) =
     present_indices <-@ acquire_next ();
-    let speedx = speedx +. u 0.001 in
-    let anglex = speedx +. anglex in
-    let speedz = speedz +. u 0.001 in
-    let anglez = speedz +. anglez in
-    let () = Pipeline.Uniform.transfer (rot anglex anglez) in
+    let x,y,z as state = phase x, phase y, phase z in
+    let () = Pipeline.Uniform.transfer (rot x y z) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <??> "Present to queue";
-    (speedx,anglex,speedz,anglez)
+    state
 
 end
 
 ;; Render.(debug_draw(); debug_draw ())
-;; Sdl.(event_loop Render.draw (0., 0., 0., 0.)  e)
+;; Sdl.(event_loop Render.draw (let z = 0., 0. in z,z,z)  e)
 ;; debug "End"
