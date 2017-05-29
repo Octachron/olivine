@@ -1035,12 +1035,12 @@ module Render = struct
   let r i j (x,_) = Vec.axis_rotation i j x
   let u f = f *. (Random.float 2. -. 1.)
 
-  let rot x y z = Vec.( r 0 1 x * r 1 2 y * r 2 0 z)
+  let rot x y z t = Vec.( r 0 1 x * r 1 2 y * r 2 0 z * r 0 3 z)
   let phase (angle,speed) = (angle +. speed, speed +. u 0.001)
-  let draw (x, y, z) =
+  let draw (x, y, z, t) =
     present_indices <-@ acquire_next ();
-    let x,y,z as state = phase x, phase y, phase z in
-    let () = Pipeline.Uniform.transfer (rot x y z) in
+    let x,y,z,t as state = phase x, phase y, phase z, phase t in
+    let () = Pipeline.Uniform.transfer (rot x y z t) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
@@ -1050,5 +1050,5 @@ module Render = struct
 end
 
 ;; Render.(debug_draw(); debug_draw ())
-;; Sdl.(event_loop Render.draw (let z = 0., 0. in z,z,z)  e)
+;; Sdl.(event_loop Render.draw (let z = 0., 0. in z,z,z,z)  e)
 ;; debug "End"
