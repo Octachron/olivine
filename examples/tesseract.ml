@@ -471,7 +471,6 @@ module Pipeline = struct
   let color_size = 3
   let stride = geom_size + color_size
 
-  let u () = Random.float 1.
   let c = function
     | 0 -> 1., 0., 0.
     | 1 -> 0., 1., 0.
@@ -482,10 +481,11 @@ module Pipeline = struct
     | _ -> 1., 1., 1.
 
   let scale = 0.5
+  let u () = Random.float 1.
+
   let point (r,g,b) is a k =
-    (*let r', g', b' = c() in
-    let (<+>) x y= (x +. y) /. 2. in
-      let r,g,b = r <+> r', g <+> g', b <+> b' in *)
+    let f x = 0.75 *.x +. 0.25 *. u () in
+    let r,g,b = f r, f g, f b in
     let k = stride * k in
     List.iter (fun i  -> A.set a (k+i) scale) is;
     let k = k + geom_size in
@@ -1035,7 +1035,7 @@ module Render = struct
   let r i j (x,_) = Vec.axis_rotation i j x
   let u f = f *. (Random.float 2. -. 1.)
 
-  let rot x y z t = Vec.( r 0 1 x * r 1 2 y * r 2 0 z * r 0 3 z)
+  let rot x y z t = Vec.( r 0 1 x * r 1 2 y * r 2 0 z * r 0 3 t)
   let phase (angle,speed) = (angle +. speed, speed +. u 0.001)
   let draw (x, y, z, t) =
     present_indices <-@ acquire_next ();
