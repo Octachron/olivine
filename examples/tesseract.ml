@@ -454,12 +454,13 @@ module Pipeline = struct
     let frag_shader = create_shader "fragment" frag
     let vert_shader = create_shader "vertex" vert
 
+    let name = "main"
     let make_stage stage module' =
       Vkt.Pipeline_shader_stage_create_info.make
         ~flags: Vkt.Pipeline_shader_stage_create_flags.empty
         ~stage
         ~module'
-        ~name: "main"
+        ~name
         ()
 
     let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
@@ -524,6 +525,8 @@ module Pipeline = struct
       done;
         Format.fprintf ppf "@]@."
     done
+
+  (* ;; Gc.major() trigger a wrong memory read ?? *)
 
   ;; debug "Input:@;%a" pp_input input
   let fsize = Ctypes.(sizeof float)
@@ -954,7 +957,7 @@ module Cmd = struct
     Vkc.cmd_begin_render_pass b (A.get render_pass_infos ifmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
-    Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers (A.start offsets);
+    Vkc.cmd_bind_vertex_buffers b 0 vertex_buffers offsets;
     Vkc.cmd_bind_descriptor_sets ~command_buffer:b
       ~pipeline_bind_point:Vkt.Pipeline_bind_point.Graphics
       ~layout:Pipeline.layout ~first_set:0
@@ -1048,7 +1051,6 @@ module Render = struct
     state
 
 end
-
 ;; Render.(debug_draw(); debug_draw ())
 ;; Sdl.(event_loop Render.draw (let z = 0., 0. in z,z,z,z)  e)
 ;; debug "End"

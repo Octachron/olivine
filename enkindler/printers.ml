@@ -720,9 +720,11 @@ module Fn = struct
         if H.is_option_f f then
           extract_opt def arg (extract_array var_in) ppf (index,array)
         else
-          Fmt.pf ppf "let %t = %a in @;"
+          Fmt.pf ppf "let %t = %a in@;"
             def
             (extract_array var_in) (index, array)
+      | Simple(name, Array(Some _, _)) ->
+        Fmt.pf ppf "let %a = Ctypes.CArray.start %a in@;" var_in name var_in name
       | _ -> () in
     let apply_twice = List.exists
         (function { Ty.field = Array_f _ ; _ } -> true | _ -> false) output in
