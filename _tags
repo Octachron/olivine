@@ -12,6 +12,7 @@ true: thread
 <lib>: include
 <lib_aux>: include
 <sdl>: include
+<config>: include
 <sdl/*>: package(tsdl), package(ctypes.foreign)
 <lib/*> or <lib_aux/*>: package(ctypes.foreign), thread
 <examples/*>: package(ctypes.foreign), package(tsdl)

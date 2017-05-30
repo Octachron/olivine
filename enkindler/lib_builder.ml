@@ -39,12 +39,13 @@ and sig' = item M.t
 let rec is_empty m =
     m.sig' = [] && List.for_all is_empty m.submodules
 
-let sys_specific name =
-  let check =
-    function "xlib" | "xcb" | "wl" |
-             "android" | "wayland" | "mir" | "win" | "win32" -> true | _ -> false in
-  List.exists
-    (List.exists @@ fun w -> check w )
+let sys_specific =
+  let module S = Misc.StringSet in
+  let all = S.of_list
+      [ "xlib";  "xcb";  "wl"; "android"; "wayland"; "mir"; "win"; "win32" ] in
+  let unsupported = S.diff all @@ S.of_list Config.supported_systems in
+  let check x = S.mem x unsupported in
+  fun name -> List.exists (List.exists check )
     Name_study.[name.prefix;name.postfix;name.main]
 
 module Result = struct
