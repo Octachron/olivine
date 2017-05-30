@@ -127,10 +127,14 @@ module Typexpr(X:name) = struct
     flatten_fields @@ List.map proj fs
 
   let is_simple fn =
-    let is_simple = function
-      | { dir = Out; _ } | { field = Array_f _; _ } -> false
+    let is_simple_ty = function
+      | Array _ | Result _ -> false
       | _ -> true in
-    List.for_all is_simple fn.args
+    let is_simple = function
+      | { dir = Out; _ } | { field = (Array_f _ | Record_extension _ ); _ } ->
+        false
+      | {field = Simple( _,  ty  ); _ } -> is_simple_ty ty in
+    List.for_all is_simple fn.args && is_simple_ty fn.return
 
   let fp = Fmt.pf
 
@@ -226,6 +230,9 @@ module Typexpr(X:name) = struct
 
 end
 
-module Simple_name = struct type name = string let pp = Fmt.string end
+module Simple_name = struct
+  type name = string
+  let pp = Fmt.string
+end
 
 module Ty = Typexpr(Simple_name)

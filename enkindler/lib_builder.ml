@@ -7,8 +7,10 @@ module T = Ctype
 module Cty = T.Ty
 module Arith = T.Arith
 
-module Full_name = struct type name = L.name
-  let pp ppf x = L.pp_var ppf x end
+module Full_name = struct
+  type name = L.name
+  let pp ppf x = L.pp_var ppf x
+end
 module Ty = Ctype.Typexpr(Full_name)
 module Name_set = Set.Make(struct type t = L.name let compare = compare end)
 

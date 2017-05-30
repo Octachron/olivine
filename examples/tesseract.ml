@@ -32,32 +32,16 @@ module Utils = struct
 
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
-  let (<*>) x s = match x with
-    | Ok (_,x) -> x
-    | Error k ->
-      Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
-
-  let (<!>) x s = match x with
+  let (<?>) x s = match x with
     | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
 
-  let (<!*>) x s = match x with
-    | Ok r -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
-    | Error k ->
-      Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
-
-  let (<!!>) x s = match x with
-    | Ok `Success -> ()
-    | Error k ->
-      Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
-
-  let (<??>) x s = match x with
-    | Ok (`Success|`Suboptimal_khr) -> ()
+  let (<!>) x s = match x with
+    | Ok (`Success, x) -> x
+    | Ok (`Suboptimal_khr as r, x) ->
+      Format.printf "%a: %s@." Vkt.Result.pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
@@ -135,10 +119,10 @@ module Instance = struct
   ;; debug "Info created"
 
   let x =
-    Vkc.create_instance info () <!> "instance"
+    Vkc.create_instance info () <?> "instance"
 
   let extension_properties =
-    Vkc.enumerate_instance_extension_properties () <!> "Extension properties"
+    Vkc.enumerate_instance_extension_properties () <?> "Extension properties"
 
   ;; A.iter print_extension_property extension_properties
 end
@@ -150,7 +134,7 @@ module Surface = Vk.Khr.Surface(Instance)
 
 module Device = struct
   let phy_devices =
-    let d = Vkc.enumerate_physical_devices instance <!> "physical device" in
+    let d = Vkc.enumerate_physical_devices instance <?> "physical device" in
     debug "Number of devices: %d \n" (A.length d);
     d
 
@@ -187,18 +171,18 @@ module Device = struct
       ()
 
   let device_extensions =
-    Vkc.enumerate_device_extension_properties phy () <!> "device extensions"
+    Vkc.enumerate_device_extension_properties phy () <?> "device extensions"
 
   ;; Format.printf "Device extensions:\n@[<v 2>"
   ;; A.iter print_extension_property device_extensions
   ;; Format.printf "@]@."
 
   let surface_khr =
-    Vkw.create_surface instance Sdl.w () <!> "Obtaining surface"
+    Vkw.create_surface instance Sdl.w () <?> "Obtaining surface"
 
   let capabilities =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
-    <!> "Surface capabilities"
+    <?> "Surface capabilities"
 
   let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
     Format.fprintf ppf "[%d×%d]"
@@ -218,7 +202,7 @@ module Device = struct
 
   let supported_formats =
     Surface.get_physical_device_surface_formats_khr phy surface_khr
-    <!> "supported surface formats"
+    <?> "supported surface formats"
 
   let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
     Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
@@ -228,13 +212,13 @@ module Device = struct
 
   let present_modes =
     Surface.get_physical_device_surface_present_modes_khr phy surface_khr
-    <!> "present modes"
+    <?> "present modes"
 
   ;; A.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
 
   let support =
     let x = Surface.get_physical_device_surface_support_khr phy queue_family
-      surface_khr <!> "Compatibility surface/device" in
+      surface_khr <?> "Compatibility surface/device" in
     assert (x = true )
 
   let x =
@@ -247,7 +231,7 @@ module Device = struct
         ~enabled_extension_names: exts
       ()
       in
-    Vkc.create_device phy info () <!> "Create logical device"
+    Vkc.create_device phy info () <?> "Create logical device"
 
 end
 let device = Device.x
@@ -292,11 +276,11 @@ module Image = struct
 
   let swap_chain =
     Swapchain.create_swapchain_khr device swap_chain_info ()
-    <!> "swap chain creation"
+    <?> "swap chain creation"
 
   let images =
     Swapchain.get_swapchain_images_khr device swap_chain
-    <!> "Swapchain images"
+    <?> "Swapchain images"
 
   ;; debug "Swapchain: %d images" (A.length images)
 
@@ -325,7 +309,7 @@ module Image = struct
     let aspect = Vkt.Image_aspect_flags.color in
     let create im =
       Vkc.create_image_view device (image_view_info aspect format im) ()
-      <!> "Creating image view" in
+      <?> "Creating image view" in
     A.map Vkt.image_view create images
 
 end
@@ -363,7 +347,7 @@ module Depth = struct
       (** vvv FIXME vvv: this can only be PREINIALIZED or UNDEFINED *)
       ~initial_layout:Vkt.Image_layout.Undefined
       ()
-  let image = Vkc.create_image device info () <!> "Depth image creation"
+  let image = Vkc.create_image device info () <?> "Depth image creation"
 
   let reqr = Vkc.get_image_memory_requirements device image
   let size = reqr#.Vkt.Memory_requirements.size
@@ -374,14 +358,14 @@ module Depth = struct
       ~allocation_size:size
       ~memory_type_index:0 ()
 
-  let memory = Vkc.allocate_memory device allocate_info () <!> "Depth memory"
+  let memory = Vkc.allocate_memory device allocate_info () <?> "Depth memory"
   let () = Vkc.bind_image_memory device image memory zero_offset
-           <!!> "Depth binding"
+           <?> "Depth binding"
 
   let view =
     let aspect = Vkt.Image_aspect_flags.depth in
     Vkc.create_image_view device (Image.image_view_info aspect format image) ()
-    <!> "Depth view"
+    <?> "Depth view"
 
   let one_time  queue command_pool f =
     let alloc =
@@ -389,13 +373,13 @@ module Depth = struct
         ~command_pool ~level:Vkt.Command_buffer_level.Primary
         ~command_buffer_count:1 () in
     let buffers =
-      Vkc.allocate_command_buffers device alloc <!> "one time buffer"  in
+      Vkc.allocate_command_buffers device alloc <?> "one time buffer"  in
     let b = A.get buffers 0 in
     let begin_info = Vkt.Command_buffer_begin_info.make
         ~flags:Vkt.Command_buffer_usage_flags.one_time_submit () in
-    Vkc.begin_command_buffer b begin_info <!!> "Begin one-time command";
+    Vkc.begin_command_buffer b begin_info <!> "Begin one-time command";
     f b;
-    Vkc.end_command_buffer b <!!> "End one time-command";
+    Vkc.end_command_buffer b <!> "End one time-command";
     let submits = A.from_ptr
         begin Vkt.Submit_info.make
         (* vvvv FIXME: wait_dst_stage_mask should be zipped
@@ -403,8 +387,8 @@ module Depth = struct
         ~wait_dst_stage_mask:(nullptr Vkt.pipeline_stage_flags)
         ~command_buffers:buffers ()
     end 1 in
-    Vkc.queue_submit ~queue ~submits () <!!> "Submit one-time command";
-    Vkc.queue_wait_idle queue <!!> "Wait end one-time command";
+    Vkc.queue_submit ~queue ~submits () <?> "Submit one-time command";
+    Vkc.queue_wait_idle queue <!> "Wait end one-time command";
     debug "Transition done";
     Vkc.free_command_buffers device command_pool buffers
 
@@ -449,7 +433,7 @@ module Pipeline = struct
 
     let create_shader name s =
       let info = shader_module_info s in
-      Vkc.create_shader_module device info () <!> "Shader creation :" ^ name
+      Vkc.create_shader_module device info () <?> "Shader creation :" ^ name
 
     let frag_shader = create_shader "fragment" frag
     let vert_shader = create_shader "vertex" vert
@@ -570,7 +554,7 @@ module Pipeline = struct
         ~usage:flag
         ~sharing_mode:Vkt.Sharing_mode.Exclusive
         () in
-    let buffer = Vkc.create_buffer device buffer_info () <!> "Buffer creation" in
+    let buffer = Vkc.create_buffer device buffer_info () <?> "Buffer creation" in
 
     let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
     let phymem = Vkc.get_physical_device_memory_properties Device.phy in
@@ -583,10 +567,10 @@ module Pipeline = struct
         () in
 
     let buffer_memory = Vkc.allocate_memory device alloc_info ()
-                        <!> "Buffer memory allocation" in
+                        <?> "Buffer memory allocation" in
     let () =
       Vkc.bind_buffer_memory device buffer buffer_memory zero_offset
-      <!!> "Bind buffer to buffer datatypes" in
+      <!> "Bind buffer to buffer datatypes" in
     buffer, buffer_memory
 
   let buffer, buffer_memory =
@@ -596,7 +580,7 @@ module Pipeline = struct
     let len = A.length input in
     let mapped_mem =
       Vkc.map_memory device buffer_memory zero_offset mem_size ()
-      <!> "Memory mapped" in
+      <?> "Memory mapped" in
     let a = A.from_ptr Ctypes.(coerce (ptr void) (ptr float) mapped_mem) len in
     for i = 0 to len - 1 do
       A.set a i (A.get input i)
@@ -620,7 +604,7 @@ module Uniform = struct
     Vkt.Descriptor_set_layout_create_info.make ~bindings ()
 
   let layout = Vkc.create_descriptor_set_layout device layout_info ()
-               <!> "Descriptor layout creation"
+               <?> "Descriptor layout creation"
 
   let layouts = A.of_list Vkt.descriptor_set_layout [layout]
 
@@ -635,13 +619,13 @@ module Uniform = struct
     Vkt.Descriptor_pool_create_info.make ~max_sets:1 ~pool_sizes ()
 
   let pool =
-    Vkc.create_descriptor_pool device pool_info () <!> "Descriptor pool"
+    Vkc.create_descriptor_pool device pool_info () <?> "Descriptor pool"
 
   let alloc =
     Vkt.Descriptor_set_allocate_info.make pool layouts ()
 
   let descriptor_sets=
-    Vkc.allocate_descriptor_sets device alloc <!> "Descriptor set"
+    Vkc.allocate_descriptor_sets device alloc <?> "Descriptor set"
 
   ;; debug "Allocated %d descriptor sets" (A.length descriptor_sets)
 
@@ -661,7 +645,7 @@ module Uniform = struct
       end 1
 
     let transfer matrix =
-    let m = Vkc.map_memory device memory zero_offset size () <*> "map memory" in
+    let m = Vkc.map_memory device memory zero_offset size () <!> "map memory" in
     let typed = Ctypes.(coerce (ptr void) (ptr float) m) in
     let a = A.from_ptr typed (4*4)  in
     Vec.blit_to ~from:matrix ~to':a;
@@ -772,7 +756,7 @@ end
 
   let layout =
     Vkc.create_pipeline_layout device simple_uniform ()
-    <!> "Creating pipeline layout"
+    <?> "Creating pipeline layout"
 
   let make_attachment store_op format final_layout =
     Vkt.Attachment_description.make
@@ -830,7 +814,7 @@ end
       ~attachments ~subpasses ~dependencies ()
 
   let simple_render_pass =
-    Vkc.create_render_pass device render_pass_info () <!> "Creating render pass"
+    Vkc.create_render_pass device render_pass_info () <?> "Creating render pass"
 
   let pipeline_info =
     let stages = A.of_list Vkt.pipeline_shader_stage_create_info
@@ -854,7 +838,7 @@ end
 
   let pipelines =
     Vkc.create_graphics_pipelines device pipeline_infos ()
-    <!> "Graphics pipeline creation"
+    <?> "Graphics pipeline creation"
 
   let x = A.get pipelines 0
 
@@ -882,7 +866,7 @@ module Cmd = struct
 
   let framebuffer index =
     Vkc.create_framebuffer device (framebuffer_info index) ()
-    <!> "Framebuffer creation"
+    <?> "Framebuffer creation"
 
   let queue =
     Vkc.get_device_queue device Device.queue_family 0
@@ -894,7 +878,7 @@ module Cmd = struct
 
   let command_pool =
     Vkc.create_command_pool device command_pool_info ()
-    <!> "Command pool creation"
+    <?> "Command pool creation"
 
 
   let () = (* initialize depth buffer *)
@@ -912,7 +896,7 @@ module Cmd = struct
 
   let cmd_buffers =
     Vkc.allocate_command_buffers device buffer_allocate_info
-    <!> "Command buffers allocation"
+    <?> "Command buffers allocation"
 
   ;;debug "Created %d cmd buffers" n_cmd_buffers
 
@@ -953,7 +937,7 @@ module Cmd = struct
   let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
   let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
   let cmd b ifmb =
-    Vkc.begin_command_buffer b cmd_begin_info <!!> "Begin command buffer";
+    Vkc.begin_command_buffer b cmd_begin_info <!> "Begin command buffer";
     Vkc.cmd_begin_render_pass b (A.get render_pass_infos ifmb)
       Vkt.Subpass_contents.Inline;
     Vkc.cmd_bind_pipeline b Vkt.Pipeline_bind_point.Graphics Pipeline.x;
@@ -964,7 +948,7 @@ module Cmd = struct
       ~descriptor_sets: Pipeline.Uniform.descriptor_sets ();
     Vkc.cmd_draw b Pipeline.( vertex_by_face* nfaces) 1 0 0;
     Vkc.cmd_end_render_pass b;
-    Vkc.end_command_buffer b <!!> "Command buffer recorded"
+    Vkc.end_command_buffer b <!> "Command buffer recorded"
 
   let iteri f a =
     for i=0 to A.length a - 1 do
@@ -980,7 +964,7 @@ module Render = struct
     Vkt.Semaphore_create_info.make ()
 
   let create_semaphore () =
-    Vkc.create_semaphore device semaphore_info () <!> "Created semaphore"
+    Vkc.create_semaphore device semaphore_info () <?> "Created semaphore"
 
   let im_semaphore = create_semaphore ()
   let render_semaphore = create_semaphore ()
@@ -1016,14 +1000,14 @@ module Render = struct
   let debug_draw () =
     let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
       ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
-            <!> "Acquire image" in
+            <?> "Acquire image" in
     present_indices <-@ n;
     debug "Image %d acquired" n;
     let () = Pipeline.Uniform.transfer Vec.id in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
-    <!!> "Submitting command to queue";
+    <?> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
-    <??> "Image presented"
+    <!> "Image presented"
 
   let rec acquire_next () =
     match  Swapchain.acquire_next_image_khr ~device
@@ -1045,9 +1029,9 @@ module Render = struct
     let x,y,z,t as state = phase x, phase y, phase z, phase t in
     let () = Pipeline.Uniform.transfer (rot x y z t) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
-    <!!> "Submit to queue";
+    <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
-    <??> "Present to queue";
+    <!> "Present to queue";
     state
 
 end

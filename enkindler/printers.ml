@@ -731,8 +731,8 @@ module Fn = struct
     let resname ppf = Fmt.pf ppf "generated__res__" in
     let res_pat ppf = if H.is_void fn.return then Fmt.string ppf "_"
       else resname ppf in
-    let res_val ppf = if H.is_void fn.return then Fmt.string ppf "()"
-      else resname ppf in
+    let void ppf = Fmt.string ppf "()" in
+    let res_val = if H.is_void fn.return then void else resname in
     let apply ppf =
       Fmt.pf ppf "let %t = %a %a in@;"
         res_pat L.pp_var fn.name (list var_all) all in
@@ -754,7 +754,7 @@ module Fn = struct
     Fmt.list out_def ppf output;
     apply ppf;
     let with_out =  List.length output > 0 in
-    let pp_out =  Fmt.list ~sep:comma out_result in
+    let pp_out = Fmt.list ~sep:comma out_result in
     let pp_redef ppf output =  Fmt.list out_redef ppf output; apply ppf in
     if not (H.is_result fn.return) || not with_out then
       begin
@@ -764,6 +764,8 @@ module Fn = struct
           Fmt.pf ppf "%a" pp_out output
         else if with_out then
           Fmt.pf ppf "%t,%a" res_val pp_out output
+        else if H.is_result fn.return then
+          result ppf res_val (zip res_pat @@ fun x () -> void x) ()
         else
           res_val ppf
       end

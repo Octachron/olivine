@@ -18,26 +18,15 @@ module Utils = struct
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
   let (<?>) x s = match x with
-    | Ok x -> Format.printf "%a: %s@." Vkt.Result.pp x s
-    | Error k ->
-      Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
-
-  let (<!>) x s = match x with
     | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
 
-
-  let (<!!>) x s = match x with
-    | Ok `Success -> ()
-    | Error k ->
-      Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
-
-  let (<??>) x s = match x with
-    | Ok (`Success|`Suboptimal_khr) -> ()
+  let (<!>) x s = match x with
+    | Ok (`Success, x) -> x
+    | Ok (`Suboptimal_khr as r, x) ->
+      Format.printf "%a: %s@." Vkt.Result.pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
         Vkt.Result.pp k s; exit 1
@@ -115,10 +104,10 @@ module Instance = struct
   ;; debug "Info created"
 
   let x =
-    Vkc.create_instance info () <!> "instance"
+    Vkc.create_instance info () <?> "instance"
 
   let extension_properties =
-    Vkc.enumerate_instance_extension_properties () <!> "Extension properties"
+    Vkc.enumerate_instance_extension_properties () <?> "Extension properties"
 
   ;; A.iter print_extension_property extension_properties
 end
@@ -130,7 +119,7 @@ module Surface = Vk.Khr.Surface(Instance)
 
 module Device = struct
   let phy_devices =
-    let d = Vkc.enumerate_physical_devices instance <!> "physical device" in
+    let d = Vkc.enumerate_physical_devices instance <?> "physical device" in
     debug "Number of devices: %d \n" (A.length d);
     d
 
@@ -167,18 +156,18 @@ module Device = struct
       ()
 
   let device_extensions =
-    Vkc.enumerate_device_extension_properties phy () <!> "device extensions"
+    Vkc.enumerate_device_extension_properties phy () <?> "device extensions"
 
   ;; Format.printf "Device extensions:\n@[<v 2>"
   ;; A.iter print_extension_property device_extensions
   ;; Format.printf "@]@."
 
   let surface_khr =
-    Vkw.create_surface instance Sdl.w () <!> "Obtaining surface"
+    Vkw.create_surface instance Sdl.w () <?> "Obtaining surface"
 
   let capabilities =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
-    <!> "Surface capabilities"
+    <?> "Surface capabilities"
 
   let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
     Format.fprintf ppf "[%d×%d]"
@@ -198,7 +187,7 @@ module Device = struct
 
   let supported_formats =
     Surface.get_physical_device_surface_formats_khr phy surface_khr
-    <!> "supported surface formats"
+    <?> "supported surface formats"
 
   let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
     Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
@@ -208,13 +197,13 @@ module Device = struct
 
   let present_modes =
     Surface.get_physical_device_surface_present_modes_khr phy surface_khr
-    <!> "present modes"
+    <?> "present modes"
 
   ;; A.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
 
   let support =
     let x = Surface.get_physical_device_surface_support_khr phy queue_family
-      surface_khr <!> "Compatibility surface/device" in
+      surface_khr <?> "Compatibility surface/device" in
     assert (x = true )
 
   let x =
@@ -227,7 +216,7 @@ module Device = struct
         ~enabled_extension_names: exts
       ()
       in
-    Vkc.create_device phy info () <!> "Create logical device"
+    Vkc.create_device phy info () <?> "Create logical device"
 
 end
 let device = Device.x
@@ -270,11 +259,11 @@ module Image = struct
 
   let swap_chain =
     Swapchain.create_swapchain_khr device swap_chain_info ()
-    <!> "swap chain creation"
+    <?> "swap chain creation"
 
   let images =
     Swapchain.get_swapchain_images_khr device swap_chain
-    <!> "Swapchain images"
+    <?> "Swapchain images"
 
   ;; debug "Swapchain: %d images" (A.length images)
 
@@ -302,7 +291,7 @@ module Image = struct
   let views =
     let create im =
       Vkc.create_image_view device (image_view_info im) ()
-      <!> "Creating image view" in
+      <?> "Creating image view" in
     A.map Vkt.image_view create images
 
 end
@@ -328,7 +317,7 @@ module Pipeline = struct
 
     let create_shader name s =
       let info = shader_module_info s in
-      Vkc.create_shader_module device info () <!> "Shader creation :" ^ name
+      Vkc.create_shader_module device info () <?> "Shader creation :" ^ name
 
     let frag_shader = create_shader "fragment" frag
     let vert_shader = create_shader "vertex" vert
@@ -427,7 +416,7 @@ module Pipeline = struct
 
   let simple_layout =
     Vkc.create_pipeline_layout device no_uniform ()
-    <!> "Creating pipeline layout"
+    <?> "Creating pipeline layout"
 
   let color_attachment =
     Vkt.Attachment_description.make
@@ -460,7 +449,7 @@ module Pipeline = struct
       ~attachments ~subpasses ()
 
   let simple_render_pass =
-    Vkc.create_render_pass device render_pass_info () <!> "Creating render pass"
+    Vkc.create_render_pass device render_pass_info () <?> "Creating render pass"
 
   let pipeline_info =
     let stages = A.of_list Vkt.pipeline_shader_stage_create_info
@@ -483,7 +472,7 @@ module Pipeline = struct
 
   let pipelines =
     Vkc.create_graphics_pipelines device pipeline_infos ()
-    <!> "Graphics pipeline creation"
+    <?> "Graphics pipeline creation"
 
   let x = A.get pipelines 0
 
@@ -503,7 +492,7 @@ module Cmd = struct
 
   let framebuffer index =
     Vkc.create_framebuffer device (framebuffer_info index) ()
-    <!> "Framebuffer creation"
+    <?> "Framebuffer creation"
 
   let framebuffers = A.map Vkt.framebuffer framebuffer Image.views
 
@@ -519,7 +508,7 @@ module Cmd = struct
 
   let command_pool =
     Vkc.create_command_pool device command_pool_info ()
-    <!> "Command pool creation"
+    <?> "Command pool creation"
 
   let my_cmd_pool = command_pool
   let n_cmd_buffers =  (A.length framebuffers)
@@ -532,7 +521,7 @@ module Cmd = struct
 
   let cmd_buffers =
     Vkc.allocate_command_buffers device buffer_allocate_info
-    <!> "Command buffers allocation"
+    <?> "Command buffers allocation"
 
   ;;debug "Created %d cmd buffers" n_cmd_buffers
 
@@ -582,7 +571,7 @@ module Render = struct
     Vkt.Semaphore_create_info.make ()
 
   let create_semaphore () =
-    Vkc.create_semaphore device semaphore_info () <!> "Created semaphore"
+    Vkc.create_semaphore device semaphore_info () <?> "Created semaphore"
 
   let im_semaphore = create_semaphore ()
   let render_semaphore = create_semaphore ()
@@ -618,11 +607,11 @@ module Render = struct
   let debug_draw () =
     let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
       ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
-            <!> "Acquire image" in
+            <?> "Acquire image" in
     present_indices <-@ n;
     debug "Image %d acquired" n;
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
-    <!!> "Submitting command to queue";
+    <?> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <?> "Image presented"
 
@@ -637,9 +626,9 @@ module Render = struct
   let draw () =
     present_indices <-@ acquire_next ();
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
-    <!!> "Submit to queue";
+    <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
-    <??> "Present to queue"
+    <!> "Present to queue"
 
 end
 
