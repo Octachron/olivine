@@ -10,6 +10,9 @@
 
 * Handle constant-size arrays
 
+* Specialize extension functions to use the extension functor argument
+  when possible.
+
 Done:
 
 * Variable-length output array:

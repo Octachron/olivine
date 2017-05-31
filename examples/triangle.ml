@@ -13,7 +13,7 @@ module Utils = struct
     | None -> ()
     | Some x -> pp ppf x
 
-  let ( #. ) = get
+  let ( #. ) x f = f x
 
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
@@ -42,9 +42,6 @@ module Utils = struct
     n, a'
 
   let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
-  let to_string carray =
-    String.init (A.length carray)
-      (fun n -> A.get carray n)
 
   let read_spirv filename =
     let chan = open_in_bin filename in
@@ -86,7 +83,7 @@ end
 
   let print_extension_property e =
     let open Vkt.Extension_properties in
-    Format.printf "%s\n" (to_string e#.extension_name)
+    Format.printf "%s\n" e#.extension_name
 
 module Instance = struct
   (** Creating a vulkan instance *)
@@ -131,8 +128,7 @@ module Device = struct
 
   let print_property device =
     let p = property device in
-    debug "Device: %s\n"
-      (to_string p#.Vkt.Physical_device_properties.device_name)
+    debug "Device: %s\n" p#.Vkt.Physical_device_properties.device_name
 
   ;; A.iter print_property phy_devices
 

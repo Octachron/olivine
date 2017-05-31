@@ -67,3 +67,7 @@ end = struct
 end
 
 let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
+
+let may f = function
+  | None -> None
+  | Some x -> Some(f x)

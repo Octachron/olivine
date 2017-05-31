@@ -92,6 +92,80 @@ module H = struct
     | Ty.Result _ -> true
     | _ -> false
 
+
+
+
+  let rec pp_to_int var ppf = function
+    | Ty.Ptr t ->
+      let var ppf = Fmt.pf ppf "Ctypes.(!@@)(%t)" var in
+      pp_to_int var ppf t
+    | Option t ->
+      let var ppf = Fmt.pf ppf "unwrap(%t)" var in
+      pp_to_int var ppf t
+    | Name { main = ["uint32"; "t"] ; prefix =[]; postfix = [] }
+      -> var ppf
+    | Name t -> Fmt.pf ppf "%a.to_int (%t)" L.pp_module t var
+    | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
+
+
+  let rec find_field_type name = function
+    | [] -> None
+    | Ty.Simple(n,ty) :: _  when n = name -> Some ty
+    | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
+    | _ :: q -> find_field_type name q
+
+  let find_record tn types =
+    match List.assoc tn types with
+    | B.Type Ty.Record{ fields; _ } -> fields
+    | B.Type ty ->
+      Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
+      raise @@ Invalid_argument "Non-record path, yet a type"
+    | _ ->
+      raise @@ Invalid_argument "Non-record path: not even a type"
+  let type_path types fields p =
+    let rec type_path (types) acc (ty, fields) = function
+      | [] -> acc
+      | [a] -> (ty,a) :: acc
+      | a :: q ->
+        match find_field_type a fields with
+        | Some (Ty.Const Ptr Name tn| Ptr Name tn) ->
+          let fields = find_record tn types in
+              type_path types ( (ty, a) :: acc) (Some tn,fields) q
+        | Some ty ->
+          Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
+          raise @@ Invalid_argument "Non-record path"
+        | _ -> raise @@ Invalid_argument "Unknown type in path"
+    in
+    type_path types [] (None, fields) p
+
+  let rec pp_path pp ppf =
+    function
+    | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
+    | [None, a] -> pp ppf a
+    | (Some ty, a) :: q ->
+      Fmt.pf ppf "Ctypes.getf@ (Ctypes.(!@@)@ (%a)) %a.Fields.%a"
+        (pp_path pp) q L.pp_module ty L.pp_var a
+    | (None, _) :: _ -> raise @@
+      Invalid_argument "Printers.pp_path: p artially type type path"
+
+  let to_fields = List.map (fun f -> f.Ty.field)
+
+  let rec final_option types fields =
+    function
+    | [] -> raise (Invalid_argument "Empty type path")
+    | [ name ] ->
+      begin match find_field_type name fields with
+        | Some Ty.Option _ -> true
+        | _  -> false
+      end
+    | name :: q ->
+      final_option types (find_record name types) q
+
+  let pp_path_full pp types fields ppf p =
+    let p = type_path types fields p in
+    pp_path pp ppf p
+
+  let nl ppf () = Fmt.cut ppf ()
 end
 
 module Enum = struct
@@ -318,12 +392,82 @@ module Structured = struct
   let field name ppf = function
     | Ty.Simple f -> sfield name ppf f
     | Array_f { index; array } ->
-      (* FIXME: WHY??? *)
       Fmt.pf ppf "%a@;%a" (sfield name) index (sfield name) array
     | Record_extension { tag; ptr; _ } ->
       Fmt.pf ppf "%a@;%a" (sfield name) tag (sfield name) ptr
 
-  let def (type a) (kind: a kind) ppf name (fields:a list) =
+  let get_field ppf x =
+    Fmt.pf ppf "Ctypes.getf record Fields.%a" L.pp_var x
+  let mk_array ppf (n,x)=
+    Fmt.pf ppf "Ctypes.CArray.from_ptr (%t) (%t)" x n
+
+  let pp_index ty pp ppf = H.pp_to_int pp ppf ty
+
+  let string s ppf = Fmt.pf ppf "%s" s
+  let var x ppf = L.pp_var ppf x
+
+  let array_index types fields = function
+    | Ty.Lit n -> fun ppf -> Fmt.pf ppf "%d" n
+    | Path p -> fun ppf ->
+      let index ppf = get_field ppf in
+      H.pp_path_full index types fields ppf p
+    | _ -> raise @@ Invalid_argument "Math-expression array not yet implemented"
+
+  let unopt = function
+    | Ty.Option ty -> ty
+    | ty -> ty
+
+  let lens types fields ppf = function
+    | Ty.Array_f {array= a, tya; index = i, ty } as t when H.is_option_f t  ->
+      Fmt.pf ppf "let %a record = match %a, %a with@;\
+                  | Some n, %t(a) -> Some(%a)@;\
+                  | _ -> None@;"
+        L.pp_var a get_field i get_field a
+        (if H.is_option tya then string "Some" else string "")
+        mk_array (pp_index (unopt ty) (string "n"), string "a")
+    | Ty.Array_f {array= x, tya; index = n, ty } ->
+      Fmt.pf ppf "let %a record = let %a = %a and %a = %a in@;"
+      L.pp_var x L.pp_var n get_field n L.pp_var x get_field x;
+      if H.is_option tya then
+        Fmt.pf ppf "may (fun x -> %a) %a@;"
+        mk_array (pp_index ty (var n), string "x")
+        L.pp_var x
+      else
+        Fmt.pf ppf "%a@;"
+        mk_array (pp_index ty (var n), var x)
+    | Record_extension _ -> ()
+    | Simple (n, Array(Some (Lit int), Name { Name_study.main = ["char"]; _ } )) ->
+      Fmt.pf ppf "let %t record = Ctypes.string_from_ptr (A.start @@@@ %a) %d"
+        (var n) get_field n int
+    | Simple (n, Array(Some (Const s), Name { Name_study.main = ["char"]; _ } )) ->
+      Fmt.pf ppf "@[<hov 2>let %t record =@ Ctypes.string_from_ptr@ \
+                  (Ctypes.CArray.start @@@@ %a)@ %a@]"
+        (var n) get_field n L.pp_var s
+    | Simple (n, Array(Some (Path p), _ )) ->
+      Fmt.pf ppf "let %t record = let a = %a in@;"
+        (var n) get_field n;
+      let p' = H.type_path types fields p in
+      Fmt.pf ppf "let i = %a in@;" (H.pp_path get_field) p';
+      if H.final_option types fields p then
+        Fmt.pf ppf "may (fun i -> %a) i@;"
+          mk_array (string "i", string "a")
+      else
+          mk_array ppf (string "i", string "a")
+    | Simple (name, _ ) ->
+      Fmt.pf ppf "let %a record = %a"
+        L.pp_var name get_field name
+
+  let def_fields (type a) (kind: a kind) types name ppf (fields: a list) =
+    match kind with
+      | Union ->
+        Fmt.list  (sfield name) ppf fields
+      | Record ->
+        Fmt.pf ppf "@[<v 2> module Fields=struct@;%a@;end@;@]%a@;"
+          (Fmt.list ~sep:H.nl @@ field name) fields
+          (Fmt.list ~sep:H.nl @@ lens types fields) fields
+
+
+  let def types kind ppf name fields =
     Fmt.pf ppf "type t@;";
     Fmt.pf ppf "type %a = t@;" L.pp_type name;
     Fmt.pf ppf "let t: t %a typ = %a \"%a\"@;"
@@ -331,12 +475,7 @@ module Structured = struct
       pp_kind kind
       L.pp_type name
     ;
-    begin match kind with
-      | Union ->
-        Fmt.list (sfield name) ppf fields
-      | Record ->
-        Fmt.list  (field name) ppf fields
-    end;
+    def_fields kind types name ppf fields;
     Fmt.pf ppf "@;let () = Ctypes.seal t@;"
 
   let pp_make tyname ppf (fields: Ty.field list) =
@@ -346,15 +485,15 @@ module Structured = struct
     let name x = (fst x) and ty =snd in
     let set_field ppf  = function
       | Ty.Simple (f,_) ->
-        Fmt.pf ppf "Ctypes.setf %s %a %a;" gen L.pp_var f pp_arg f
+        Fmt.pf ppf "Ctypes.setf %s Fields.%a %a;" gen L.pp_var f pp_arg f
       | Ty.Array_f { index; array } as t when H.is_option_f t ->
         Fmt.pf ppf "@[<v 2>begin match %a with@;\
                     | None ->@;\
-                      (Ctypes.setf %s %a None;@;\
-                       Ctypes.setf %s %a (Obj.magic @@@@ Ctypes.null))@;\
+                      (Ctypes.setf %s Fields.%a None;@;\
+                       Ctypes.setf %s Fields.%a (Obj.magic @@@@ Ctypes.null))@;\
                     |Some %a ->\
-                      (Ctypes.setf %s %a (%a);@;\
-                      Ctypes.setf %s %a (%a))@;\
+                      (Ctypes.setf %s Fields.%a (%a);@;\
+                      Ctypes.setf %s Fields.%a (%a))@;\
                    end;@]@;"
           pp_arg (name array)
           gen L.pp_var (name index)
@@ -364,15 +503,15 @@ module Structured = struct
           gen L.pp_var (name array)
           (H.pp_opty (ty array) @@ H.pp_start pp_arg) (name array)
       | Ty.Array_f { index; array } ->
-        Fmt.pf ppf "Ctypes.setf %s %a (%a);@;\
-                    Ctypes.setf %s %a (%a);"
+        Fmt.pf ppf "Ctypes.setf %s Fields.%a (%a);@;\
+                    Ctypes.setf %s Fields.%a (%a);"
           gen L.pp_var (name index) (H.array_len pp_arg) (index,array)
           gen L.pp_var (name array)
           (H.pp_opty (snd array) @@ H.pp_start pp_arg) (name array)
       | Ty.Record_extension { exts; _ } ->
         Fmt.pf ppf "%a@;\
-                   Ctypes.setf %s next %t;@;\
-                   Ctypes.setf %s s_type %t;@;\
+                   Ctypes.setf %s Fields.next %t;@;\
+                   Ctypes.setf %s Fields.s_type %t;@;\
                    " Record_extension.extract (tyname, exts)
           gen Record_extension.pnext gen Record_extension.stype
     in
@@ -386,9 +525,9 @@ module Structured = struct
       Fmt.(list set_field) fields
       gen
 
-  let pp (type a) (kind: a kind) ppf (name, (fields: a list)) =
+  let pp (type a) types (kind: a kind) ppf (name, (fields: a list)) =
     Fmt.pf ppf "@[<hov 2> module %a =@ struct@;" L.pp_module name;
-    def kind ppf name fields;
+    def types kind ppf name fields;
     begin match kind with
       | Record ->
         let exts = H.record_extension fields in
@@ -614,59 +753,6 @@ module Fn = struct
 
   let one ppf = Fmt.pf ppf "%d" 1
 
-  let rec pp_to_int var ppf = function
-    | Ty.Ptr t ->
-      let var ppf = Fmt.pf ppf "Ctypes.(!@@)(%t)" var in
-      pp_to_int var ppf t
-    | Option t ->
-      let var ppf = Fmt.pf ppf "unwrap(%t)" var in
-      pp_to_int var ppf t
-    | Name { main = ["uint32"; "t"] ; prefix =[]; postfix = [] }
-      -> var ppf
-    | Name t -> Fmt.pf ppf "%a.to_int (%t)" L.pp_module t var
-    | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
-
-
-  let rec find_field_type name = function
-    | [] -> None
-    | Ty.Simple(n,ty) :: _  when n = name -> Some ty
-    | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
-    | _ :: q -> find_field_type name q
-
-  let type_path types fields p =
-    let rec type_path (types) acc (ty, fields) = function
-      | [] -> acc
-      | [a] -> (ty,a) :: acc
-      | a :: q ->
-        match find_field_type a fields with
-        | Some (Ty.Const Ptr Name tn| Ptr Name tn) ->
-          begin
-            match List.assoc tn types with
-            | B.Type Ty.Record{ fields; _ } ->
-              type_path types ( (ty, a) :: acc) (Some tn,fields) q
-            | B.Type ty ->
-              Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
-              raise @@ Invalid_argument "Non-record path, yet a type"
-            | _ ->
-              raise @@ Invalid_argument "Non-record path: not even a type"
-          end
-        | Some ty ->
-          Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
-          raise @@ Invalid_argument "Non-record path"
-        | _ -> raise @@ Invalid_argument "Unknown type in path"
-    in
-    type_path types [] (None, fields) p
-
-  let rec pp_path pp ppf =
-    function
-    | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
-    | [None, a] -> pp ppf a
-    | (Some ty, a) :: q ->
-      Fmt.pf ppf "Ctypes.getf@ (Ctypes.(!@@)@ (%a)) %a.%a"
-        (pp_path pp) q L.pp_module ty L.pp_var a
-    | (None, _) :: _ -> raise @@
-      Invalid_argument "Printers.pp_path: p artially type type path"
-
   let pp_smart types ppf (fn:Ty.fn) =
     let input, output = List.partition
         (fun {Ty.dir; _ } -> dir = In || dir = In_Out) fn.args in
@@ -686,8 +772,8 @@ module Fn = struct
     let out_def ppf (f:Ty.fn_field) =
       match f.field with
       | Simple(f, Array(Some(Path p), Name elt)) ->
-        let p = type_path types (List.map (fun f -> f.Ty.field) fn.args) p in
-        Fmt.pf ppf "let %a = %a in@;" pp_size f (pp_path var_in) p;
+        Fmt.pf ppf "let %a = %a in@;" pp_size f
+          (H.pp_path_full var_in types @@ H.to_fields fn.args) p;
         Fmt.pf ppf "let %a = Ctypes.allocate_n (%a) %a in @;"
           var_out f L.pp_type elt pp_size f
       | Ty.Simple (f, t) when is_ptr_to_name t  ->
@@ -709,7 +795,7 @@ module Fn = struct
     let out_redef ppf (f:Ty.fn_field) = match f.field with
       | Array_f { array = a, elt; index = i, it  } ->
         let var ppf = var_out ppf i in
-        let size ppf = Fmt.pf ppf "(%a)" (pp_to_int var) it in
+        let size ppf = Fmt.pf ppf "(%a)" (H.pp_to_int var) it in
         Fmt.pf ppf "let %a = %a in@;"
           var_out a (allocate size) elt
       | _ -> () in
@@ -740,7 +826,7 @@ module Fn = struct
     let out_result ppf f = match f.Ty.field with
       | Ty.Array_f { array = (n, Ty.Option _) ; index = i , it } ->
         Fmt.pf ppf "Ctypes.CArray.from_ptr (unwrap %a) (%a)"
-          var_out n (pp_to_int @@ fun ppf -> var_out ppf i) it
+          var_out n (H.pp_to_int @@ fun ppf -> var_out ppf i) it
       | Ty.Array_f { array = (n,_) ; _ } -> var_out ppf n
       | Simple(f, Array(Some(Path _), Name _ )) ->
         Fmt.pf ppf "(Ctypes.CArray.from_ptr %a %a)"
@@ -847,13 +933,13 @@ let pp_alias builtins ppf (name,origin) =
       L.pp_var name
       L.pp_module name
 
-let pp_type builtins results ppf (name,ty) =
+let pp_type builtins results types ppf (name,ty) =
   match ty with
   | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> ()
   | Result {ok;bad} -> Result.pp results ppf (name,ok,bad)
   | Name t -> pp_alias builtins ppf (name,t)
   | FunPtr fn -> Funptr.pp ppf (name,fn)
-  | Union fields -> Structured.(pp Union) ppf (name,fields)
+  | Union fields -> Structured.(pp types Union) ppf (name,fields)
   | Bitset { field_type = Some _; _ } -> ()
   | Bitset { field_type = None; _ } -> Bitset.pp ppf (name,None)
   | Bitfields {fields;values} ->
@@ -867,15 +953,16 @@ let pp_type builtins results ppf (name,ty) =
         Enum.pp kind ppf (name,constrs)
       end
   | Record r ->
-    Structured.(pp Record) ppf (name,r.fields)
+    Structured.(pp types Record) ppf (name,r.fields)
   | Record_extensions _ -> (* FIXME *)
     Fmt.pf ppf "(ptr void)"
 
 let pp_item (lib:B.lib) ppf (name, item) =
+  let types = (B.find_submodule "types" lib).sig' in
   match item with
-  | B.Type t -> pp_type lib.builtins lib.result ppf (name,t)
+  | B.Type t -> pp_type lib.builtins lib.result types ppf (name,t)
   | Const c -> Const.pp ppf (name,c)
-  | Fn f -> Fn.pp (B.find_submodule "types" lib).sig' f.simple ppf f.fn
+  | Fn f -> Fn.pp types  f.simple ppf f.fn
 
 
 let pp_open ppf m =
