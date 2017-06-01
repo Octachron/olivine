@@ -1,7 +1,6 @@
 B _build/**
 S src/**
 S src
-S _build/**
 S lib/*
 S lib_aux/*
 S sdl/*
