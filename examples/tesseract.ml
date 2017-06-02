@@ -143,11 +143,14 @@ module Device = struct
 
   let queue_family_properties = Vkc.get_physical_device_queue_family_properties phy
 
+  (*
   let print_queue_property ppf property =
     Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
       property#.Vkt.Queue_family_properties.queue_flags
+*)
 
-  ;; A.iter (print_queue_property Format.std_formatter) queue_family_properties
+  ;; debug "Queue properties: %a"
+    Vkt.(pp_array Queue_family_properties.pp) queue_family_properties
 
   let queue_family = 0
   let priorities = A.of_list Ctypes.float [ 1.]
@@ -259,7 +262,6 @@ module Image = struct
         Vkt.Composite_alpha_flags_khr.opaque
       ~present_mode: Vkt.Present_mode_khr.Fifo
       ~clipped: true
-      ~old_swapchain:Vkt.Swapchain_khr.null
       ()
 
   let swap_chain =

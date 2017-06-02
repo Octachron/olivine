@@ -32,6 +32,7 @@ module type S = sig
   val index_view: index Ctypes.typ
   val index_view_opt: index option Ctypes.typ
 
+  val pp_tags: (index * string) list -> Format.formatter -> 'a set -> unit
   val pp: Format.formatter -> t -> unit
 end
 
@@ -77,6 +78,14 @@ module Make(): S = struct
     let read x = if x = 0 then None else Some x in
     let write = function None -> 0 | Some x -> x in
     Ctypes.view read write Ctypes.int
+
+  let pp_tags l ppf x =
+    let name =
+      List.fold_left (fun l (t,name) -> if mem t x then name :: l else l) [] l
+    in
+    let pp_sep ppf () = Format.fprintf ppf  ";@ " in
+    let p = Format.(pp_print_list ~pp_sep pp_print_string) in
+    Format.fprintf ppf "{@ @[<hov>%a@]@ }" p name
 
   let pp ppf _ = Format.pp_print_string ppf "ø"
 end

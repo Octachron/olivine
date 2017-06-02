@@ -212,15 +212,10 @@ module Bitset = struct
   let pp_pp set ppf (fields,_) =
     let field ppf (name, _) =
       let name' = field_name set name in
-      Fmt.pf ppf "if mem %a set then\n\
-                    Printer.fprintf ppf \"%a;@@ \"\n\
-                  else ()"
+      Fmt.pf ppf {|%a,"%a"|}
         L.pp_var name' L.pp_var name' in
-    let sep ppf () = Fmt.pf ppf ";\n" in
-    Fmt.pf ppf "@[<v 2> let pp ppf set=@;\
-                Printer.fprintf ppf \"@@[{\";@;\
-                %a;@;\
-                Printer.fprintf ppf \"}@@]\"@;"
+    let sep ppf () = Fmt.pf ppf ";@ " in
+    Fmt.pf ppf "@[<v 2> let pp x = pp_tags @[<hov>[%a]@]@;@] x"
       (Fmt.list ~sep field) fields
 
   let resume ppf bitname name =
@@ -619,12 +614,12 @@ module Structured = struct
   let metapp types ppf fields =
     let pf ppf = Fmt.pf ppf "Printer.fprintf ppf" in
     let pp_f ppf (name,ty) =
-      Fmt.pf ppf {|;@;%t"%a=%%a;@@ " %a (%a x_')|} pf L.pp_var name
+      Fmt.pf ppf {|%t"%a=%%a" %a (%a x_')|} pf L.pp_var name
         (meta_pp_ty types) ty
         L.pp_var name in
-    Fmt.pf ppf {|@[<v 2> let pp ppf x_' =@;%t"@@[{@@"|} pf;
+    Fmt.pf ppf {|@[<v 2> let pp ppf x_' =@;%t"@@[{@@ ";@;|} pf;
     let pp_field ppf (field:Ty.field) = match field with
-      | Record_extension _ -> ()
+      | Record_extension _ -> Fmt.pf ppf {|%t "ext=⟨unsupported⟩" |} pf
       | Array_f { array=name, (Ty.Ptr ty| Const Ptr ty | Array(_,ty));
                   index=_,tyi  } ->
         let opt x = if H.is_option tyi then Ty.Option x else x in
@@ -635,7 +630,7 @@ module Structured = struct
         Fmt.epr "metapp: %a@." Ty.pp ty;
         assert false
       | Simple f -> pp_f ppf f in
-    let sep _ppf () = () in
+    let sep ppf () = Fmt.pf ppf {|@;;%t ";@@ ";@;|} pf in
     Fmt.list ~sep pp_field ppf fields;
     Fmt.pf ppf {|;@;%t"}@@]"@;@]|} pf
 
