@@ -18,18 +18,18 @@ module Utils = struct
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
   let (<?>) x s = match x with
-    | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
+    | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
+        Vkt.Result.raw_pp k s; exit 1
 
   let (<!>) x s = match x with
     | Ok (`Success, x) -> x
     | Ok (`Suboptimal_khr as r, x) ->
-      Format.printf "%a: %s@." Vkt.Result.pp r s; x
+      Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
+        Vkt.Result.raw_pp k s; exit 1
 
   let (!) = Ctypes.(!@)
   let (+@) = Ctypes.(+@)
@@ -134,7 +134,8 @@ module Device = struct
 
   let phy = A.get phy_devices 0
 
-  let queue_family_properties = Vkc.get_physical_device_queue_family_properties phy
+  let queue_family_properties =
+    Vkc.get_physical_device_queue_family_properties phy
 
   let print_queue_property ppf property =
     Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
@@ -348,7 +349,7 @@ module Pipeline = struct
 
   let scissor =
     Vkt.Rect_2d.make
-      ~offset: Vkt.Offset_2d.(!(make ~x:0l ~y:0l))
+      ~offset: Vkt.Offset_2d.(!(make ~x:0 ~y:0))
       ~extent:Image.extent
 
   let viewports = A.from_ptr viewport 1
@@ -461,7 +462,7 @@ module Pipeline = struct
       ~layout: simple_layout
       ~render_pass: simple_render_pass
       ~subpass: 0
-      ~base_pipeline_index: 0l
+      ~base_pipeline_index: 0
       ()
 
   let pipeline_infos = A.from_ptr pipeline_info 1
@@ -617,7 +618,7 @@ module Render = struct
       | Ok ((`Success|`Suboptimal_khr), n) -> n
       | Ok ((`Timeout|`Not_ready), _ ) -> acquire_next ()
       | Error x ->
-        (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
+        (Format.eprintf "Error %a in acquire_next" Vkt.Result.raw_pp x; exit 2)
 
   let draw () =
     present_indices <-@ acquire_next ();

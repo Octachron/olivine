@@ -32,18 +32,18 @@ module Utils = struct
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
   let (<?>) x s = match x with
-    | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.pp r s; x
+    | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
+        Vkt.Result.raw_pp k s; exit 1
 
   let (<!>) x s = match x with
     | Ok (`Success, x) -> x
     | Ok (`Suboptimal_khr as r, x) ->
-      Format.printf "%a: %s@." Vkt.Result.pp r s; x
+      Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
     | Error k ->
       Format.eprintf "Error %a: %s @."
-        Vkt.Result.pp k s; exit 1
+        Vkt.Result.raw_pp k s; exit 1
 
   let (!) = Ctypes.(!@)
   let ( <-@ ) = Ctypes.( <-@ )
@@ -370,9 +370,6 @@ module Depth = struct
     Vkc.end_command_buffer b <!> "End one time-command";
     let submits = A.from_ptr
         begin Vkt.Submit_info.make
-        (* vvvv FIXME: wait_dst_stage_mask should be zipped
-            with wait_semaphores *)
-        ~wait_dst_stage_mask:(nullptr Vkt.pipeline_stage_flags)
         ~command_buffers:buffers ()
     end 1 in
     Vkc.queue_submit ~queue ~submits () <?> "Submit one-time command";
@@ -661,7 +658,7 @@ end
 
   let scissor =
     Vkt.Rect_2d.make
-      ~offset: Vkt.Offset_2d.(!(make ~x:0l ~y:0l))
+      ~offset: Vkt.Offset_2d.(!(make ~x:0 ~y:0))
       ~extent:Image.extent
 
   let viewports = A.from_ptr viewport 1
@@ -819,7 +816,7 @@ end
       ~layout
       ~render_pass: simple_render_pass
       ~subpass: 0
-      ~base_pipeline_index: 0l
+      ~base_pipeline_index: 0
       ()
 
   let pipeline_infos = A.from_ptr pipeline_info 1
@@ -1004,7 +1001,7 @@ module Render = struct
       | Ok ((`Success|`Suboptimal_khr), n) -> n
       | Ok ((`Timeout|`Not_ready), _ ) -> acquire_next ()
       | Error x ->
-        (Format.eprintf "Error %a in acquire_next" Vkt.Result.pp x; exit 2)
+        (Format.eprintf "Error %a in acquire_next" Vkt.Result.raw_pp x; exit 2)
 
 
   let r i j (x,_) = Vec.axis_rotation i j x

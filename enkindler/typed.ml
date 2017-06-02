@@ -284,12 +284,20 @@ let typedef spec node =
   let name, ty = map2 (refine node) @@ parse Parser.typedef s in
   register name (Type ty) spec
 
-let fields_refine =
+let is_option_ty = function
+  | Ty.Option _ | Const Option _ -> true
+  | _ -> false
+
+let fields_refine fields =
   let rec refine extended = function
     | (_, ( Ty.Array(Some Path [index'], _)
           | Option Ty.Array(Some Path [index'],_)) as array )
       :: (name, _ as index) :: q when name = index' ->
       refine (Ty.Array_f { index; array } :: extended) q
+    | (n, (Ty.Array(Some Path( a :: _), _) as ty)) :: q
+          when List.assoc a fields |> is_option_ty
+          ->
+          refine ( Simple(n, Option ty) :: extended) q
     | ("pNext", Ty.Record_extensions exts as ptr) ::
       ("sType", Ty.Name "VkStructureType" as tag) :: q ->
       refine (Ty.Record_extension { tag; ptr; exts } ::extended) q
@@ -300,7 +308,7 @@ let fields_refine =
     | ("sType", ty) :: q -> Fmt.epr "sType: %a@." Ty.pp ty ;refine extended q
     | (n,t) :: q -> refine (Ty.Simple(n,t)::extended) q
     | [] -> extended in
-  refine []
+  refine [] fields
 
 let structure spec node =
   let name = node%("name") in

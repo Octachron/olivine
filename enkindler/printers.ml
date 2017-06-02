@@ -17,12 +17,19 @@ module H = struct
     | Ty.Ptr Option _ -> true
     | _ -> false
 
+
+  let rec find_field_type name = function
+    | [] -> None
+    | Ty.Simple(n,ty) :: _  when n = name -> Some ty
+    | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
+    | _ :: q -> find_field_type name q
+
   let is_option_f = function
     | Ty.Simple (_, (Option _ | Const Option _) )
     | Ty.Array_f { index = _, (Option _  | Const Option _ ); _ }
+    | Ty.Array_f { array = _, (Option _ | Const Option _); _ }
     | Ty.Record_extension _ -> true
     | _ -> false
-
 
   let size_t = L.simple ["size";"t"]
   (* FIXME *)
@@ -107,13 +114,6 @@ module H = struct
     | Name t -> Fmt.pf ppf "%a.to_int (%t)" L.pp_module t var
     | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
 
-
-  let rec find_field_type name = function
-    | [] -> None
-    | Ty.Simple(n,ty) :: _  when n = name -> Some ty
-    | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
-    | _ :: q -> find_field_type name q
-
   let find_record tn types =
     match List.assoc tn types with
     | B.Type Ty.Record{ fields; _ } -> fields
@@ -122,6 +122,7 @@ module H = struct
       raise @@ Invalid_argument "Non-record path, yet a type"
     | _ ->
       raise @@ Invalid_argument "Non-record path: not even a type"
+
   let type_path types fields p =
     let rec type_path (types) acc (ty, fields) = function
       | [] -> acc
@@ -166,6 +167,108 @@ module H = struct
     pp_path pp ppf p
 
   let nl ppf () = Fmt.cut ppf ()
+end
+
+module Bitset = struct
+
+  let bit_name name =
+    let rec bitname = function
+      | "flags" :: q ->
+        "bits" :: "flag" :: q
+      | [] ->
+        raise @@ Invalid_argument "bitname []"
+      | a :: q -> a :: bitname q in
+    L.{ name with postfix = bitname name.postfix }
+
+  let set_name name =
+    let rec rename = function
+      |  "bits" :: "flag" :: q ->
+        "flags" :: q
+      | [] ->
+        raise @@ Invalid_argument "empty bitset name []"
+      | a :: q -> a :: rename q in
+    L.{ name with postfix = rename name.postfix }
+
+  let value_name set_name name =
+    L.remove_context set_name name
+
+  let field_name set_name name = let open L in
+    let context =
+      { set_name with postfix = set_name.postfix @ [ "bit" ]  } in
+      remove_context context name
+
+  let field set_name ppf (name, value) =
+    Fmt.pf ppf "let %a = make_index %d@;"
+      L.pp_var (field_name set_name name) value
+
+  let value set_name ppf (name,value) =
+    let name = value_name set_name name in
+    Fmt.pf ppf "let %a = of_int %d@;" L.pp_var name value
+
+  let values set_name ppf (fields,values) =
+    List.iter (field set_name ppf) fields;
+    List.iter (value set_name ppf) values
+
+  let pp_pp set ppf (fields,_) =
+    let field ppf (name, _) =
+      let name' = field_name set name in
+      Fmt.pf ppf "if mem %a set then\n\
+                    Printer.fprintf ppf \"%a;@@ \"\n\
+                  else ()"
+        L.pp_var name' L.pp_var name' in
+    let sep ppf () = Fmt.pf ppf ";\n" in
+    Fmt.pf ppf "@[<v 2> let pp ppf set=@;\
+                Printer.fprintf ppf \"@@[{\";@;\
+                %a;@;\
+                Printer.fprintf ppf \"}@@]\"@;"
+      (Fmt.list ~sep field) fields
+
+  let resume ppf bitname name =
+    Fmt.pf ppf "type %a = %a.t@;"
+      L.pp_type name L.pp_module name;
+    Fmt.pf ppf "let %a, %a_opt = %a.(view, view_opt)@;"
+      L.pp_var name L.pp_var name L.pp_module name;
+    Fmt.pf ppf "let %a = %a.index_view@;"
+      L.pp_var bitname
+      L.pp_module name;
+    Fmt.pf ppf "let %a_opt = %a.index_view_opt@;"
+      L.pp_var bitname
+      L.pp_module name
+
+
+  let pp_with_bits ppf (bitname,fields) =
+    let name = set_name bitname in
+    let core_name = let open L in
+      { name with postfix = List.filter (fun x -> x <> "flags") name.postfix }
+    in
+    Fmt.pf ppf "@[<v 2> module %a = struct@;" L.pp_module name;
+    Fmt.pf ppf "  include Bitset.Make()@;";
+    values core_name ppf fields;
+    pp_pp core_name ppf fields;
+    Fmt.pf ppf "@; end@]@;";
+    resume ppf bitname name
+
+  let pp ppf (name,opt) =
+    let bitname = bit_name name in
+    match opt with
+    | Some _ -> ()
+    | None ->
+      Fmt.pf ppf "@[module %a = Bitset.Make()@]@."
+        L.pp_module name;
+      resume ppf bitname name
+
+end
+
+module Handle = struct
+  let pp ppf name =
+    Fmt.pf ppf
+      "module %a = Handle.Make()\n\
+       type %a = %a.t\n\
+       let %a, %a_opt = %a.(view,view_opt)\
+\n"
+      L.pp_module name
+      L.pp_type name L.pp_module name
+      L.pp_var name L.pp_var name L.pp_module name
 end
 
 module Enum = struct
@@ -218,9 +321,9 @@ module Enum = struct
     Fmt.list ~sep constr ppf constrs;
     Fmt.pf ppf "\n    | _ -> assert false\n"
 
-  let pp impl ppf name constrs =
+  let pp pre impl ppf name constrs =
     Fmt.pf ppf
-      "\n  let pp ppf x = Printer.fprintf ppf (match x with\n";
+      "\n  let %spp ppf x = Printer.fprintf ppf (match x with\n" pre;
     let constr0 = pp_constr name impl in
     let constr ppf c =
       Fmt.pf ppf "    | %a -> \"%a\"" constr0 c constr0 c in
@@ -235,19 +338,27 @@ module Enum = struct
     Fmt.pf ppf
     "\n  let view = Vk__result.view ~ok:(of_int,to_int) ~error:(of_int,to_int)\n"
 
+  let pp_result ppf () =
+    Fmt.pf ppf "\n   let pp = Vk__result.pp raw_pp\n"
+
   let view_opt ppf () =
     Fmt.pf ppf
-       "\n  let view_opt =\
-              let read x: _ option = if x = max_int then None else Some x in\n\
-              let write: _ option -> _ = \n\
-                function None -> max_int | Some x -> x in\n\
-              Ctypes.view ~write ~read int\n"
+       "@[<hov 2> let view_opt =\
+              let read x: _ option = if x = max_int then@ \
+        None else@ \
+        Some (of_int x) in@;\
+        let write: _ option -> _ = @;\
+        function@ | None -> max_int@ | Some x -> to_int x in@;\
+        Ctypes.view ~write ~read int@;@]"
 
   let pp impl ppf (name,constrs) =
+    let is_result = H.is_result_name name in
+    let pre = if is_result then "raw_" else "" in
     Fmt.pf ppf "@[<v 2> module %a = struct\n" L.pp_module name;
     List.iter (fun f -> f impl ppf name constrs)
-    [def; to_int; of_int; pp ];
-    if H.is_result_name name then view_result ppf () else view ppf ();
+    [def; to_int; of_int; pp pre ];
+    if is_result then (pp_result ppf (); view_result ppf ())
+    else view ppf ();
     view_opt ppf ();
     Fmt.pf ppf "@; @]end\n";
     Fmt.pf ppf "let %a, %a_opt = %a.(view,view_opt)\n\
@@ -352,6 +463,10 @@ module Typexp = struct
       Fmt.pf ppf "%a_opt" L.pp_type n
     | Option (Ptr typ) ->
       Fmt.pf ppf "(ptr_opt (%a))" pp typ
+    | Option Array (Some Const n ,typ) ->
+      Fmt.pf ppf "(array_opt %a @@@@ %a)" L.pp_var n pp typ
+    | Option Array (Some (Lit n) ,typ) when not degraded ->
+      Fmt.pf ppf "(array_opt %d @@@@ %a)" n pp typ
     | Option Array (_,t) -> Fmt.pf ppf "(ptr_opt (%a))" pp t
     | Option String -> Fmt.pf ppf "string_opt"
     | Option t -> Fmt.epr "Not implemented: option %a@." Ty.pp t; exit 2
@@ -417,17 +532,26 @@ module Structured = struct
     | Ty.Option ty -> ty
     | ty -> ty
 
-  let lens types fields ppf = function
-    | Ty.Array_f {array= a, tya; index = i, ty } as t when H.is_option_f t  ->
-      Fmt.pf ppf "let %a record = match %a, %a with@;\
-                  | Some n, %t(a) -> Some(%a)@;\
+  let repr_name = function
+    | Ty.Array_f { array = a, _ ; _ } -> fun ppf -> L.pp_var ppf a
+    | Simple(n, _ ) -> fun ppf ->  L.pp_var ppf n
+    | Record_extension _ -> fun ppf -> Fmt.string ppf "ext"
+
+  let lens types fields ppf (out,field)=
+    Fmt.pf ppf "@[let %t record =@ " out;
+    begin match field with
+      | Ty.Array_f {array= a, tya; index = i, ty } as t
+        when H.is_option_f t  ->
+      Fmt.pf ppf "match %a, %a with@;\
+                  | %t(n), %t(a) -> Some(%a)@;\
                   | _ -> None@;"
-        L.pp_var a get_field i get_field a
+        get_field i get_field a
+        (if H.is_option ty then string "Some" else string "")
         (if H.is_option tya then string "Some" else string "")
         mk_array (pp_index (unopt ty) (string "n"), string "a")
     | Ty.Array_f {array= x, tya; index = n, ty } ->
-      Fmt.pf ppf "let %a record = let %a = %a and %a = %a in@;"
-      L.pp_var x L.pp_var n get_field n L.pp_var x get_field x;
+      Fmt.pf ppf "let %a = %a and %a = %a in@;"
+      L.pp_var n get_field n L.pp_var x get_field x;
       if H.is_option tya then
         Fmt.pf ppf "may (fun x -> %a) %a@;"
         mk_array (pp_index ty (var n), string "x")
@@ -435,17 +559,18 @@ module Structured = struct
       else
         Fmt.pf ppf "%a@;"
         mk_array (pp_index ty (var n), var x)
-    | Record_extension _ -> ()
-    | Simple (n, Array(Some (Lit int), Name { Name_study.main = ["char"]; _ } )) ->
-      Fmt.pf ppf "let %t record = Ctypes.string_from_ptr (A.start @@@@ %a) %d"
-        (var n) get_field n int
-    | Simple (n, Array(Some (Const s), Name { Name_study.main = ["char"]; _ } )) ->
-      Fmt.pf ppf "@[<hov 2>let %t record =@ Ctypes.string_from_ptr@ \
+    | Record_extension _ -> Fmt.string ppf "assert false"
+    | Simple (n, Array(Some (Lit int), Name { Name_study.main = ["char"]; _ } ))
+      -> Fmt.pf ppf "Ctypes.string_from_ptr (A.start @@@@ %a) %d"
+           get_field n int
+    | Simple (n, Array(Some (Const s), Name { Name_study.main = ["char"]; _ } ))
+      ->
+      Fmt.pf ppf "Ctypes.string_from_ptr@ \
                   (Ctypes.CArray.start @@@@ %a)@ %a@]"
-        (var n) get_field n L.pp_var s
-    | Simple (n, Array(Some (Path p), _ )) ->
-      Fmt.pf ppf "let %t record = let a = %a in@;"
-        (var n) get_field n;
+        get_field n L.pp_var s
+    | Simple (n, Array(Some Path p, _ )) ->
+      Fmt.pf ppf "let a = %a in@;"
+        get_field n;
       let p' = H.type_path types fields p in
       Fmt.pf ppf "let i = %a in@;" (H.pp_path get_field) p';
       if H.final_option types fields p then
@@ -453,19 +578,77 @@ module Structured = struct
           mk_array (string "i", string "a")
       else
           mk_array ppf (string "i", string "a")
-    | Simple (name, _ ) ->
-      Fmt.pf ppf "let %a record = %a"
-        L.pp_var name get_field name
+    | Simple (n, Option Array(Some Path p, _ )) ->
+      Fmt.pf ppf "let a = %a in@;"
+        get_field n;
+      let p' = H.type_path types fields p in
+      Fmt.pf ppf "let i = %a in@;" (H.pp_path get_field) p';
+      if H.final_option types fields p then
+        Fmt.pf ppf "maybe (may (fun i a -> %a) i) a@;"
+          mk_array (string "i", string "a")
+      else
+        Fmt.pf ppf "may (fun a -> %a) a@;"
+          mk_array (string "i", string "a")
+    | Simple (name, _ ) -> get_field ppf name
+    end;
+    Fmt.pf ppf "@]"
+  let rec meta_pp_ty types ppf = function
+    | Ty.Name t ->
+      begin match List.assoc t types with
+      | exception Not_found ->  Fmt.pf ppf "%a.pp" L.pp_module t
+      | B.Type Ty.FunPtr _ -> Fmt.pf ppf "pp_abstract"
+      | B.Type Ty.Bitfields _ ->
+        Fmt.pf ppf "%a.pp" L.pp_module (Bitset.set_name t)
+      | B.Type Ty.Union _ -> Fmt.pf ppf "pp_abstract"
+      | _ -> Fmt.pf ppf "%a.pp" L.pp_module t
+      end
+    | Array(_, Name t) when Name_study.to_path t = ["char"] ->
+      Fmt.pf ppf "pp_string"
+    | Array(Some Math_expr,_t) -> (*FIXME*)
+      Fmt.pf ppf "pp_abstract"
+    | Array(_,t) -> Fmt.pf ppf "(pp_array %a)" (meta_pp_ty types) t
+    | Option t -> Fmt.pf ppf "(pp_opt %a)" (meta_pp_ty types) t
+    | Const t -> meta_pp_ty types ppf t
+    | Ptr t when H.is_void t -> Fmt.pf ppf "pp_addr"
+    | Ptr t -> Fmt.pf ppf "(pp_ptr %a)" (meta_pp_ty types) t
+    | String -> Fmt.pf ppf "pp_string"
+    | ty ->
+      Fmt.epr "Not implemented: %a@." Ty.pp ty;
+      raise @@ Invalid_argument "Meta pp ty not implemented"
+
+  let metapp types ppf fields =
+    let pf ppf = Fmt.pf ppf "Printer.fprintf ppf" in
+    let pp_f ppf (name,ty) =
+      Fmt.pf ppf {|;@;%t"%a=%%a;@@ " %a (%a x_')|} pf L.pp_var name
+        (meta_pp_ty types) ty
+        L.pp_var name in
+    Fmt.pf ppf {|@[<v 2> let pp ppf x_' =@;%t"@@[{@@"|} pf;
+    let pp_field ppf (field:Ty.field) = match field with
+      | Record_extension _ -> ()
+      | Array_f { array=name, (Ty.Ptr ty| Const Ptr ty | Array(_,ty));
+                  index=_,tyi  } ->
+        let opt x = if H.is_option tyi then Ty.Option x else x in
+        pp_f ppf (name, opt @@ Array(None, ty))
+     | Array_f { array=name, Ty.Option(Array(_,ty)|Ptr ty| Const Ptr ty); _} ->
+        pp_f ppf (name, Option (Array(None, ty)))
+      | Array_f { array=_,ty; _ } ->
+        Fmt.epr "metapp: %a@." Ty.pp ty;
+        assert false
+      | Simple f -> pp_f ppf f in
+    let sep _ppf () = () in
+    Fmt.list ~sep pp_field ppf fields;
+    Fmt.pf ppf {|;@;%t"}@@]"@;@]|} pf
 
   let def_fields (type a) (kind: a kind) types name ppf (fields: a list) =
     match kind with
       | Union ->
         Fmt.list  (sfield name) ppf fields
       | Record ->
-        Fmt.pf ppf "@[<v 2> module Fields=struct@;%a@;end@;@]%a@;"
+        let lens ppf f = lens types fields ppf (repr_name f, f) in
+        Fmt.pf ppf "@[<v 2> module Fields=struct@;%a@;end@;@]%a@;%a@;"
           (Fmt.list ~sep:H.nl @@ field name) fields
-          (Fmt.list ~sep:H.nl @@ lens types fields) fields
-
+          (Fmt.list ~sep:H.nl lens) fields
+          (metapp types) fields
 
   let def types kind ppf name fields =
     Fmt.pf ppf "type t@;";
@@ -489,7 +672,7 @@ module Structured = struct
       | Ty.Array_f { index; array } as t when H.is_option_f t ->
         Fmt.pf ppf "@[<v 2>begin match %a with@;\
                     | None ->@;\
-                      (Ctypes.setf %s Fields.%a None;@;\
+                      (Ctypes.setf %s Fields.%a %s;@;\
                        Ctypes.setf %s Fields.%a (Obj.magic @@@@ Ctypes.null))@;\
                     |Some %a ->\
                       (Ctypes.setf %s Fields.%a (%a);@;\
@@ -497,6 +680,7 @@ module Structured = struct
                    end;@]@;"
           pp_arg (name array)
           gen L.pp_var (name index)
+          (if H.is_option (snd index) then "None" else "0")
           gen L.pp_var (name array)
           pp_arg (name array)
           gen L.pp_var (name index) (H.array_len pp_arg) (index,array)
@@ -544,109 +728,6 @@ module Structured = struct
       L.pp_type name L.pp_module name
       L.pp_var name L.pp_module name
 
-end
-
-
-module Bitset = struct
-
-  let bit_name name =
-    let rec bitname = function
-      | "flags" :: q ->
-        "bits" :: "flag" :: q
-      | [] ->
-        raise @@ Invalid_argument "bitname []"
-      | a :: q -> a :: bitname q in
-    L.{ name with postfix = bitname name.postfix }
-
-  let set_name name =
-    let rec rename = function
-      |  "bits" :: "flag" :: q ->
-        "flags" :: q
-      | [] ->
-        raise @@ Invalid_argument "empty bitset name []"
-      | a :: q -> a :: rename q in
-    L.{ name with postfix = rename name.postfix }
-
-  let value_name set_name name =
-    L.remove_context set_name name
-
-  let field_name set_name name = let open L in
-    let context =
-      { set_name with postfix = set_name.postfix @ [ "bit" ]  } in
-      remove_context context name
-
-  let field set_name ppf (name, value) =
-    Fmt.pf ppf "let %a = make_index %d@;"
-      L.pp_var (field_name set_name name) value
-
-  let value set_name ppf (name,value) =
-    let name = value_name set_name name in
-    Fmt.pf ppf "let %a = of_int %d@;" L.pp_var name value
-
-  let values set_name ppf (fields,values) =
-    List.iter (field set_name ppf) fields;
-    List.iter (value set_name ppf) values
-
-  let pp_pp set ppf (fields,_) =
-    let field ppf (name, _) =
-      let name' = field_name set name in
-      Fmt.pf ppf "if mem %a set then\n\
-                    Printer.fprintf ppf \"%a;@@ \"\n\
-                  else ()"
-        L.pp_var name' L.pp_var name' in
-    let sep ppf () = Fmt.pf ppf ";\n" in
-    Fmt.pf ppf "@[<v 2> let pp ppf set=@;\
-                Printer.fprintf ppf \"@@[{\";@;\
-                %a;@;\
-                Printer.fprintf ppf \"}@@]\"@;"
-      (Fmt.list ~sep field) fields
-
-  let resume ppf bitname name =
-    Fmt.pf ppf "type %a = %a.t@;"
-      L.pp_type name L.pp_module name;
-    Fmt.pf ppf "let %a, %a_opt = %a.(view, view_opt)@;"
-      L.pp_var name L.pp_var name L.pp_module name;
-    Fmt.pf ppf "let %a = %a.index_view@;"
-      L.pp_var bitname
-      L.pp_module name;
-    Fmt.pf ppf "let %a_opt = %a.index_view_opt@;"
-      L.pp_var bitname
-      L.pp_module name
-
-
-  let pp_with_bits ppf (bitname,fields) =
-    let name = set_name bitname in
-    let core_name = let open L in
-      { name with postfix = List.filter (fun x -> x <> "flags") name.postfix }
-    in
-    Fmt.pf ppf "@[<v 2> module %a = struct@;" L.pp_module name;
-    Fmt.pf ppf "  include Bitset.Make()@;";
-    values core_name ppf fields;
-    pp_pp core_name ppf fields;
-    Fmt.pf ppf "@; end@]@;";
-    resume ppf bitname name
-
-  let pp ppf (name,opt) =
-    let bitname = bit_name name in
-    match opt with
-    | Some _ -> ()
-    | None ->
-      Fmt.pf ppf "@[module %a = Bitset.Make()@]@."
-        L.pp_module name;
-      resume ppf bitname name
-
-end
-
-module Handle = struct
-  let pp ppf name =
-    Fmt.pf ppf
-      "module %a = Handle.Make()\n\
-       type %a = %a.t\n\
-       let %a, %a_opt = %a.(view,view_opt)\
-\n"
-      L.pp_module name
-      L.pp_type name L.pp_module name
-      L.pp_var name L.pp_var name L.pp_module name
 end
 
 module Funptr = struct
@@ -756,7 +837,7 @@ module Fn = struct
   let pp_smart types ppf (fn:Ty.fn) =
     let input, output = List.partition
         (fun {Ty.dir; _ } -> dir = In || dir = In_Out) fn.args in
-    let all = List.map (fun x -> (fst x)) @@ Ty.flatten_fn_fields fn.args in
+    let all = List.map fst @@ Ty.flatten_fn_fields fn.args in
     let space ppf () = Fmt.pf ppf "@ " in
     let list x = Fmt.list ~sep:space x in
     let prx ppf = Fmt.string ppf "gen__" in
@@ -768,7 +849,7 @@ module Fn = struct
     let def ppf =
       Fmt.pf ppf "@[<v 2> let %a %a %t@ =@;" L.pp_var fn.name
         (list pp_label) input
-        (H.pp_terminator @@ List.map (fun f -> f.Ty.field) fn.args) in
+        (H.pp_terminator @@ List.map (fun x -> x.Ty.field) input) in
     let out_def ppf (f:Ty.fn_field) =
       match f.field with
       | Simple(f, Array(Some(Path p), Name elt)) ->
@@ -918,13 +999,22 @@ let is_bits name =
 let pp_alias builtins ppf (name,origin) =
   if not @@ B.Name_set.mem name builtins then
     Fmt.pf ppf
-      "@[<hov 2> module %a = Alias(struct@ \
-       type t = %a@ \
+      "@[<hov 2> module %a = Alias(%a)@]@. \
+       @[let %a = %a.ctype@]@.\
+       @[let %a_opt = integer_opt (module %a)@]@."
+      L.pp_module name
+      L.pp_module origin
+      L.pp_var name
+      L.pp_module name
+      L.pp_var name
+      L.pp_module name
+
+(*       type t = %a@ \
        let ctype = %a@ \
        let of_int = %a.of_int@ \
        let to_int = %a.to_int@ \
        end)@]@.\
-       @[let %a = %a.ctype@]@."
+       @[let %a = %a.ctype@]@.
       L.pp_module name
       L.pp_type origin
       L.pp_var origin
@@ -932,7 +1022,7 @@ let pp_alias builtins ppf (name,origin) =
       L.pp_module origin
       L.pp_var name
       L.pp_module name
-
+    *)
 let pp_type builtins results types ppf (name,ty) =
   match ty with
   | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> ()

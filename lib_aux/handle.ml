@@ -4,6 +4,7 @@ module type S = sig
   val view: t Ctypes.typ
   val null: t
   val view_opt: t option Ctypes.typ
+  val pp: Format.formatter -> t -> unit
 end
 module Make(): S =
 struct
@@ -18,4 +19,7 @@ struct
       | None -> null
       | Some x -> x in
     Ctypes.view ~read ~write t
+  let pp ppf (x:t) =
+    Format.fprintf ppf "%s" @@ Nativeint.to_string
+    @@ Ctypes.( raw_address_of_ptr @@ coerce t (ptr void) x)
 end

@@ -8,3 +8,7 @@ let view ~ok ~error =
     | Ok x -> snd ok x
     | Error x -> snd error x in
   Ctypes.view ~read ~write Ctypes.int
+
+let pp raw ppf = function
+  | Ok r -> Format.fprintf ppf "Ok %a" raw r
+  | Error e -> Format.fprintf ppf "Error %a" raw e

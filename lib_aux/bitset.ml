@@ -31,6 +31,8 @@ module type S = sig
   val view_opt: t option Ctypes.typ
   val index_view: index Ctypes.typ
   val index_view_opt: index option Ctypes.typ
+
+  val pp: Format.formatter -> t -> unit
 end
 
 module Make(): S = struct
@@ -76,4 +78,5 @@ module Make(): S = struct
     let write = function None -> 0 | Some x -> x in
     Ctypes.view read write Ctypes.int
 
+  let pp ppf _ = Format.pp_print_string ppf "ø"
 end
