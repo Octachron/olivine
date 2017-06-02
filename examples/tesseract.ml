@@ -141,13 +141,8 @@ module Device = struct
 
   let phy = A.get phy_devices 0
 
-  let queue_family_properties = Vkc.get_physical_device_queue_family_properties phy
-
-  (*
-  let print_queue_property ppf property =
-    Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
-      property#.Vkt.Queue_family_properties.queue_flags
-*)
+  let queue_family_properties =
+    Vkc.get_physical_device_queue_family_properties phy
 
   ;; debug "Queue properties: %a"
     Vkt.(pp_array Queue_family_properties.pp) queue_family_properties
@@ -175,31 +170,13 @@ module Device = struct
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
     <?> "Surface capabilities"
 
-  let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
-    Format.fprintf ppf "[%d×%d]"
-      extent#.width extent#.height
-
-  let pp_capability ppf cap = let open Vkt.Surface_capabilities_khr in
-    Format.fprintf ppf
-      "@[min_image:%d; max_image_count:%d; current_extent:%a;@;\
-       transform:%a;@ composite_alpha:%a;@ usage_flags:%a@]"
-      cap#.min_image_count cap#.max_image_count
-      pp_extent_2d cap#.current_extent
-      (pp_opt Vkt.Surface_transform_flags_khr.pp) cap#.supported_transforms
-      (pp_opt Vkt.Composite_alpha_flags_khr.pp) cap#.supported_composite_alpha
-      (pp_opt Vkt.Image_usage_flags.pp) cap#.supported_usage_flags
-
-  ;; debug "Surface capabilities: %a" pp_capability capabilities
+  ;;debug "Surface capabilities: %a" Vkt.Surface_capabilities_khr.pp capabilities
 
   let supported_formats =
     Surface.get_physical_device_surface_formats_khr phy surface_khr
     <?> "supported surface formats"
 
-  let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
-    Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
-      Vkt.Format.pp sformat#.format Vkt.Color_space_khr.pp sformat#.color_space
-
-  ;; A.iter (debug "%a" pp_sformat) supported_formats
+  ;; debug "%a" Vkt.(pp_array Surface_format_khr.pp) supported_formats
 
   let present_modes =
     Surface.get_physical_device_surface_present_modes_khr phy surface_khr
@@ -312,13 +289,8 @@ module Depth = struct
   let format_properties =
     Vkc.get_physical_device_format_properties Device.phy format
 
-  let () = let open Vkt.Format_properties in
-    debug "Depth format {linear tiling:%a; optimal tiling:%a; buffer feature:%a}"
-      (pp_opt Vkt.Format_feature_flags.pp)
-      format_properties#.linear_tiling_features
-      (pp_opt Vkt.Format_feature_flags.pp)
-      format_properties#.optimal_tiling_features
-      (pp_opt Vkt.Format_feature_flags.pp) format_properties#.buffer_features
+  ;; debug "Depth format %a" Vkt.Format_properties.pp format_properties
+
   let extent = (!) @@
     let open Vkt.Extent_2d in
     Vkt.Extent_3d.make ~width:Image.extent#.width
@@ -527,13 +499,6 @@ module Pipeline = struct
 
   let mem_size = Vkt.Device_size.of_int @@ fsize * A.length input
 
-  let pp_mem ppf m = let open Vkt.Physical_device_memory_properties in
-    A.iter (fun mt ->
-        pp_opt Vkt.Memory_property_flags.pp ppf
-          mt#.Vkt.Memory_type.property_flags;
-        Format.print_cut ()
-      ) m#.memory_types
-
   let create_buffer flag mem_size =
     let buffer_info =
       Vkt.Buffer_create_info.make
@@ -545,7 +510,7 @@ module Pipeline = struct
 
     let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
     let phymem = Vkc.get_physical_device_memory_properties Device.phy in
-    debug "memory flags, %a" pp_mem phymem;
+    debug "memory flags, %a" Vkt.Physical_device_memory_properties.pp phymem;
 
     let alloc_info =
       Vkt.Memory_allocate_info.make
