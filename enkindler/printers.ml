@@ -236,7 +236,7 @@ module Bitset = struct
     Pprintast.structure ppf @@ Aster.Bitset.make data
 end
 
-module Handle = struct
+module Handle_pp = struct
   let pp ppf name =
     Fmt.pf ppf
       "module %a = Handle.Make()\n\
@@ -246,6 +246,10 @@ module Handle = struct
       L.pp_module name
       L.pp_type name L.pp_module name
       L.pp_var name L.pp_var name L.pp_module name
+end
+
+module Handle = struct
+  let pp ppf name = Aster.Handle.make name |> Pprintast.structure ppf
 end
 
 module Enum = struct

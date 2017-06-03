@@ -69,8 +69,12 @@ let tyrec = Asttypes.Recursive
 let decltype ?(recflag=tyrec) ?manifest ?kind name =
   H.Str.type_ recflag [H.Type.mk ?kind ?manifest name]
 
-let module' name str =
-  H.( Str.module_ @@ Mb.mk (nloc @@ modname name) @@ Mod.structure str )
+let module_gen name me =
+  H.( Str.module_ @@ Mb.mk (nloc @@ modname name) me )
+
+let module' name str = module_gen name (H.Mod.structure str)
+let make_genf name f =
+  module_gen name H.Mod.( apply (ident @@ nloc @@ lid f/"Make") @@ structure [])
 
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name
@@ -161,9 +165,14 @@ module Bitset = struct
     match opt with
     | Some _ -> []
     | None ->
-      module' name [[%stri include Bitset.Make() ]] (*FIXME*)
+      make_genf name "Bitset"
       :: resume (varname bitname) name
 
+end
+
+module Handle = struct
+  let make name =
+    [ make_genf name "Handle"; extern_type name; views name ]
 end
 
 module Enum = struct
