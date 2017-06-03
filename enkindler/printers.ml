@@ -267,6 +267,12 @@ module Handle = struct
 end
 
 module Enum = struct
+  let pp impl ppf (name,constrs) =
+    Aster.Enum.make impl (name,constrs) |>
+    Pprintast.structure ppf
+end
+
+module Enum_pp = struct
 
   let contiguous_range =
     let rec range first current = function
@@ -387,8 +393,8 @@ module Result = struct
     let constrs =
       List.map (fun name -> name, T.Abs (find name m)) constrs in
     Fmt.pf ppf "@[<v 2>module %a = struct\n" L.pp_module name;
-    Enum.(of_int Poly) ppf name constrs;
-    Enum.(to_int Poly) ppf name constrs;
+    Enum_pp.(of_int Poly) ppf name constrs;
+    Enum_pp.(to_int Poly) ppf name constrs;
     Fmt.pf ppf "@;end@]\n"
 
   let pp_type ppf (ok,errors) =
@@ -1038,7 +1044,7 @@ let pp_type builtins results types ppf (name,ty) =
     if not @@ is_bits name then
       begin
         let is_result = name.main = ["result"] in
-        let kind = if is_result then Enum.Poly else Enum.Std in
+        let kind = if is_result then Aster.Enum.Poly else Aster.Enum.Std in
         Enum.pp kind ppf (name,constrs)
       end
   | Record r ->

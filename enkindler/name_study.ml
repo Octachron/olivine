@@ -385,3 +385,4 @@ let count_names dict e =
   N.fold add_names e N.empty
 
 let (//) x s = { x with postfix = s :: x.postfix }
+let (++) s x = { x with prefix = s :: x.prefix }

@@ -1,5 +1,16 @@
 module L = Name_study
 module Ty = Lib_builder.Ty
+module T = Lib_builder.T
+
+
+module H = Ast_helper
+module Exp = H.Exp
+module Pat = H.Pat
+module P = Parsetree
+
+module Aux = struct
+  let is_result_name x = L.to_path x = ["result"]
+end
 
 let list merge map =
   List.fold_left (fun acc x -> merge acc @@ map x) []
@@ -7,14 +18,21 @@ let list merge map =
 let listr merge map l last =
   List.fold_right (fun x acc -> merge (map x) acc) l last
 
+type ('a,'b) dual = {p:'a ; e:'b}
+
 let nloc = Location.mknoloc
 
-let typename n = let open Longident in
-  Lident (Fmt.strf "%a" L.pp_type n)
+let typestr n = Fmt.strf "%a" L.pp_type n
 
+let lid s =  Longident.Lident s
+let nlid x = nloc(lid x)
+let typename n = lid (typestr n)
 
-let varname n = let open Longident in
-  Lident (Fmt.strf "%a" L.pp_var n)
+let varname n = Fmt.strf "%a" L.pp_var n
+
+let modname = Fmt.strf "%a" L.pp_module
+
+let (/) x s = Longident.( Ldot(x,s) )
 
 let typ n = [%type: [%t typename n]]
 
@@ -22,9 +40,137 @@ let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
 
 let typexp n = [%expr [%e typename n]]
 let tyvar n = Ast_helper.Exp.ident @@ nloc @@ typename n
-let var n = Ast_helper.Exp.ident @@ nloc @@ varname n
+let var n = let s= varname n in
+  { p = Pat.var (nloc s); e= Exp.ident (nlid s) }
 
-let int d = Ast_helper.(Exp.constant @@ Const.int d)
+let (%) f g x = f (g x)
+let int = {
+  e = Exp.constant % H.Const.int;
+  p = Pat.constant % H.Const.int
+}
+
+let string s = Ast_helper.(Exp.constant @@ Const.string s)
+
+let counter = ref 0
+let unique () =
+  incr counter;
+  let s =  "x'" ^ string_of_int !counter ^ "'" in
+  Pat.var (nloc s), Exp.ident (nlid s)
+
+
+let norec = Asttypes.Nonrecursive
+let tyrec = Asttypes.Recursive
+
+let decltype ?(recflag=tyrec) ?manifest ?kind name =
+  H.Str.type_ recflag [H.Type.mk ?kind ?manifest name]
+
+let module' name str =
+  H.( Str.module_ @@ Mb.mk name @@ Mod.structure str )
+
+let variant name constrs =
+  decltype ~kind:(P.Ptype_variant constrs) name
+
+let polyvariant name constrs =
+  let ty c =
+    P.Rtag (c,[],true,[]) in
+  let typ = H.Typ.variant (List.map ty constrs) Asttypes.Closed None in
+  H.Str.type_ norec [H.Type.mk ~manifest:typ name]
+
+module Enum = struct
+
+  type implementation = Std | Poly
+
+  let constr (_,name_0) (c, _) =
+    let name = L.remove_context name_0 c in
+    let name = if name = L.mu then name_0 else name in
+    Fmt.strf "%a" L.pp_constr name
+
+  let def_std name constrs =
+    let constr c = let n = constr (Std,name) c in
+      H.Type.constructor (nloc n) in
+    variant (nloc "t") @@ List.map constr constrs
+
+  let def_poly name constrs =
+    let constr c = constr (Poly,name) c in
+    polyvariant (nloc "t") @@ List.map constr constrs
+
+  let def (impl,name) = match impl with
+    | Std -> def_std name
+    | Poly -> def_poly name
+
+  let case pair ty (_, p as c) =
+    match p with
+    | T.Abs n ->  pair (constr ty c) n
+    | _ -> assert false
+
+  let construct (impl,_) = match impl with
+    | Std -> { p = (fun s -> Pat.construct (nlid s) None)
+             ; e = (fun s -> Exp.construct (nlid s) None) }
+    | Poly -> { p = (fun s -> Pat.variant s None);
+                e = (fun s -> Exp.variant s None) }
+
+
+  let conv ?(cases=[]) f params constrs =
+     Exp.function_ (List.map (case f params) constrs @ cases)
+
+  let to_int ty constrs =
+    let c = construct ty in
+    let f =
+      conv (fun n d -> Exp.case (c.p n) (int.e d)) ty constrs in
+    [%stri let to_int = [%e f] ]
+
+  let of_int ty constrs =
+    let c = construct ty in
+    let app n d = H.Exp.case (int.p d) (c.e n) in
+    let cases = [Exp.case (Pat.any ()) [%expr assert false]] in
+    let f = conv ~cases app ty constrs in
+    [%stri let of_int = [%e f] ]
+
+  let pp pre ty constrs =
+    let cstr = construct ty in
+    let pp = Pat.var @@ nloc @@ pre ^ "pp" in
+    let x', x = unique () in
+    let m =
+      let case c = let s = constr ty c in
+        Exp.case (cstr.p s) (string s) in
+      Exp.match_ x (List.map case constrs) in
+    [%stri let [%p pp] = fun ppf [%p x'] -> Printer.pp_print_string ppf [%e m]]
+
+  let view =
+    [%stri let view = Ctypes.view ~write:to_int ~read:of_int int]
+  let view_result =
+    [%stri let view = Vk__result.view  ~ok:(of_int,to_int) ~error:(of_int,to_int)]
+  let pp_result =
+    [%stri let pp = Vk__result.pp raw_pp]
+
+  let view_opt =
+    [%stri let view_opt =
+             let read x = if x = max_int then None else Some(of_int x) in
+             let write = function None -> max_int | Some x -> to_int x in
+             Ctypes.view ~read ~write int
+    ]
+
+  let make impl (name,constrs) =
+    let is_result = Aux.is_result_name name in
+    let n = var name and no = var L.(name//"opt") in
+    let pre = if is_result then "raw_" else "" in
+    let ty = impl, name in
+    let str =
+      (List.map (fun f -> f ty constrs)
+         [def; to_int;of_int; pp pre ])
+      @ (if is_result then [pp_result; view_result] else [view])
+      @ [view_opt] in
+    let m =
+      module' (nloc @@ modname name) str in
+    let views =
+      Exp.open_ Asttypes.Fresh (nlid @@ modname name) [%expr view, view_opt ] in
+    let ty =
+      decltype ~manifest:(H.Typ.constr (nloc @@ (lid @@modname name)/"t") [])
+        (nloc @@ typestr name)
+    in
+    [m; [%stri let [%p n.p], [%p no.p] = [%e views]]; ty ]
+
+end
 
 module Result = struct
 
@@ -49,7 +195,7 @@ module Typexp = struct
       | String -> [%expr string]
       | Array (Some Const n ,typ) -> [%expr array [%e tyvar n] [%e make typ]]
       | Array (Some (Lit n) ,typ) when not degraded ->
-        [%expr array [%e int n] [%e make typ]]
+        [%expr array [%e int.e n] [%e make typ]]
       | Array (_,typ) -> make (Ty.Ptr typ)
       | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
       | Handle _  ->
