@@ -1,9 +1,9 @@
 exception Type_error of string
-module N = Misc.StringMap
+module N = Enkindler_common.StringMap
 module M = Xml.Map
-module T = Ctype
-module Ty = Ctype.Ty
-module Arith = Ctype.Arith
+module T = Retype
+module Ty = Retype.Ty
+module Arith = Retype.Arith
 open Xml.Infix
 
 type entity =
@@ -257,7 +257,7 @@ let structure_refine node t =
     Ty.Record_extensions l
 
 let result_refine (s,e) ty =
-  let open Ctype.Ty in
+  let open Ty in
   let sum =String.split_on_char ',' in
   match s, e, ty with
   | None, _, _ | _, None, _  -> ty
@@ -277,11 +277,11 @@ let parse p s =
 (*  let lex = Lexing.from_string s in
   Fmt.(pf stderr) "lexing:\n%a\n%!"
     Cp__helper.pp_lex lex; *)
-  p Lexer.start @@ Lexing.from_string s
+  p Cxml_lexer.start @@ Lexing.from_string s
 
 let typedef spec node =
   let s = flatten node.Xml.children in
-  let name, ty = map2 (refine node) @@ parse Parser.typedef s in
+  let name, ty = map2 (refine node) @@ parse Cxml_parser.typedef s in
   register name (Type ty) spec
 
 let is_option_ty = function
@@ -315,7 +315,7 @@ let structure spec node =
   let field fields = function
     | Xml.Node ({ name = "member"; children; _ } as n) ->
       let s = flatten children in
-      let name, s = parse Parser.field s in
+      let name, s = parse Cxml_parser.field s in
       (name, refine n s) :: fields
     | _ -> fields in
   let fields = fields_refine @@ List.fold_left field [] node.children in
@@ -330,7 +330,7 @@ let union spec node =
   let field fields = function
     | Xml.Node ({ name = "member"; children; _ } as n) ->
       let s = flatten children in
-      let name, s = parse Parser.field s in
+      let name, s = parse Cxml_parser.field s in
       (name, refine n s) :: fields
     | _ -> fields in
   let fields = (List.rev @@ List.fold_left field [] node.children) in
@@ -338,7 +338,7 @@ let union spec node =
   register name (Type ty) spec
 
 let bitmask spec node =
-  let name, ty = parse Parser.typedef @@ flatten node.Xml.children in
+  let name, ty = parse Cxml_parser.typedef @@ flatten node.Xml.children in
   let ty =
     match ty with
     | Ty.Name n ->
@@ -454,7 +454,7 @@ let constant spec = function
   | Xml.Node ({name="enum"; _ } as n) ->
     let name = n%("name") in
     let const = n%("value") in
-    let num_expr = Arith.simplify @@ parse Parser.formula const in
+    let num_expr = Arith.simplify @@ parse Cxml_parser.formula const in
     register name (Const num_expr) spec
   | _ -> raise @@ Type_error "Unexpected data in constant"
 
@@ -493,7 +493,7 @@ let enums spec x =
 
 
 let proto n =
-  parse Parser.field @@ flatten n.Xml.children
+  parse Cxml_parser.field @@ flatten n.Xml.children
 
 let arg l = function
   | Xml.Data s -> raise @@
@@ -501,7 +501,7 @@ let arg l = function
   | Node {name="implicitexternsyncparams"; _ } ->
     (* TODO *) l
   | Node ({ name = "param"; _ } as n) ->
-    (map2 (refine n) @@ parse Parser.field @@ flatten n.children) :: l
+    (map2 (refine n) @@ parse Cxml_parser.field @@ flatten n.children) :: l
   | Node n -> raise @@
     Type_error ("expected param node, got "^ n.name ^ " node")
 

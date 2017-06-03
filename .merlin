@@ -5,5 +5,5 @@ S lib/*
 S lib_aux/*
 S sdl/*
 S config/config.ml
-PKG xmlm fmt ctypes.foreign tsdl
+PKG xmlm fmt ctypes.foreign tsdl ppx_tools.metaquot compiler-libs
 FLG -w A-44-42-45-4-41-48-6-40-30@8

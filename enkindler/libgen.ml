@@ -1,6 +1,6 @@
 module Dict = Name_study.Dict
 module R = Name_study.M
-module S = Misc.StringSet
+module S = Enkindler_common.StringSet
 
 let read filename =
   let spec = open_in filename in

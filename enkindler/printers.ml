@@ -2,7 +2,7 @@ module B = Lib_builder
 module T = B.T
 module Ty = B.Ty
 module L = Name_study
-module Arith = Ctype.Arith
+module Arith = B.Arith
 
 let sep ppf () = Fmt.pf ppf "\n"
 let arrow ppf () = Fmt.pf ppf "@ @->"
@@ -737,7 +737,7 @@ module Funptr = struct
       (* Composite fields does not make sense here *)
       (Typexp.pp true) fn.return
 
-  let pp  ppf (tyname, (fn:Ty.fn)) =
+  let pp_old  ppf (tyname, (fn:Ty.fn)) =
     match List.map snd @@ Ty.flatten_fn_fields fn.args with
     | [] ->
       Fmt.pf ppf "@[<hov> let %a = ptr void @]@."
@@ -750,6 +750,10 @@ module Funptr = struct
                   @]@."
         L.pp_var tyname L.pp_var tyname
         pp_ty fn
+
+  let pp ppf x =
+    let ast = Aster.Funptr.make x in
+    Pprintast.structure ppf [ast]
 
 end
 

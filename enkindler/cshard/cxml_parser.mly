@@ -23,16 +23,16 @@
 %nonassoc COMPLEMENT
 
 %{
-open Ctype
+open Retype
 open Ty
 open Arith
 open Unsigned
 %}
 
 %start<unit> start
-%start<Ctype.Ty.type_decl> typedef
-%start<Ctype.Ty.simple_field> field
-%start <Ctype.Arith.t> formula
+%start<Retype.Ty.type_decl> typedef
+%start<Retype.Ty.simple_field> field
+%start <Retype.Arith.t> formula
 %%
 
 start:

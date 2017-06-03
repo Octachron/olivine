@@ -1,5 +1,5 @@
 
-module S = Misc.StringSet
+module S = Enkindler_common.StringSet
 module L = Name_study
 
 let atoms_of_name name =

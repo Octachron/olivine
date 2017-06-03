@@ -7,7 +7,10 @@ true: short_paths
 true: strict_formats
 true: thread
 <enkindler/*>: package(xmlm), package(fmt), package(ctypes)
+<enkindler/libgen.native>: package(compiler-libs.common)
 <enkindler/cshard/*>: package(ctypes)
+<enkindler/aster.ml>: package(ppx_tools.metaquot), package(compiler-libs.common)
+<enkindler/printers.ml>: package(compiler-libs.common)
 <enkindler> or <enkindler/cshard>: include
 <lib>: include
 <lib_aux>: include

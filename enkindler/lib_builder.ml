@@ -3,7 +3,7 @@ type path = string list
 
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
-module T = Ctype
+module T = Retype
 module Cty = T.Ty
 module Arith = T.Arith
 
@@ -11,7 +11,7 @@ module Full_name = struct
   type name = L.name
   let pp ppf x = L.pp_var ppf x
 end
-module Ty = Ctype.Typexpr(Full_name)
+module Ty = Retype.Typexpr(Full_name)
 module Name_set = Set.Make(struct type t = L.name let compare = compare end)
 
 type 'a with_deps = { x:'a; deps: Deps.t }
@@ -42,10 +42,10 @@ let rec is_empty m =
     m.sig' = [] && List.for_all is_empty m.submodules
 
 let sys_specific =
-  let module S = Misc.StringSet in
+  let module S = Enkindler_common.StringSet in
   let all = S.of_list
       [ "xlib";  "xcb";  "wl"; "android"; "wayland"; "mir"; "win"; "win32" ] in
-  let unsupported = S.diff all @@ S.of_list Config.supported_systems in
+  let unsupported = S.diff all @@ S.of_list Econfig.supported_systems in
   let check x = S.mem x unsupported in
   fun name -> List.exists (List.exists check )
     Name_study.[name.prefix;name.postfix;name.main]
@@ -101,7 +101,7 @@ let add path name item module' =
 let add_l path name item lib =
   { lib with content = add path name item lib.content }
 
-module S = Misc.StringSet
+module S = Enkindler_common.StringSet
 
 let may f = function
   | None -> None
@@ -142,7 +142,7 @@ module Rename = struct
     | Const n -> Ty.Const !n
     | Null_terminated -> Ty.Null_terminated
     | Math_expr -> Ty.Math_expr
-  and fn (!) {Ctype.Ty.args; name; original_name; return } =
+  and fn (!) {Cty.args; name; original_name; return } =
     Ty.{ args = fn_fields (!) args;
          name = ! name; original_name;
          return = typ (!) return }

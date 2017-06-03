@@ -1,5 +1,5 @@
 {
-open Parser
+open Cxml_parser
 let string_buffer = Buffer.create 50
 }
 

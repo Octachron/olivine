@@ -160,7 +160,7 @@ let rec clean = function
   | p -> p
 
 
-module M = Misc.StringMap
+module M = Enkindler_common.StringMap
 type dict = { words:Dict.t; roles: role M.t; context:name }
 
 let compose x y = { prefix = x.prefix @ y.prefix;
@@ -330,7 +330,7 @@ let pp_type ppf p =
 
 let pp_var ppf = pp_type ppf
 
-module N = Misc.StringMap
+module N = Enkindler_common.StringMap
 
 type nametree =
   | Obj of Typed.entity
@@ -371,7 +371,7 @@ let rec pp_nametree ppf = function
     let bs = List.filter (fun (_n,m) -> cardinal m > 5 ) (N.bindings m)
     in
     Fmt.pf ppf "@[<v 2>%a@]"
-      (Ctype.Ty.pp_list (Ctype.Ty.const "@;") pp_branch) bs
+      (Retype.Ty.pp_list (Retype.Ty.const "@;") pp_branch) bs
 and pp_branch ppf (name, m) =
     Fmt.pf ppf "%s(%d):@;@[%a@]" name (cardinal m) pp_nametree m
 
@@ -383,3 +383,5 @@ let count_names dict e =
   let add_names k _ m =
     List.fold_left add_name m (path dict k) in
   N.fold add_names e N.empty
+
+let (//) x s = { x with postfix = s :: x.postfix }
