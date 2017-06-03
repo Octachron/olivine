@@ -12,8 +12,8 @@ module Aux = struct
   let is_result_name x = L.to_path x = ["result"]
 end
 
-let list merge map =
-  List.fold_left (fun acc x -> merge acc @@ map x) []
+let list merge map acc =
+  List.fold_left (fun acc x -> merge acc @@ map x) acc
 
 let listr merge map l last =
   List.fold_right (fun x acc -> merge (map x) acc) l last
@@ -34,14 +34,19 @@ let modname = Fmt.strf "%a" L.pp_module
 
 let (/) x s = Longident.( Ldot(x,s) )
 
+let qn module' x =
+  (nloc @@ (lid @@modname module')/ x)
+
+
 let typ n = [%type: [%t typename n]]
 
 let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
 
 let typexp n = [%expr [%e typename n]]
 let tyvar n = Ast_helper.Exp.ident @@ nloc @@ typename n
-let var n = let s= varname n in
-  { p = Pat.var (nloc s); e= Exp.ident (nlid s) }
+let var n = let s = varname n in
+  { p = Pat.var (nloc s);
+    e= Exp.ident (nlid @@ s) }
 
 let (%) f g x = f (g x)
 let int = {
@@ -65,7 +70,7 @@ let decltype ?(recflag=tyrec) ?manifest ?kind name =
   H.Str.type_ recflag [H.Type.mk ?kind ?manifest name]
 
 let module' name str =
-  H.( Str.module_ @@ Mb.mk name @@ Mod.structure str )
+  H.( Str.module_ @@ Mb.mk (nloc @@ modname name) @@ Mod.structure str )
 
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name
@@ -75,6 +80,91 @@ let polyvariant name constrs =
     P.Rtag (c,[],true,[]) in
   let typ = H.Typ.variant (List.map ty constrs) Asttypes.Closed None in
   H.Str.type_ norec [H.Type.mk ~manifest:typ name]
+
+let views name =
+  let n = var name and no = var L.(name//"opt") in
+  let e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) [%expr view, view_opt ]
+  in [%stri let [%p n.p], [%p no.p] = [%e e]]
+
+let extern_type name =
+  decltype ~manifest:(H.Typ.constr (qn name "t")  [])
+    (nloc @@ typestr name)
+
+module Bitset = struct
+
+  let bit_name name =
+    let rec bitname = function
+      | "flags" :: q ->
+        "bits" :: "flag" :: q
+      | [] ->
+        raise @@ Invalid_argument "bitname []"
+      | a :: q -> a :: bitname q in
+    L.{ name with postfix = bitname name.postfix }
+
+  let set_name name =
+    let rec rename = function
+      |  "bits" :: "flag" :: q ->
+        "flags" :: q
+      | [] ->
+        raise @@ Invalid_argument "empty bitset name []"
+      | a :: q -> a :: rename q in
+    L.{ name with postfix = rename name.postfix }
+
+  let value_name set_name name =
+    L.remove_context set_name name
+
+  let field_name set_name name = let open L in
+    let context =
+      { set_name with postfix = set_name.postfix @ [ "bit" ]  } in
+    remove_context context name
+
+  let named namer f set_name (name,value) =
+    let v = var @@ namer set_name name in
+    [%stri let [%p v.p] = [%e f] [%e int.e value]]
+
+  let field = named field_name [%expr make_index]
+  let value = named value_name [%expr of_int]
+
+  let values set_name (fields,values) =
+    List.map (field set_name) fields
+    @ List.map (value set_name) values
+
+  let pp set (fields,_) =
+    let field (name,_) =
+      let name = field_name set name in
+      [%expr [%e (var name).e], [%e string (varname name)]] in
+    let l = listr (fun x l -> [%expr [%e x] :: [%e l] ]) field fields [%expr []] in
+    [%stri let pp x = pp_tags [%e l] x]
+
+  let resume bitname name =
+    let index_view b n =
+      let v = Pat.var (nloc b) and e = Exp.ident (qn name n) in
+      [%stri let [%p v] = [%e e ]] in
+    [extern_type name; views name;
+     index_view bitname "index_view";
+     index_view (bitname^"_opt") "index_view_opt" ]
+
+  let make_extended (bitname, fields) =
+  let name = set_name bitname in
+  let core_name = let open L in
+    { name with postfix = List.filter (fun x -> x <> "flags") name.postfix }
+  in
+  module' name (
+    [%stri include Bitset.Make()]
+    :: values core_name fields
+    @ [pp core_name fields]
+  )
+  :: resume (varname bitname) name
+
+  let make (name,opt) =
+    let bitname = bit_name name in
+    match opt with
+    | Some _ -> []
+    | None ->
+      module' name [[%stri include Bitset.Make() ]] (*FIXME*)
+      :: resume (varname bitname) name
+
+end
 
 module Enum = struct
 
@@ -150,9 +240,9 @@ module Enum = struct
              Ctypes.view ~read ~write int
     ]
 
+
   let make impl (name,constrs) =
     let is_result = Aux.is_result_name name in
-    let n = var name and no = var L.(name//"opt") in
     let pre = if is_result then "raw_" else "" in
     let ty = impl, name in
     let str =
@@ -161,14 +251,8 @@ module Enum = struct
       @ (if is_result then [pp_result; view_result] else [view])
       @ [view_opt] in
     let m =
-      module' (nloc @@ modname name) str in
-    let views =
-      Exp.open_ Asttypes.Fresh (nlid @@ modname name) [%expr view, view_opt ] in
-    let ty =
-      decltype ~manifest:(H.Typ.constr (nloc @@ (lid @@modname name)/"t") [])
-        (nloc @@ typestr name)
-    in
-    [m; [%stri let [%p n.p], [%p no.p] = [%e views]]; ty ]
+      module' name str in
+    [m; views name ; extern_type name ]
 
 end
 

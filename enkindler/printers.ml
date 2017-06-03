@@ -169,33 +169,8 @@ module H = struct
   let nl ppf () = Fmt.cut ppf ()
 end
 
-module Bitset = struct
-
-  let bit_name name =
-    let rec bitname = function
-      | "flags" :: q ->
-        "bits" :: "flag" :: q
-      | [] ->
-        raise @@ Invalid_argument "bitname []"
-      | a :: q -> a :: bitname q in
-    L.{ name with postfix = bitname name.postfix }
-
-  let set_name name =
-    let rec rename = function
-      |  "bits" :: "flag" :: q ->
-        "flags" :: q
-      | [] ->
-        raise @@ Invalid_argument "empty bitset name []"
-      | a :: q -> a :: rename q in
-    L.{ name with postfix = rename name.postfix }
-
-  let value_name set_name name =
-    L.remove_context set_name name
-
-  let field_name set_name name = let open L in
-    let context =
-      { set_name with postfix = set_name.postfix @ [ "bit" ]  } in
-      remove_context context name
+module Bitset_pp = struct
+  open Aster.Bitset
 
   let field set_name ppf (name, value) =
     Fmt.pf ppf "let %a = make_index %d@;"
@@ -252,6 +227,13 @@ module Bitset = struct
         L.pp_module name;
       resume ppf bitname name
 
+end
+
+module Bitset = struct
+  let pp_with_bits ppf data =
+    Pprintast.structure ppf @@ Aster.Bitset.make_extended data
+  let pp ppf data =
+    Pprintast.structure ppf @@ Aster.Bitset.make data
 end
 
 module Handle = struct
@@ -599,7 +581,7 @@ module Structured = struct
       | exception Not_found ->  Fmt.pf ppf "%a.pp" L.pp_module t
       | B.Type Ty.FunPtr _ -> Fmt.pf ppf "pp_abstract"
       | B.Type Ty.Bitfields _ ->
-        Fmt.pf ppf "%a.pp" L.pp_module (Bitset.set_name t)
+        Fmt.pf ppf "%a.pp" L.pp_module (Aster.Bitset.set_name t)
       | B.Type Ty.Union _ -> Fmt.pf ppf "pp_abstract"
       | _ -> Fmt.pf ppf "%a.pp" L.pp_module t
       end
