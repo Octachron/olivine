@@ -533,7 +533,7 @@ module Structured = struct
         (if H.is_option ty then string "Some" else string "")
         (if H.is_option tya then string "Some" else string "")
         mk_array (pp_index (unopt ty) (string "n"), string "a")
-    | Ty.Array_f {array= x, tya; index = n, ty } ->
+    | Ty.Array_f  {array= x, tya; index = n, ty } ->
       Fmt.pf ppf "let %a = %a and %a = %a in@;"
       L.pp_var n get_field n L.pp_var x get_field x;
       if H.is_option tya then
