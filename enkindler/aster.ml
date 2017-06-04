@@ -1,4 +1,5 @@
 module L = Name_study
+module B = Lib_builder
 module Ty = Lib_builder.Ty
 module T = Lib_builder.T
 
@@ -85,9 +86,11 @@ let polyvariant name constrs =
   let typ = H.Typ.variant (List.map ty constrs) Asttypes.Closed None in
   H.Str.type_ norec [H.Type.mk ~manifest:typ name]
 
+let open' name e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) e
+
 let views name =
   let n = var name and no = var L.(name//"opt") in
-  let e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) [%expr view, view_opt ]
+  let e = open' name [%expr view, view_opt ]
   in [%stri let [%p n.p], [%p no.p] = [%e e]]
 
 let extern_type name =
@@ -269,6 +272,34 @@ module Result = struct
 
   let expr (ok,errors) =
     tyvar @@ Subresult.composite_nominal ok errors
+
+  module M = B.Result.Map
+
+  let find name m =
+    try M.find name m with
+    | Not_found ->
+      Fmt.(pf stderr) "Either.find: not found %a\n%!"
+        L.pp_var name;
+      List.iter (fun (name,id) -> Fmt.(pf stderr) "%a:%d\n%!"
+                    L.pp_var name id)
+      @@ M.bindings m;
+      raise Not_found
+
+  let view m name constrs =
+    let constrs =
+      List.map (fun name -> name, T.Abs (find name m)) constrs in
+    module' name Enum.[ of_int (Poly,name) constrs;
+                        to_int (Poly,name) constrs ]
+
+  let make m (name,ok,error) = match ok, error with
+    | [], x | x, [] -> [view m name x]
+    | _ ->
+      let v, ok_name, error_name = let open Subresult in
+        var (composite_nominal ok error), side_name ok, side_name error in
+      let conv name = open' name [%expr of_int, to_int] in
+      [[%stri let [%p v.p] =
+               Vk__result.view ~ok:[%e conv ok_name] ~error:[%e conv error_name]
+      ]]
 end
 
 module Typexp = struct

@@ -356,24 +356,14 @@ module Enum_pp = struct
 end
 
 
-module Result = struct
+module Result_pp = struct
 
-  module M = B.Result.Map
   open Subresult
 (*
   let pp_result ppf (ok,errors) =
     Fmt.pf ppf "%s" @@ composite_name dict ok errors
 *)
-
-  let find name m =
-    try M.find name m with
-    | Not_found ->
-      Fmt.(pf stderr) "Either.find: not found %a\n%!"
-        L.pp_var name;
-      List.iter (fun (name,id) -> Fmt.(pf stderr) "%a:%d\n%!"
-                    L.pp_var name id)
-      @@ M.bindings m;
-      raise Not_found
+  open Aster.Result
 
   let view m ppf name constrs =
     let constrs =
@@ -385,6 +375,7 @@ module Result = struct
 
   let pp_type ppf (ok,errors) =
     Fmt.pf ppf "%a" L.pp_type @@ composite_nominal ok errors
+
   let pp m ppf (name,ok,errors) =
     match ok, errors with
     | [], x | x, [] ->
@@ -399,6 +390,12 @@ module Result = struct
           L.pp_var name
           L.pp_module ok_name
           L.pp_module error_name;
+end
+
+module Result = struct
+
+  let pp m ppf data = Aster.Result.make m data |> Pprintast.structure ppf
+
 end
 
 module Record_extension = struct
@@ -467,7 +464,7 @@ module Typexp = struct
     | Handle _  ->
       failwith "Anonymous type"
     | Result {ok;bad} ->
-      Result.pp_type ppf (ok,bad)
+      Result_pp.pp_type ppf (ok,bad)
     | Record_extensions _ -> Fmt.pf ppf "(ptr void)"
     (* ^FIXME^?: better typing? *)
     | FunPtr _ ->
