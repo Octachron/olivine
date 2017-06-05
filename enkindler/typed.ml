@@ -252,8 +252,6 @@ let structure_refine node t =
   | None -> t
   | Some l ->
     let l = l |> String.split_on_char ',' |> List.tl in
-    Fmt.epr "structure type values @[%a@]@."
-      Fmt.(list ~sep:(fun ppf () -> pf ppf ",@ ") string) l;
     Ty.Record_extensions l
 
 let result_refine (s,e) ty =

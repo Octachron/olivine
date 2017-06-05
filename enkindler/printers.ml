@@ -471,7 +471,7 @@ module Typexp = struct
       failwith "Not_implemented: funptr"
 end
 
-module Structured = struct
+module Structured_pp = struct
 
   type 'field kind =
     | Union: Ty.simple_field kind
@@ -712,6 +712,11 @@ module Structured = struct
       L.pp_type name L.pp_module name
       L.pp_var name L.pp_module name
 
+end
+
+module Structured = struct
+  let pp types kind ppf data =
+    Aster.Structured.make types kind data |> Pprintast.structure ppf
 end
 
 module Funptr = struct
