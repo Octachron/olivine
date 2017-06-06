@@ -153,6 +153,11 @@ let unique () =
   let s =  "x'" ^ string_of_int !counter ^ "'" in
   { p = Pat.var (nloc s); e = Exp.ident (nlid s) }
 
+
+let coerce ~from ~to' value = [%expr Ctypes.coerce [%e from] [%e to'] [%e value]]
+let ptr x = [%expr ptr [%e x] ]
+let void = [%expr void]
+
 let norec = Asttypes.Nonrecursive
 let tyrec = Asttypes.Recursive
 
@@ -413,17 +418,37 @@ module Record_extension = struct
     [ [%stri exception Unknown_record_extension];
       decl; extend ]
 
-  let extract (name,exts) input =
-    let constr x = Pat.construct (nlid @@ mkconstr x) (Some(pvar "x")) in
-    let str x = ident @@ (lid "Structure_type") /  mkconstr x in
-    let case x = Exp.case (constr x)
+  let constr =
+    let n = nlid % mkconstr in
+    let p x var = Pat.construct (n x) (Some var)
+    and e x var = Exp.construct (n x) (Some var) in
+    {e; p}
+
+  let flag x = (lid "Structure_type") /  mkconstr x
+  let str = ident % flag
+  let strp x = Pat.construct (nloc @@ flag x) None
+
+  let typext = ident % typename
+
+  let split (name,exts) input =
+    let v = ident' "x" in
+    let case x = Exp.case (constr.p x v.p)
         [%expr [%e str x] ,
-               Ctypes.( coerce (ptr [%e ident @@ typename x]) (ptr void) x)] in
+               [%e coerce (ptr @@ typext x) (ptr void) v.e]] in
     let noext_case =
       Exp.case [%pat? No_extension] [%expr [%e str name], Ctypes.null ] in
     let exn = Exp.case [%pat? _ ] [%expr raise Unknown_record_extension ] in
     let cases = noext_case :: (List.map case exts) @ [exn] in
     Exp.match_ input cases
+
+  let merge (name,exts) ~tag ~data =
+    let case ext = Exp.case (strp ext)
+        (constr.e ext @@ coerce (ptr void) (ptr @@ typext ext) data ) in
+    let noext = Exp.case (strp name) [%expr No_extension] in
+    let exn = Exp.case [%pat? _] [%expr raise Unknown_record_extension ] in
+    let cases = noext :: (List.map case exts) @ [exn] in
+    Exp.match_ tag cases
+
 
 end
 
@@ -522,7 +547,7 @@ module Structured = struct
 
   let start x = [%expr Ctypes.CArray.start [%e x]]
 
-  let getter types fields (out,field) =
+  let getter typename types fields (out,field) =
     let u = unique () in
     let get_field' = get_field' u.e and get_field = get_field u.e in
     let def x = [%stri let [%p out.p] = fun [%p u.p] -> [%e x] ] in
@@ -543,7 +568,8 @@ module Structured = struct
           else mk xv.e in
         [%expr let [%p (var n).p] = [%e get_field' n]
           and [%p xv.p] = [%e get_field' x] in [%e body] ]
-      | Record_extension _ -> [%expr assert false]
+      | Record_extension {exts;tag=tag,_ ;ptr= ptr, _ } ->
+        Record_extension.merge (typename, exts) (get_field' tag) (get_field' ptr)
       | Simple (n, Array(Some (Lit i), ty )) when Aux.is_char ty ->
         [%expr Ctypes.string_from_ptr [%e start @@ get_field' n] [%e int.e i] ]
     | Simple (n, Array(Some (Const s), ty)) when Aux.is_char ty ->
@@ -576,8 +602,7 @@ module Structured = struct
 
   let nullptr = function
     | Ty.Option _ -> [%expr None]
-    | t ->
-        [%expr Ctypes.coerce (ptr void) [%e Typexp.make true t] Ctypes.null]
+    | t -> coerce (ptr void) (Typexp.make true t) [%expr Ctypes.null]
   (*   | ty -> not_implemented "Null array not implemented for %a@." Ty.pp ty *)
 
   let set typ r field value =
@@ -606,7 +631,7 @@ module Structured = struct
     | Ty.Record_extension { exts; _ } ->
       [%expr
         let type__gen, next__gen =
-          [%e Record_extension.extract (typ,exts) value.e ] in
+          [%e Record_extension.split (typ,exts) value.e ] in
         [%e setf "s_type" [%expr type__gen] ];
         [%e setf "next" [%expr next__gen] ]
       ]
@@ -666,13 +691,17 @@ module Structured = struct
     def @@ [%expr [%e sseq sep pp_field fields]; pf ppf "@ }@]"]
 
 
-  let def_fields (type a) (kind: a kind) types (fields: a list) =
+  let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
     let seal = [%stri let () = Ctypes.seal t] in
     match kind with
     | Union -> List.map sfield fields @ [seal]
     | Record ->
-      let lens f = getter types fields (ident' @@ repr_name f, f) in
-      module' (L.simple ["Fields"])
+      let lens f = getter typename types fields (ident' @@ repr_name f, f) in
+      let exts= match Aux.record_extension fields with
+        | Some exts -> Record_extension.def (typename,exts)
+        | None -> [] in
+      exts
+      @  module' (L.simple ["Fields"])
         List.(flatten @@ map field fields)
       :: seal :: (List.map lens fields) @ [pp types fields]
 
@@ -684,11 +713,11 @@ module Structured = struct
     | Union -> [%expr union]
     | Record -> [%expr structure]
 
-  let def types kind name fields =
+  let def types (_,kind as tk) name fields =
     [%stri type t ]
     :: [%stri let t: [%t kind_cstr kind [%type:t] ] =
                 [%e ke kind] [%e string @@ typestr name] ]
-     :: def_fields kind types fields
+     :: def_fields tk types fields
 
 
   module M = Enkindler_common.StringMap
@@ -732,13 +761,9 @@ module Structured = struct
   let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     let records = match kind with
       | Union -> []
-      | Record ->
-        begin match Aux.record_extension fields with
-          | Some exts -> Record_extension.def (name,exts)
-          | None -> [] end
-        @ [construct name fields] in
+      | Record -> [construct name fields] in
     [ module' name
-        (def types kind name fields @ records);
+        (def types (name,kind) name fields @ records);
       [%stri let [%p pvar @@ varname name] = [%e ident @@ qn name "t"]];
       extern_type name
     ]
