@@ -93,7 +93,8 @@ module Aux = struct
     | name :: q ->
       final_option types (find_record name types) q
 
-
+  let to_fields = List.map(fun f -> f.Ty.field)
+  
 end
 
 let not_implemented fmt =
@@ -138,6 +139,9 @@ let tyvar n = ident @@ typename n
 let var n = let s = varname n in
   { p = Pat.var (nloc s);
     e= Exp.ident (nlid @@ s) }
+
+let pat f x = (f x).p
+let ex f x = (f x).e
 
 let (%) f g x = f (g x)
 let int = {
@@ -191,17 +195,21 @@ let extern_type name =
   decltype ~manifest:(H.Typ.constr (nloc @@ qn name "t")  [])
     (nloc @@ typestr name)
 
-let opt ty v =
+let wrap_opt ty v =
   if Aux.is_option ty then
     [%expr Some [%e v]]
   else
     v
 
+
+let unwrap_opt_ty = function
+  | Ty.Option ty -> ty
+  | ty -> ty
+
 let repr_name = function
   | Ty.Array_f { array = a, _ ; _ } -> (varname a)
   | Simple(n, _ ) -> varname n
   | Record_extension _ -> "ext"
-
 
 module M = Enkindler_common.StringMap
 let mkfun fields =
@@ -272,7 +280,7 @@ module Bitset = struct
   let pp set (fields,_) =
     let field (name,_) =
       let name = field_name set name in
-      [%expr [%e (var name).e], [%e string (varname name)]] in
+      [%expr [%e ex var name], [%e string (varname name)]] in
     let l = listr (fun x l -> [%expr [%e x] :: [%e l] ]) field fields [%expr []] in
     [%stri let pp x = pp_tags [%e l] x]
 
@@ -558,16 +566,12 @@ module Structured = struct
     | Ty.Lit n -> int.e n
     | Path p ->
       let pty= Aux.type_path types fields p in
-      get_path (fun x -> (var x).e) pty
+      get_path (ex var) pty
     | _ -> assert false
 
-  let unopt = function
-    | Ty.Option ty -> ty
-    | ty -> ty
-
-  let rec to_int var = function
-    | Ty.Ptr t -> to_int [%expr Ctypes.(!@) [%e var]] t
-    | Option t -> to_int [%expr unwrap [%e var]] t
+    let rec int_of_ty var = function
+    | Ty.Ptr t -> int_of_ty [%expr Ctypes.(!@) [%e var]] t
+    | Option t -> int_of_ty [%expr unwrap [%e var]] t
     | Name t when L.to_path t = ["uint32";"t"] -> var
     | Name t -> [%expr [%e ident @@ qn t "to_int"][%e var] ]
     | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
@@ -581,7 +585,7 @@ module Structured = struct
     let def x = [%stri let [%p out.p] = fun [%p u.p] -> [%e x] ] in
     def begin match field with
       | Ty.Array_f {index=i,ty; array = a, tya} as f when Aux.is_option_f f ->
-        let index =  to_int (ident' "n").e (unopt ty) in
+        let index = int_of_ty (ex ident' "n") (unwrap_opt_ty ty) in
         [%expr match [%e get_field' i], [%e get_field' a] with
           | [%p if Aux.is_option ty then [%pat? Some n] else [%pat? n]],
             [%p if Aux.is_option tya then [%pat? Some a] else [%pat? a]] ->
@@ -589,7 +593,7 @@ module Structured = struct
           | _ -> None
         ]
       | Array_f {array= x, tya; index = n, ty } ->
-        let mk = mk_array (to_int (var n).e ty) in
+        let mk = mk_array (int_of_ty (ex var n) ty) in
         let xv = var x in
         let body = if Aux.is_option tya then
             [%expr may (fun x -> [%e mk [%expr x]]) vx.d]
@@ -649,7 +653,7 @@ module Structured = struct
           [%e setf  (name array) (nullptr @@ ty array)]
         | Some [%p value.p] ->
           [%e setf (name index) (array_len index) ];
-          [%e setf (name array) (opt (ty array) @@ start value.e)]
+          [%e setf (name array) (wrap_opt (ty array) @@ start value.e)]
       ]
     | Ty.Array_f { index; array } ->
       [%expr
@@ -813,8 +817,107 @@ module Fn = struct
       (ident name) args
 
   let make_labelled m fn =
-    let args = List.map (fun f -> f.Ty.field) fn.Ty.args in
+    let args = Aux.to_fields fn.Ty.args in
     let k, vars = mkfun args in
-    k @@ apply (qn m @@ varname fn.name) vars args
+    [%stri let make =
+             [%e k @@ apply (qn m @@ varname fn.name) vars args]
+    ]
 
+
+
+  let rec ptr_to_name = function
+    | Ty.Name t -> Some(ident (typename t), t )
+    | Ty.Ptr p | Array(_,p) ->
+      begin match ptr_to_name p with
+        | Some(p,elt) -> Some(ptr p,elt)
+        | None -> None
+      end
+    | _ -> None
+
+  let nullptr_typ p = [%expr nullptr [%e p]]
+  let allocate_n ty n = [%expr Ctypes.allocate_n [%e ty] [%e n]]
+
+  (* Allocate composite fields *)
+  let allocate_field types fields f body  = match f.Ty.field with
+    | Simple(f, Array(Some(Path p), Name elt)) ->
+      let array = var f in
+      let size = var L.(f//"'size") in
+      let pty = Aux.type_path types fields p in
+      let n = Structured.get_path (ident%lid%varname) pty in
+      [%expr let [%p size.p] = [%e n ] in
+        let [%p array.p ] = Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
+        [%e body]
+      ]
+    | Simple (f,t) ->
+      begin let f = var f in
+        match ptr_to_name t with
+        | None -> body
+        | Some (p,_) ->
+          let alloc = wrap_opt t @@ allocate_n p [%expr 1] in
+          [%expr let [%p f.p] = [%e alloc] in [%e body] ]
+      end
+    | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
+      [%expr let [%p pat var i] = Ctypes.allocate [%e ex var L.(t//"opt")] None in
+        let [%p pat var a] = None in [%e body]
+      ]
+    | Array_f { array=a, elt; index=i, size } ->
+      begin match ptr_to_name elt, ptr_to_name size with
+        | None, _ | _, None -> body
+        | Some (e,_), Some(s,_) ->
+          let alloc_size = wrap_opt size @@ allocate_n s [%expr 1]
+          and alloc_elt = nullptr_typ e and a= var a and i = var i in
+          [%expr let [%p a.p] = [%e alloc_elt] and [%p i.p] = [%e alloc_size] in
+            body
+          ]
+      end
+    | _ -> not_implemented "Native function for field type %a" Ty.pp_fn_field f
+
+  (* Array output parameter needs to be allocated in two times:
+     first the index parameter is allocated,
+     then the function is applied and fills the actual value of the
+     index parameter, which enable us to allocate the output array *)
+  let secondary_allocate_field f body = match f.Ty.field with
+    | Array_f { array = a, elt; index = i, it  } ->
+      let size = Structured.int_of_ty (ex var i) it in
+      begin match ptr_to_name elt with
+        | Some (ty,_) ->
+          [%expr let [%p pat var a] = [%e allocate_n ty size]  in [%e body] ]
+        | _ -> body
+      end
+    | _ -> body
+
+  let extract_opt input output nullptr map body =
+    [%expr let [%p output] = match [%e input] with
+        | None -> None, [%e nullptr]
+        | Some [%p output] -> [%e map output] in  [%e body]
+    ]
+
+  let len x = [%expr Ctypes.CArray.length [%e x] ]
+  let start = Structured.start
+  let extract_array input index array body =
+    [%expr
+      let [%p index] = [%e len input] in
+      let [%p array] = [%e start input] in
+      [%e body]
+    ]
+
+  let input_expand f body = match f with
+      | Ty.Array_f { array= (a, tya as array) ; index = (i, _ as index)  } as f ->
+        if Aux.is_option_f f then
+          let extract_array input = [%expr [%e len input], [%e start input]] in
+          extract_opt (ex var a) [%pat? ([%p pat var a], [%p pat var i]) ]
+            (nullptr tya) extract_array
+        else
+          extract_array (var a) (pat var i) (pat var a) body
+      | _ -> body
+  
+  let make_native types (fn:Ty.fn)=
+    let input, output =
+      List.partition (fun r -> r.Ty.dir = In || r.dir = In_Out) fn.args in
+    let input' = Aux.to_fields input in
+    let all = List.map fst @@ Ty.flatten_fn_fields fn.args in
+    let fn, vars = mkfun input' in
+    let expanded rest = fn
+      @@ List.fold_left (fun k f -> k % input_expand f) fn input' in
+    ()
 end
