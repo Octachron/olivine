@@ -197,6 +197,39 @@ let opt ty v =
   else
     v
 
+let repr_name = function
+  | Ty.Array_f { array = a, _ ; _ } -> (varname a)
+  | Simple(n, _ ) -> varname n
+  | Record_extension _ -> "ext"
+
+
+module M = Enkindler_common.StringMap
+let mkfun fields =
+  let label f name =
+    if Aux.is_option_f f then
+      Asttypes.Optional name
+    else
+      Asttypes.Labelled name in
+  let add_arg (k,m) = function
+    | Ty.Record_extension _ as f ->
+      let u = unique () in
+      let m = M.add "ext" u m in
+      let k body =
+        k @@ Exp.fun_ (label f "ext") (Some [%expr No_extension]) u.p body in
+      k, m
+    | Ty.Simple(n,_) | Array_f { array= n, _; _ } as f ->
+      let u = unique () in
+      let m = M.add (varname n) u m in
+      let k body = k @@ Exp.fun_ (label f @@ varname n) None u.p body in
+      k, m in
+  let terminator =
+    if List.exists Aux.is_option_f fields
+    then fun body -> [%expr fun () -> [%e body]]
+    else fun x -> x in
+  let f, m = List.fold_left add_arg ((fun x->x), M.empty) fields in
+  f % terminator, m
+
+
 module Bitset = struct
 
   let bit_name name =
@@ -512,11 +545,6 @@ module Structured = struct
   let get_field' r = get_field r % varname
   let mk_array n x = [%expr Ctypes.CArray.from_ptr [%e x] [%e n]]
 
-   let repr_name = function
-    | Ty.Array_f { array = a, _ ; _ } -> (varname a)
-    | Simple(n, _ ) -> varname n
-    | Record_extension _ -> "ext"
-
   let rec get_path f = function
     | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
     | [None, a] -> f a
@@ -719,33 +747,6 @@ module Structured = struct
                 [%e ke kind] [%e string @@ typestr name] ]
      :: def_fields tk types fields
 
-
-  module M = Enkindler_common.StringMap
-  let mkfun fields =
-    let label f name =
-      if Aux.is_option_f f then
-        Asttypes.Optional name
-      else
-        Asttypes.Labelled name in
-    let add_arg (k,m) = function
-      | Ty.Record_extension _ as f ->
-        let u = unique () in
-        let m = M.add "ext" u m in
-        let k body =
-          k @@ Exp.fun_ (label f "ext") (Some [%expr No_extension]) u.p body in
-        k, m
-      | Ty.Simple(n,_) | Array_f { array= n, _; _ } as f ->
-        let u = unique () in
-        let m = M.add (varname n) u m in
-        let k body = k @@ Exp.fun_ (label f @@ varname n) None u.p body in
-        k, m in
-    let terminator =
-      if List.exists Aux.is_option_f fields
-      then fun body -> [%expr fun () -> [%e body]]
-      else fun x -> x in
-    let f, m = List.fold_left add_arg ((fun x->x), M.empty) fields in
-    f % terminator, m
-
   let construct tyname fields =
     let fn, m = mkfun fields in
     let res = unique () in
@@ -773,20 +774,47 @@ end
 
 module Funptr = struct
 
-  let mkty (fn:Ty.fn) =
-    let ret  = Typexp.make true fn.return in
+  let mkty args ret =
+    let ret  = Typexp.make true ret in
     listr (fun l r -> [%expr[%e l] @-> [%e r] ]) (Typexp.make true)
-      (List.map snd @@ Ty.flatten_fn_fields fn.args)
+      args
       [%expr returning [%e ret]]
+
+  let expand = function
+    | [] -> [Ty.Name (L.simple ["void"])]
+    | l -> l
 
   let make (tyname, (fn:Ty.fn)) =
     let ty = pty tyname and tyo = pty L.(tyname//"opt")in
     match List.map snd @@ Ty.flatten_fn_fields fn.args with
-    | [] -> [%stri let [%p ty] = ptr void ]
-    | _ ->
+    | [] -> [%stri let [%p ty] = ptr void]
+    | args ->
       [%stri let [%p ty], [%p tyo] =
-               let ty = [%e mkty fn] in
+               let ty = [%e mkty args fn.return] in
                Foreign.funptr ty, Foreign.funptr_opt ty
       ]
+
+end
+
+module Fn = struct
+  open Funptr
+
+  let arg_types (fn:Ty.fn) =
+    expand @@ List.map snd @@ Ty.flatten_fn_fields fn.args
+  let make_simple fn =
+    let args = arg_types fn in
+    [%stri let [%p (var fn.name).p] =
+             foreign [%e string fn.original_name] [%e mkty args fn.return]
+    ]
+
+  let apply name vars args =
+    List.fold_left (fun f field ->
+        [%expr [%e f] [%e (M.find (repr_name field) vars).e] ] )
+      (ident name) args
+
+  let make_labelled m fn =
+    let args = List.map (fun f -> f.Ty.field) fn.Ty.args in
+    let k, vars = mkfun args in
+    k @@ apply (qn m @@ varname fn.name) vars args
 
 end

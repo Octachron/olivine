@@ -942,7 +942,11 @@ module Fn = struct
     Fmt.pf ppf "@]@."
 
 
-    let pp types kind = if kind then pp_raw else pp_smart types
+  let pp types simple ppf fn =
+    if simple then
+      [fn |> Aster.Fn.make_simple] |> Pprintast.structure ppf
+    else
+      pp_smart types ppf fn
 
 end
 
