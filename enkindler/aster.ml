@@ -94,7 +94,7 @@ module Aux = struct
       final_option types (find_record name types) q
 
   let to_fields = List.map(fun f -> f.Ty.field)
-  
+
 end
 
 let not_implemented fmt =
@@ -157,6 +157,7 @@ let unique () =
   let s =  "x'" ^ string_of_int !counter ^ "'" in
   { p = Pat.var (nloc s); e = Exp.ident (nlid s) }
 
+let reset_uid () = counter := 0
 
 let coerce ~from ~to' value = [%expr Ctypes.coerce [%e from] [%e to'] [%e value]]
 let ptr x = [%expr ptr [%e x] ]
@@ -212,31 +213,37 @@ let repr_name = function
   | Record_extension _ -> "ext"
 
 module M = Enkindler_common.StringMap
+
+let index_name f = L.(f//"size'")
+
 let mkfun fields =
   let label f name =
     if Aux.is_option_f f then
       Asttypes.Optional name
     else
       Asttypes.Labelled name in
-  let add_arg (k,m) = function
+  let add_arg (k,m) =
+    let def  ?opt f p body = k @@ Exp.fun_ (label f @@ repr_name f) opt p body in
+    let vars = List.fold_left (fun m (k,x) -> M.add k x m) m in
+    function
     | Ty.Record_extension _ as f ->
+      let u = unique () and opt = [%expr No_extension] in
+      def ~opt f u.p, vars ["ext", u]
+    | Array_f { array= n, _; index = i, _  } as f ->
+      let u = unique () and v = unique () in
+      def f u.p, vars [varname n, u; varname i, v ]
+    | Simple(n, Array _) as f ->
+      let u = unique () and v = unique () in
+      def f u.p, vars [varname n, u; varname @@ index_name n, v]
+    | Ty.Simple(n,_)  as f ->
       let u = unique () in
-      let m = M.add "ext" u m in
-      let k body =
-        k @@ Exp.fun_ (label f "ext") (Some [%expr No_extension]) u.p body in
-      k, m
-    | Ty.Simple(n,_) | Array_f { array= n, _; _ } as f ->
-      let u = unique () in
-      let m = M.add (varname n) u m in
-      let k body = k @@ Exp.fun_ (label f @@ varname n) None u.p body in
-      k, m in
+      def f u.p, vars [varname n, u] in
   let terminator =
-    if List.exists Aux.is_option_f fields
+    if List.exists Aux.is_option_f fields || List.length fields = 0
     then fun body -> [%expr fun () -> [%e body]]
     else fun x -> x in
   let f, m = List.fold_left add_arg ((fun x->x), M.empty) fields in
   f % terminator, m
-
 
 module Bitset = struct
 
@@ -625,9 +632,9 @@ module Structured = struct
 
   let inner = L.simple ["Fields"]
 
-  let rec of_int ty x =
+  let rec ty_of_int ty x =
     match ty with
-    | Ty.Option t -> [%expr Some [%e of_int t x]]
+    | Ty.Option t -> [%expr Some [%e ty_of_int t x]]
     | Name t -> [%expr [%e ident @@ qn t "of_int"] [%e x] ]
     | _ -> x
   let array_len x = [%expr Ctypes.CArray.length [%e x] ]
@@ -639,7 +646,7 @@ module Structured = struct
 
   let set typ r field value =
     let name = varname % fst and ty = snd in
-    let array_len (_, ty as _index) = of_int ty (array_len value.e) in
+    let array_len (_, ty as _index) = ty_of_int ty (array_len value.e) in
     let optzero f = if Aux.is_option (ty f) then [%expr None] else [%expr 0] in
     let setf f value =
       [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value]] in
@@ -812,9 +819,12 @@ module Fn = struct
     ]
 
   let apply name vars args =
-    List.fold_left (fun f field ->
-        [%expr [%e f] [%e (M.find (repr_name field) vars).e] ] )
-      (ident name) args
+    let get f = M.find (varname f) vars in
+    let app f = function
+      | Ty.Array_f { array = a, _ ; index = i, _ } ->
+        [%expr [%e f] [%e ex get i] [%e ex get a] ]
+      | field -> [%expr [%e f] [%e ex (M.find@@repr_name field) vars ] ] in
+    List.fold_left app (ident name) args
 
   let make_labelled m fn =
     let args = Aux.to_fields fn.Ty.args in
@@ -824,12 +834,12 @@ module Fn = struct
     ]
 
 
-
-  let rec ptr_to_name = function
+  let rec ptr_to_name ?(ellide=true) = function
+    | Ty.Option t -> ptr_to_name ~ellide t
     | Ty.Name t -> Some(ident (typename t), t )
     | Ty.Ptr p | Array(_,p) ->
-      begin match ptr_to_name p with
-        | Some(p,elt) -> Some(ptr p,elt)
+      begin match ptr_to_name ~ellide:false p with
+        | Some(p,elt) -> Some((if ellide then p else ptr p),elt)
         | None -> None
       end
     | _ -> None
@@ -838,18 +848,20 @@ module Fn = struct
   let allocate_n ty n = [%expr Ctypes.allocate_n [%e ty] [%e n]]
 
   (* Allocate composite fields *)
-  let allocate_field types fields f body  = match f.Ty.field with
+  let allocate_field types fields vars f body  =
+    let get name = M.find (varname name) vars in
+    match f.Ty.field with
     | Simple(f, Array(Some(Path p), Name elt)) ->
-      let array = var f in
-      let size = var L.(f//"'size") in
+      let array = get f in
+      let size =  get @@ index_name f in
       let pty = Aux.type_path types fields p in
-      let n = Structured.get_path (ident%lid%varname) pty in
+      let n = Structured.get_path (ex get) pty in
       [%expr let [%p size.p] = [%e n ] in
         let [%p array.p ] = Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
         [%e body]
       ]
     | Simple (f,t) ->
-      begin let f = var f in
+      begin let f = get f in
         match ptr_to_name t with
         | None -> body
         | Some (p,_) ->
@@ -857,15 +869,17 @@ module Fn = struct
           [%expr let [%p f.p] = [%e alloc] in [%e body] ]
       end
     | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
-      [%expr let [%p pat var i] = Ctypes.allocate [%e ex var L.(t//"opt")] None in
-        let [%p pat var a] = None in [%e body]
+      let a = get a and i = get i in
+      [%expr let [%p i.p] = Ctypes.allocate [%e ex var L.(t//"opt")] None in
+        let [%p a.p] = None in [%e body]
       ]
     | Array_f { array=a, elt; index=i, size } ->
+      let a = get a and i = get i in
       begin match ptr_to_name elt, ptr_to_name size with
         | None, _ | _, None -> body
         | Some (e,_), Some(s,_) ->
           let alloc_size = wrap_opt size @@ allocate_n s [%expr 1]
-          and alloc_elt = nullptr_typ e and a= var a and i = var i in
+          and alloc_elt = nullptr_typ e in
           [%expr let [%p a.p] = [%e alloc_elt] and [%p i.p] = [%e alloc_size] in
             body
           ]
@@ -876,48 +890,138 @@ module Fn = struct
      first the index parameter is allocated,
      then the function is applied and fills the actual value of the
      index parameter, which enable us to allocate the output array *)
-  let secondary_allocate_field f body = match f.Ty.field with
-    | Array_f { array = a, elt; index = i, it  } ->
-      let size = Structured.int_of_ty (ex var i) it in
-      begin match ptr_to_name elt with
-        | Some (ty,_) ->
-          [%expr let [%p pat var a] = [%e allocate_n ty size]  in [%e body] ]
-        | _ -> body
-      end
+  let secondary_allocate_field vars f body = match f.Ty.field with
+    | Array_f { array = a, tya; index = i, it  } ->
+      let a = M.find (varname a) vars and i = M.find (varname i) vars in
+      let size = Structured.int_of_ty i.e it in
+      begin match ptr_to_name tya with
+        | Some (elt, _ ) ->
+          let alloc = allocate_n elt size in
+          [%expr let [%p a.p] = [%e wrap_opt tya @@ alloc] in [%e body] ]
+        | None -> assert false end
     | _ -> body
 
   let extract_opt input output nullptr map body =
-    [%expr let [%p output] = match [%e input] with
+    let scrutinee = unique () in
+    [%expr let [%p output.p] = match [%e input] with
         | None -> None, [%e nullptr]
-        | Some [%p output] -> [%e map output] in  [%e body]
+        | Some [%p scrutinee.p] -> [%e map scrutinee.e] in  [%e body]
     ]
 
-  let len x = [%expr Ctypes.CArray.length [%e x] ]
+  let len' x = [%expr Ctypes.CArray.length [%e x] ]
+  let len ty x = Structured.ty_of_int ty @@ len' x
+
   let start = Structured.start
-  let extract_array input index array body =
+  let extract_array input (ty,index) array body =
     [%expr
-      let [%p index] = [%e len input] in
+      let [%p index] = [%e len ty input] in
       let [%p array] = [%e start input] in
       [%e body]
     ]
 
-  let input_expand f body = match f with
-      | Ty.Array_f { array= (a, tya as array) ; index = (i, _ as index)  } as f ->
+  let (<*>) x y =
+    { p = [%pat? [%p x.p], [%p y.p] ]; e = [%expr [%e x.e], [%e y.e] ] }
+
+  let nullptr = Structured.nullptr
+
+  let input_expand vars f body = match f with
+    | Ty.Array_f { array= (a, tya ) ; index = (i, ty )  } as f ->
+      let a = M.find (varname a) vars and i = M.find (varname i) vars in
         if Aux.is_option_f f then
-          let extract_array input = [%expr [%e len input], [%e start input]] in
-          extract_opt (ex var a) [%pat? ([%p pat var a], [%p pat var i]) ]
-            (nullptr tya) extract_array
+          let extract_array input =
+            [%expr [%e len ty input], [%e start input]] in
+          extract_opt a.e ( i <*> a )
+            (nullptr tya) extract_array body
         else
-          extract_array (var a) (pat var i) (pat var a) body
-      | _ -> body
-  
+          extract_array a.e (ty,i.p) a.p body
+    | Simple(f, Array(Some Path _, ty)) ->
+      let f = M.find (varname f) vars in
+      if Aux.is_option ty then
+        [%expr let [%p f.p] = match [%e f.e] with
+            | Some [%p f.p] -> Some [%e start f.e]
+            | None -> None in [%e body]
+        ]
+      else
+        [%expr let [%p f.p] =[%e start f.e] in [%e body] ]
+    | _ -> body
+
+  let tuple l = Exp.tuple l
+
+  let ty_of_int = Structured.ty_of_int
+  let int_of_ty = Structured.int_of_ty
+  let from_ptr x y = [%expr Ctypes.CArray.from_ptr [%e x] [%e y] ]
+  let to_output vars f =
+    let get x = ex (M.find @@ varname x) vars in
+    match f.Ty.field with
+    | Ty.Array_f { array = (n, Ty.Option _) ; index = i , it } ->
+      from_ptr [%expr unwrap [%e get n]] (int_of_ty (get i) it)
+      | Ty.Array_f { array = (n,_) ; _ } -> get n
+      | Simple(f, Array(Some(Path _), Name _ )) ->
+        from_ptr (get f)
+          (ex (M.find @@ varname @@ index_name f) vars)
+      | Simple(n, _) -> [%expr Ctypes.(!@) [%e get n] ]
+      | Record_extension _ ->
+        not_implemented "Record extension used as a function argument"
+
+  let join ty res outputs =
+    let n = List.length outputs in
+    if Aux.is_result ty then
+      let u = unique () in
+      let outputs = if outputs = [] then [[%expr ()]] else outputs in
+      [%expr match [%e res] with
+        | Error _ as e -> e
+        | Ok [%p u.p] -> Ok [%e tuple @@ u.e :: outputs]
+      ]
+    else if  n = 0 then
+      res
+    else if Aux.is_void ty then
+      tuple outputs
+    else
+      tuple @@ res :: outputs
+
+  let look_out vars output = List.fold_left ( fun (l,vars) f ->
+      match f.Ty.field with
+      | Ty.Array_f { array = a, _ ; index = i, _ } ->
+        let u = unique () and v = unique () in
+        u.e :: l, vars |> M.add (varname i) u |> M.add (varname a) v
+      | Simple(n, Array _ ) ->
+        let u = unique () and v = unique () in
+        u.e :: l, vars |> M.add (varname n) v |> M.add (varname @@ index_name n) u
+      | f ->
+        let u = unique () in
+        u.e :: l, vars |> M.add (repr_name f) u
+        ) ([], vars) output
+
   let make_native types (fn:Ty.fn)=
+    reset_uid ();
+    let fold f l body = List.fold_right ((@@) f ) l body in
     let input, output =
       List.partition (fun r -> r.Ty.dir = In || r.dir = In_Out) fn.args in
+    let apply_twice = List.exists
+        (function { Ty.field = Array_f _ ; _ } -> true | _ -> false) output in
+    let tyret = fn.return in
     let input' = Aux.to_fields input in
-    let all = List.map fst @@ Ty.flatten_fn_fields fn.args in
-    let fn, vars = mkfun input' in
-    let expanded rest = fn
-      @@ List.fold_left (fun k f -> k % input_expand f) fn input' in
-    ()
+    let all = Aux.to_fields fn.args in
+    let fun', vars = mkfun input' in
+    let _, vars = look_out vars output in
+    (fun x -> [%stri let [%p pat var fn.name] = [%e x] ]) @@
+    fun' @@
+    fold (input_expand vars) input' @@
+    fold (allocate_field types input' vars) output @@
+    let apply = apply (lid @@ varname fn.name) vars all in
+    let res = unique () in
+    let result =
+      let outs = List.map (to_output vars) output in
+      [%expr let [%p res.p] = [%e apply] in [%e join tyret res.e outs] ] in
+    let secondary = fold (secondary_allocate_field vars) output in
+    if not apply_twice then
+      result
+    else if Aux.is_result fn.return then
+      [%expr match [%e apply] with
+        | Error _ as e -> e
+        | Ok _ -> [%e secondary result]
+      ]
+    else
+      [%expr [%e apply]; [%e secondary result] ]
+
 end

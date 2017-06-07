@@ -946,8 +946,10 @@ module Fn = struct
     if simple then
       [fn |> Aster.Fn.make_simple] |> Pprintast.structure ppf
     else
+      [fn |> Aster.Fn.make_native types] |> Pprintast.structure ppf
+ (*
       pp_smart types ppf fn
-
+*)
 end
 
 module DFn = struct
