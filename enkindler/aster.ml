@@ -1025,3 +1025,16 @@ module Fn = struct
       [%expr [%e apply]; [%e secondary result] ]
 
 end
+
+let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
+
+let alias builtins (name,origin) =
+  if not @@ B.Name_set.mem name builtins then
+    module_gen name H.Mod.(apply (ident (nlid "Alias"))
+                             (ident @@ nlid @@ modname origin))
+    :: [%str
+      let [%p pat var name] = [%e ident @@ qn name "ctype"]
+let [%p pat var L.(name//"opt")] = integer_opt [%e packed name]
+]
+  else
+    []
