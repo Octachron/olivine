@@ -1023,28 +1023,31 @@ let pp_alias builtins ppf (name,origin) =
       L.pp_module name
     *)
 let pp_type builtins results types ppf (name,ty) =
-  match ty with
-  | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> ()
-  | Result {ok;bad} -> Result.pp results ppf (name,ok,bad)
-  | Name t -> pp_alias builtins ppf (name,t)
-  | FunPtr fn -> Funptr.pp ppf (name,fn)
-  | Union fields -> Structured.(pp types Union) ppf (name,fields)
-  | Bitset { field_type = Some _; _ } -> ()
-  | Bitset { field_type = None; _ } -> Bitset.pp ppf (name,None)
+  Pprintast.structure ppf
+  @@ match ty with
+  | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> []
+  | Result {ok;bad} ->
+    Aster.Result.make results (name,ok,bad)
+  | Name t -> Aster.alias builtins (name,t)
+  | FunPtr fn -> [Aster.Funptr.make (name,fn)]
+  | Union fields -> Aster.Structured.make types Union (name,fields)
+  | Bitset { field_type = Some _; _ } -> []
+  | Bitset { field_type = None; _ } -> Aster.Bitset.make (name,None)
   | Bitfields {fields;values} ->
-    Bitset.pp_with_bits ppf (name,(fields,values))
-  | Handle _ ->  Handle.pp ppf name
+    Aster.Bitset.make_extended (name,(fields,values))
+  | Handle _ ->  Aster.Handle.make name
   | Enum constrs ->
     if not @@ is_bits name then
       begin
         let is_result = name.main = ["result"] in
         let kind = if is_result then Aster.Enum.Poly else Aster.Enum.Std in
-        Enum.pp kind ppf (name,constrs)
+        Aster.Enum.make kind (name,constrs)
       end
+    else []
   | Record r ->
-    Structured.(pp types Record) ppf (name,r.fields)
+    Aster.Structured.make types Record (name,r.fields)
   | Record_extensions _ -> (* FIXME *)
-    Fmt.pf ppf "(ptr void)"
+    assert false
 
 let pp_item (lib:B.lib) ppf (name, item) =
   let types = (B.find_submodule "types" lib).sig' in

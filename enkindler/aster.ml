@@ -1024,6 +1024,8 @@ module Fn = struct
     else
       [%expr [%e apply]; [%e secondary result] ]
 
+  let make types simple fn =
+    (if simple then make_simple else make_native types) fn
 end
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
