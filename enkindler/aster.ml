@@ -1029,7 +1029,6 @@ module Fn = struct
 end
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
-
 let alias builtins (name,origin) =
   if not @@ B.Name_set.mem name builtins then
     module_gen name H.Mod.(apply (ident (nlid "Alias"))
@@ -1040,3 +1039,20 @@ let [%p pat var L.(name//"opt")] = integer_opt [%e packed name]
 ]
   else
     []
+
+
+let float_const f = Exp.constant (H.Const.float @@ string_of_float f)
+module Const = struct
+  let make (name,const) =
+    let rec expr =
+      function
+      | B.Arith.Float f -> float_const f
+      | Int n ->  int.e n
+      | UInt64 n ->
+        [%expr Unsigned.ULLong.of_string [%e string @@ Unsigned.ULLong.to_string n]]
+      | UInt n ->
+        [%expr Unsigned.UInt.of_string [%e string @@ Unsigned.UInt.to_string n] ]
+      | Complement num_expr -> [%expr lnot [%e expr num_expr] ]
+      | Minus (a,b) -> [%expr [%e expr a] - [%e expr b] ] in
+    [%stri let [%p pat var name] = [%e expr const] ]
+end
