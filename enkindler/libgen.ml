@@ -68,11 +68,13 @@ let make_dict spec =
   , exts |> add_ext "KHX" |> add_ext "EXT"
 
 let preambule =
-  "open Ctypes\n\
-   let libvulkan = Dl.dlopen ~filename:\"libvulkan.so\" ~flags:Dl.[RTLD_NOW]\n\
-   let foreign name = Foreign.foreign ~from:libvulkan name \n\
-   module Printer = Format\n\
-  "
+  [%str
+    open Ctypes
+    let libvulkan = Dl.dlopen ~filename:"libvulkan.so" ~flags:Dl.[RTLD_NOW]
+    let foreign name = Foreign.foreign ~from:libvulkan name
+    module Printer = Format
+  ],
+  [%sig: ]
 
 let () =
   let info = read Sys.argv.(1) in

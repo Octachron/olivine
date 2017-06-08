@@ -6,11 +6,13 @@ true: safe_string
 true: short_paths
 true: strict_formats
 true: thread
-<enkindler/*>: package(xmlm), package(fmt), package(ctypes)
-<enkindler/libgen.native>: package(compiler-libs.common)
+<enkindler/*>: package(xmlm), package(fmt), package(ctypes), package(ppx_tools.metaquot)
+<enkindler/libgen.native>: package(compiler-libs.common), package(ppx_tools.metaquot)
+<enkinder/libgen.ml>: package(ppx_tools.metaquot)
 <enkindler/cshard/*>: package(ctypes)
-<enkindler/aster.ml>: package(ppx_tools.metaquot), package(compiler-libs.common)
+<enkindler/ast*.ml>: package(ppx_tools.metaquot), package(compiler-libs.common)
 <enkindler/printers.ml>: package(compiler-libs.common)
+<enkindler/lib_builder.ml>: package(compiler-libs.common), package(ppx_tools.metaquot)
 <enkindler> or <enkindler/cshard>: include
 <lib>: include
 <lib_aux>: include

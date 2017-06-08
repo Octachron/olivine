@@ -36,54 +36,68 @@ let pp_type builtins results types ppf (name,ty) =
   | Record_extensions _ -> (* FIXME *)
     assert false
 
-let pp_item (lib:B.lib) ppf (name, item) =
-  let types = (B.find_submodule "types" lib).sig' in
-  match item with
-  | B.Type t -> pp_type lib.builtins lib.result types ppf (name,t)
-  | Const c -> Pprintast.structure ppf [Aster.Const.make (name,c)]
-  | Fn f -> Pprintast.structure ppf [Aster.Fn.make types f.simple f.fn]
-
 
 let pp_open ppf m =
   if m.B.args = [] then
-    Fmt.pf ppf "open %s@." (String.capitalize_ascii m.B.name)
+    Fmt.pf ppf "open %a@." L.pp_module m.B.name
 
-let rec pp_module lib ppf (m:B.module') =
+let space ppf () = Fmt.pf ppf "@;"
+
+let rec pp_item (lib:B.lib) ppf item =
+  let types = match B.find_module B.types lib.content.sig' with
+    | Some m -> m.sig'
+    | None -> raise (Invalid_argument "Printers.pp_item: Missing type module") in
+  match item with
+  | B.Type (name,t) -> pp_type lib.builtins lib.result types ppf (name,t)
+  | Const (name,c) -> Pprintast.structure ppf [Aster.Const.make (name,c)]
+  | Fn f -> Pprintast.structure ppf [Aster.Fn.make types f.simple f.fn]
+  | Stri s -> Pprintast.structure ppf [s]
+  | Sigi _ -> ()
+  | Module m -> pp_module lib ppf m
+and  pp_module lib ppf (m:B.module') =
   Fmt.pf ppf
-    "@[<v 2>module %s%a= struct@;%a@;end@]@;%a@;"
-    (String.capitalize_ascii m.name)
+    "@[<v 2>module %a%a= struct@;%a@;end@]@;%a@;"
+    L.pp_module m.name
     pp_args m.args
     (pp_sig lib) m
     pp_open m
 and pp_sig lib ppf (m:B.module') =
-    Fmt.pf ppf "%a@;%a@;"
-      (Fmt.list @@ pp_module lib) m.submodules
-      (Fmt.list @@ pp_item lib) m.sig'
+    Fmt.pf ppf "%a"
+      (Fmt.list ~sep:space @@ pp_item lib) m.sig'
 
 and pp_args ppf = function
   | [] -> ()
   | args -> Fmt.list pp_arg ppf args
 and pp_arg ppf arg = Fmt.pf ppf "(%s)" arg
 
+
+
+
 let atlas ppf modules =
   let pp_alias ppf (m:B.module') =
-    Fmt.pf ppf "module %s = Vk__%s@;"
-      (String.capitalize_ascii m.name) m.name
+    Fmt.pf ppf "module %a = Vk__%a@;"
+      L.pp_module m.name L.pp_var m.name
   in
   Fmt.pf ppf "@[<v>%a@]@." (Fmt.list pp_alias) modules
+
+let rec submodules = function
+  | B.Module m :: q -> m :: submodules q
+  | _ :: q -> submodules q
+  | [] -> []
 
 let lib (lib:B.lib) =
   let open_file n =
     Format.formatter_of_out_channel @@ open_out @@ lib.root ^ "/" ^ n in
-  let  pp_preambule ppf (m:B.module') =
-    Fmt.pf ppf "%s\n%s\n" lib.preambule m.preambule in
-  atlas (open_file "vk.ml") lib.content.submodules;
+  let  pp_preambule ppf =
+    Fmt.pf ppf "%a\n" Pprintast.structure (fst lib.preambule) in
+  atlas (open_file "vk.ml") (submodules lib.content.sig');
   let pp_sub (m:B.module') =
     if not (B.is_empty m) then
       begin
-        let ppf = open_file ("vk__" ^ m.name ^ ".ml") in
-        Fmt.pf ppf "%a\n%a%!"
-          pp_preambule m
+        let filename = Fmt.strf "vk__%a.ml" L.pp_var m.name in
+        let ppf = open_file filename in
+        Fmt.pf ppf "%t\n%a%!"
+          pp_preambule
           (pp_sig lib) m
       end in
-  List.iter pp_sub lib.content.submodules
+  List.iter pp_sub @@ submodules lib.content.sig'
