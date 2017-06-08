@@ -27,6 +27,8 @@ module Utils = struct
     | None -> ()
     | Some x -> pp ppf x
 
+  let pp_array ~sep pp ppf a = Format.fprintf ppf "[|%a|]" (Format.pp_print_list ~pp_sep:sep pp) @@ A.to_list a 
+  let space = Format.pp_print_cut
   let ( #. ) x f= f x
 
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
@@ -53,6 +55,7 @@ module Utils = struct
     let len = in_channel_length chan in
     really_input_string chan len
 
+  let fsize = Ctypes.(sizeof float)
   let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
 end
 open Utils
@@ -182,7 +185,7 @@ module Device = struct
     Surface.get_physical_device_surface_present_modes_khr phy surface_khr
     <?> "present modes"
 
-  ;; A.iter (debug "%a" Vkt.Present_mode_khr.pp) present_modes
+  ;; debug "@[<v 2>%a@]" (pp_array ~sep:space Vkt.Present_mode_khr.pp) present_modes
 
   let support =
     let x = Surface.get_physical_device_surface_support_khr phy queue_family
@@ -472,7 +475,6 @@ module Pipeline = struct
   (* ;; Gc.major() trigger a wrong memory read ?? *)
 
   ;; debug "Input:@;%a" pp_input input
-  let fsize = Ctypes.(sizeof float)
 
   let vertex_binding =
     Vkt.Vertex_input_binding_description.make
@@ -908,6 +910,106 @@ module Cmd = struct
     done
 
   let () = iteri cmd cmd_buffers
+end
+
+module Heat_equation = struct
+
+  let xs = 128 and ys = 128 and nface = 6
+  let space_size  = xs * ys * nface
+
+  let data = Array.init space_size (fun _ -> Random.float 1.)
+  let data' = Array.make space_size 0.
+
+  type coord2D = int * int 
+  type coord = int * int * int
+
+  type dir = X | Y
+  type connection = Direct | Reverse
+  type edge = { dir: dir; normal: int; lim: int; face:int; len: int }
+  type link = edge * connection * edge
+  type atlas = link list array 
+
+  let reorient connection edge x =
+    let t = if connection = Direct then x else edge.len - x - 1 in
+    let n = edge.lim in
+    if edge.dir = X then (t,n, edge.face) else (n,t, edge.face)  
+
+  let hit (src, connection, dest) (x,y,_k) = 
+    let norm, transv = if src.dir = X then (x,y) else (y,x) in
+    if norm = src.lim + src.normal then Some(reorient connection dest transv)
+    else None
+
+
+  let rec edge_transition pos = function
+  | [] -> pos
+  | edge :: q ->
+      match hit edge pos with
+      | None -> edge_transition pos q
+      | Some pos -> pos
+
+  let len = function X -> ys | Y -> xs 
+  let edge dir lim face = 
+  let lim, normal = if lim = 0 then lim, -1 else lim - 1, 1 in  
+  { dir;lim;face; normal; len = len dir }
+
+let (++) atlas (e1,c,e2 as l) =
+  atlas.(e1.face) <- l :: atlas.(e1.face);
+  atlas.(e2.face) <- (e2,c,e1) :: atlas.(e2.face);
+  atlas
+
+let v k = edge X ys k, Direct, edge X 0 (k+1 mod 4)
+
+let atlas =
+  Array.make nface []
+  ++ v 0 ++ v 1  ++ v 2 ++ v 3
+  ++ (edge Y ys 0, Direct, edge Y 0 4)
+  ++ (edge Y ys 4, Reverse, edge Y ys 2 )
+  ++ (edge Y 0 2, Direct, edge Y ys 5 )
+  ++ (edge Y 0 5, Reverse, edge Y ys 0)
+  ++ (edge Y ys 1, Direct, edge X 0 4)
+  ++ (edge X xs 4, Reverse, edge Y ys 3)
+  ++ (edge Y ys 0, Direct, edge X 0 5)
+  ++ (edge X xs 5, Reverse, edge Y 0 1)   
+
+let index (x,y,k) = x + xs * ( y + ys * k)
+
+let border_index atlas (_x,_y, k as pos ) =
+  let pos = edge_transition pos atlas.(k) in
+  index pos
+
+  let laplacian index dt data data' (x,y,k) =
+    let pos = index (x,y,k) in 
+    data'.(pos) <- data.(pos) +. 
+    dt *.( 3. *. data.(pos) -. data.(index(x+1,y,k)) -. data.(index(x-1,y,k)) -. data.(index(x,y+1,k)) -. data.(index(x,y-1,k)))
+
+  let diffop dt data data'=
+    for k = 0 to nface - 1 do
+      for y = 1 to ys -2 do
+        for x = 1 to xs -2 do
+          laplacian index dt data data' (x,y,k)
+        done;
+      done;
+    done
+
+    let operator dt data data' = diffop dt data data'; diffop dt data' data 
+
+
+   let dt = 0.01  
+   let niter = int_of_float @@ 2. /. dt
+   let () = 
+  for _i = 0 to niter do
+     operator dt data data'
+    done
+
+end
+
+module Texture = struct
+  open Heat_equation
+  let memsize = Vkt.Device_size.of_int @@ space_size * fsize
+  let src_buffer = Pipeline.create_buffer Vkt.Buffer_usage_flags.transfer_src memsize
+
+     
+
 end
 
 module Render = struct
