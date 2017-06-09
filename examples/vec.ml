@@ -35,8 +35,10 @@ module type vec = sig
   val id: matrix
   val vec: (int -> float) -> vec
   val matrix: (int -> int -> float) -> matrix
+  val size: 'r t -> int
   val data: 'a t -> data
-  val blit_to: from:'a t -> to':data -> unit
+  val blit_to: ?offset:int -> from:'a t -> to':data -> unit -> unit
+
 
   module Bigarray : sig
     module Array1: sig
@@ -72,7 +74,7 @@ module Make(Array:array)(D:dim): vec with type data = float Array.t = struct
   type 'a t = float Array.t constraint 'a = [< rank]
   type matrix = [`matrix] t
   type vec = [`vec] t
-
+  let size x = Array.length x
   let pp ppf v =
     let fp x = Format.fprintf ppf x in
     fp "@[<v>[";
@@ -90,9 +92,9 @@ module Make(Array:array)(D:dim): vec with type data = float Array.t = struct
     | `matrix -> Array.zeroes (dim*dim)
 
   let data x = x
-  let blit_to ~from:v ~to':a =
+  let blit_to ?(offset=0) ~from:v ~to':a () =
     for i = 0 to Array.length v - 1 do
-      a.(i) <- v.(i)
+      a.(i + offset ) <- v.(i)
     done
 
   module Bigarray = struct

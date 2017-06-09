@@ -759,7 +759,7 @@ module Uniform = struct
 
   let layouts = A.of_list Vkt.descriptor_set_layout [layout]
 
-  let size = Vkt.Device_size.of_int ( 4 * 4 * fsize )
+  let size = Vkt.Device_size.of_int ( (Vec.dim + 1 ) * Vec.dim * fsize )
   let buffer, memory =
     create_buffer device Vkt.Buffer_usage_flags.uniform_buffer size
 
@@ -816,11 +816,12 @@ module Uniform = struct
       ]
 
 
-    let transfer matrix =
+    let transfer vec matrix =
     let m = Vkc.map_memory device memory zero_offset size () <!> "map memory" in
     let typed = Ctypes.(coerce (ptr void) (ptr float) m) in
-    let a = A.from_ptr typed (4*4)  in
-    Vec.blit_to ~from:matrix ~to':a;
+    let a = A.from_ptr typed (Vec.size vec + Vec.size matrix)  in
+    Vec.blit_to ~from:vec ~to':a ();
+    Vec.blit_to ~offset:(Vec.size vec) ~from:matrix ~to':a ();
     Vkc.unmap_memory device memory
 
   end
@@ -1246,7 +1247,7 @@ module Render = struct
             <?> "Acquire image" in
     present_indices <-@ n;
     debug "Image %d acquired" n;
-    let () = Uniform.transfer Vec.id in
+    let () = Uniform.transfer (Vec.zero `vec) Vec.id in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
     <?> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
@@ -1265,19 +1266,23 @@ module Render = struct
   let r i j (x,_) = Vec.axis_rotation i j x
   let u f = f *. (Random.float 2. -. 1.)
 
+  let vec_phase (position,speed) =
+    Vec.(0.9 *. position + speed, 0.99 *. speed + Vec.vec (fun _ -> u 0.001))
   let rot x y z t = Vec.( r 0 1 x * r 1 2 y * r 2 0 z * r 0 3 t)
   let phase (angle,speed) = (angle +. speed, speed +. u 0.001)
-  let draw (x, y, z, t) =
+  let draw (p, (x, y, z, t)) =
     present_indices <-@ acquire_next ();
     let x,y,z,t as state = phase x, phase y, phase z, phase t in
-    let () = Uniform.transfer (rot x y z t) in
+    let p = vec_phase p in
+    let () = Uniform.transfer (fst p) (rot x y z t) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <!> "Present to queue";
-    state
+    p, state
 
 end
+let vec = Vec.(zero `vec, zero `vec)
 ;; Render.(debug_draw(); debug_draw ())
-;; Sdl.(event_loop Render.draw (let z = 0., 0. in z,z,z,z)  e)
+ ; Sdl.(event_loop Render.draw (let z = 0., 0. in vec, (z,z,z,z))  e)
 ;; debug "End"
