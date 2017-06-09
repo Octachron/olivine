@@ -161,7 +161,7 @@ module Typexpr(X:name) = struct
     | Ptr (Name _ |Ptr _ as ty) -> fp ppf "ptr %a" pp ty
     | Ptr ty -> fp ppf "ptr (%a)" pp ty
     | Option (Name _ as ty) -> fp ppf "option %a" pp ty
-    | Option (Ptr _ as ty) -> fp ppf "ptr_opt %a" pp ty
+    | Option (Ptr ty) -> fp ppf "ptr_opt %a" pp ty
     | Option ty -> fp ppf "option (%a)" pp ty
     | Array(None, ty) -> fp ppf "array (%a)" pp ty
     | Array(Some cexp, ty) -> fp ppf "array[%a](%a)"

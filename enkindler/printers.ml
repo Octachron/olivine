@@ -50,7 +50,7 @@ let rec pp_item (lib:B.lib) ppf item =
   match item with
   | B.Type (name,t) -> pp_type lib.builtins lib.result types ppf (name,t)
   | Const (name,c) -> Pprintast.structure ppf [Aster.Const.make (name,c)]
-  | Fn f -> Pprintast.structure ppf [Aster.Fn.make types f.simple f.fn]
+  | Fn f -> Pprintast.structure ppf [Aster.Fn.make types f.implementation f.fn]
   | Stri s -> Pprintast.structure ppf [s]
   | Sigi _ -> ()
   | Module m -> pp_module lib ppf m

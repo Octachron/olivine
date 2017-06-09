@@ -206,7 +206,8 @@ module Device = struct
   let x =
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
-      let queue_create_infos = A.from_ptr queue_create_info 1 in
+      let queue_create_infos =
+        A.of_list Vkt.device_queue_create_info [queue_create_info] in
       Vkt.Device_create_info.make
         ~queue_create_infos
         (*  ~pp_enabled_layer_names: layers *)
@@ -269,12 +270,12 @@ module Image = struct
     Vkt.Component_mapping.make ~r:id ~g:id ~b:id ~a:id
 
   let subresource_range =
-    !(Vkt.Image_subresource_range.make
+    Vkt.Image_subresource_range.make
     ~aspect_mask:Vkt.Image_aspect_flags.color
     ~base_mip_level: 0
     ~level_count: 1
     ~base_array_layer: 0
-    ~layer_count: 1)
+    ~layer_count: 1
 
   let image_view_info im =
     Vkt.Image_view_create_info.make
@@ -282,7 +283,7 @@ module Image = struct
       ~view_type: Vkt.Image_view_type.N2d
       ~format
       ~subresource_range
-      ~components:!(component_mapping)
+      ~components:component_mapping
       ()
 
   let views =
@@ -349,11 +350,11 @@ module Pipeline = struct
 
   let scissor =
     Vkt.Rect_2d.make
-      ~offset: Vkt.Offset_2d.(!(make ~x:0 ~y:0))
+      ~offset: (Vkt.Offset_2d.make ~x:0 ~y:0)
       ~extent:Image.extent
 
-  let viewports = A.from_ptr viewport 1
-  let scissors = A.from_ptr scissor 1
+  let viewports = A.of_list Vkt.viewport  [viewport]
+  let scissors = A.of_list Vkt.rect_2d [scissor]
 
   let viewport_state =
     Vkt.Pipeline_viewport_state_create_info.make
@@ -398,7 +399,7 @@ module Pipeline = struct
 
   let blend_state_info =
     let attachments =
-      A.of_list Vkt.pipeline_color_blend_attachment_state [!no_blend] in
+      A.of_list Vkt.pipeline_color_blend_attachment_state [no_blend] in
     let consts = A.of_list Ctypes.float [ 0.; 0.; 0.; 0. ] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~logic_op_enable: false
@@ -433,15 +434,15 @@ module Pipeline = struct
       ~layout: Vkt.Image_layout.Color_attachment_optimal
 
   let subpass =
-    let color = A.from_ptr attachment 1 in
+    let color = A.of_list Vkt.attachment_reference [attachment] in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
       ~color_attachments: color
       ()
 
   let render_pass_info =
-    let attachments = A.from_ptr color_attachment 1 in
-    let subpasses = A.from_ptr subpass 1 in
+    let attachments = A.of_list Vkt.attachment_description [color_attachment] in
+    let subpasses = A.of_list Vkt.subpass_description [subpass] in
     Vkt.Render_pass_create_info.make
       ~attachments ~subpasses ()
 
@@ -450,7 +451,7 @@ module Pipeline = struct
 
   let pipeline_info =
     let stages = A.of_list Vkt.pipeline_shader_stage_create_info
-        Shaders.[ !vert_stage; !frag_stage ] in
+        Shaders.[ vert_stage; frag_stage ] in
     Vkt.Graphics_pipeline_create_info.make
       ~stages
       ~vertex_input_state: null_input
@@ -465,7 +466,7 @@ module Pipeline = struct
       ~base_pipeline_index: 0
       ()
 
-  let pipeline_infos = A.from_ptr pipeline_info 1
+  let pipeline_infos = A.of_list Vkt.graphics_pipeline_create_info [pipeline_info]
 
   let pipelines =
     Vkc.create_graphics_pipelines device pipeline_infos ()
@@ -541,7 +542,7 @@ module Cmd = struct
     Vkt.Render_pass_begin_info.make
       ~render_pass: Pipeline.simple_render_pass
       ~framebuffer: fmb
-      ~render_area: !Pipeline.scissor
+      ~render_area: Pipeline.scissor
       ~clear_values: clear_values
       ()
 
@@ -581,13 +582,13 @@ module Render = struct
     Ctypes.allocate view top_of_pipe
 
   let submit_info _index (* CHECK-ME *) =
-    A.from_ptr (
+    A.of_list Vkt.submit_info [
     Vkt.Submit_info.make
       ~wait_semaphores: wait_sems
       ~wait_dst_stage_mask: wait_stage
       ~command_buffers: Cmd.cmd_buffers
       ~signal_semaphores: sign_sems ()
-      ) 1
+  ]
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
 

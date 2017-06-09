@@ -74,15 +74,21 @@ module Aux = struct
     | None ->
       raise @@ Invalid_argument "Non-record path: not even a type"
 
+   let is_record types tn =
+     match B.find_type tn types with
+     | Some Ty.Record _ -> true
+     | _ -> false
+
   let type_path types fields p =
     let rec type_path (types) acc (ty, fields) = function
       | [] -> acc
       | [a] -> (ty,a) :: acc
       | a :: q ->
         match find_field_type a fields with
-        | Some (Ty.Const Ptr Name tn| Ptr Name tn) ->
+        | Some (Ty.Const Ptr Name tn| Ptr Name tn|Name tn as tyo) ->
+          let direct = match tyo with Name _ -> true | _ -> false in
           let fields = find_record tn types in
-          type_path types ( (ty, a) :: acc) (Some tn,fields) q
+          type_path types ((ty, a) :: acc) (Some (direct,tn),fields) q
         | Some ty ->
           Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
           raise @@ Invalid_argument "Non-record path"
@@ -182,6 +188,31 @@ let mkfun fields =
     else fun x -> x in
   let f, m = List.fold_left add_arg ((fun x->x), M.empty) fields in
   f % terminator, m
+
+
+  let regularize types ty exp= match ty with
+    | Ty.Ptr Name t | Const Ptr Name t when Aux.is_record types t ->
+      [%expr Ctypes.addr [%e exp] ]
+    | Option Ptr Name _ -> [%expr may Ctypes.addr [%e exp] ]
+    | _ ->  exp
+
+
+  let regularize_fields types fields =
+    let reg f =
+      match f.Ty.field with
+      | Simple(n, (Ptr Name t| Const Ptr Name t))
+        when Aux.is_record types t ->
+        { f with field = Simple(n, Name t) }
+      | Simple(n, Option Ptr Name t) when Aux.is_record types t ->
+        { f with field = Simple(n, Option (Name t)) }
+      | _ -> f
+    in
+    List.map reg fields
+
+let annotate fmt =
+  Fmt.kstrf (fun s e -> Exp.attr e @@
+              (nloc "debug", P.PStr [H.Str.eval @@ string s ]))
+      fmt
 
 module Bitset = struct
 
@@ -501,11 +532,11 @@ module Structured = struct
   let rec get_path f = function
     | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
     | [None, a] -> f a
-    | (Some ty, a) :: q ->
-      [%expr Ctypes.(!@) [%e get_path f q]]
+    | (Some (direct, ty), a) :: q ->
+      (if direct then get_path f q else [%expr Ctypes.(!@) [%e get_path f q]])
       #. (ident (lid  (modname ty) / "Fields" / (varname a)))
     | (None, _) :: _ -> raise @@
-      Invalid_argument "Printers.pp_path: p artially type type path"
+      Invalid_argument "Printers.pp_path: partially type type path"
 
   let array_index types fields = function
     | Ty.Lit n -> int.e n
@@ -582,14 +613,20 @@ module Structured = struct
     | t -> coerce (ptr void) (Typexp.make true t) [%expr Ctypes.null]
   (*   | ty -> not_implemented "Null array not implemented for %a@." Ty.pp ty *)
 
-  let set typ r field value =
+  let set types typ r field value =
     let name = varname % fst and ty = snd in
     let array_len (_, ty as _index) = ty_of_int ty (array_len value.e) in
     let optzero f = if Aux.is_option (ty f) then [%expr None] else [%expr 0] in
     let setf f value =
-      [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value]] in
+      [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value] ] in
     match field with
-    | Ty.Simple (f,_) ->
+    | Ty.Simple(f, (Ptr Name t | Const Ptr Name t)) when Aux.is_record types t ->
+      setf (varname f) [%expr Ctypes.addr [%e value.e]]
+    | Ty.Simple(f, (Option (Const Ptr Name t| Ptr Name t)
+                   | Const Option(Const Ptr Name t |Ptr Name t))) when
+        Aux.is_record types t ->
+      setf (varname f) [%expr may Ctypes.addr [%e value.e]]
+    | Ty.Simple (f,ty) ->
       setf (varname f) value.e
     | Ty.Array_f { index; array } as t when Aux.is_option_f t ->
       [%expr match [%e value.e] with
@@ -696,22 +733,20 @@ module Structured = struct
                 [%e ke kind] [%e string @@ typestr name] ]
      :: def_fields tk types fields
 
-  let construct tyname fields =
+  let construct types tyname fields =
     let fn, m = mkfun fields in
     let res = unique () in
-    let set field = set tyname res.e field (M.find (repr_name field) m) in
+    let set field = set types tyname res.e field (M.find (repr_name field) m) in
     let body =
       [%expr let [%p res.p] = Ctypes.make t in
-        [%e seq set fields
-            [%expr Ctypes.addr [%e res.e] ]
-        ]
+        [%e seq set fields res.e ]
       ] in
     [%stri let make = [%e fn body]]
 
   let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     let records = match kind with
       | Union -> []
-      | Record -> [construct name fields] in
+      | Record -> [construct types name fields] in
     [ module' name
         (def types (name,kind) name fields @ records);
       [%stri let [%p pvar @@ varname name] = [%e ident @@ qn name "t"]];
@@ -750,25 +785,54 @@ module Fn = struct
 
   let arg_types (fn:Ty.fn) =
     expand @@ List.map snd @@ Ty.flatten_fn_fields fn.args
-  let make_simple fn =
-    let args = arg_types fn in
-    [%stri let [%p (var fn.name).p] =
-             foreign [%e string fn.original_name] [%e mkty args fn.return]
-    ]
 
-  let apply name vars args =
-    let get f = M.find (varname f) vars in
+  let foreign fn =
+    let args = arg_types fn in
+    [%expr foreign [%e string fn.original_name] [%e mkty args fn.return]]
+
+  let make_simple (fn:Ty.fn) =
+    [%stri let [%p (var fn.name).p] = [%e foreign fn] ]
+
+  let apply_gen get name vars args =
+    let get f = get vars f in
     let app f = function
-      | Ty.Array_f { array = a, _ ; index = i, _ } ->
-        [%expr [%e f] [%e ex get i] [%e ex get a] ]
-      | field -> [%expr [%e f] [%e ex (M.find@@repr_name field) vars ] ] in
-    List.fold_left app (ident name) args
+      | Ty.Array_f { array ; index } ->
+        [%expr [%e f] [%e get index] [%e get array] ]
+      | Simple field -> [%expr [%e f] [%e get field ] ]
+      | Record_extension _  -> assert false in
+    List.fold_left app name args
+
+  let apply = apply_gen (fun vars (f,_ty) -> ex (M.find @@ varname f) vars)
+
+
+  let get_r types vars (f,ty) =
+    regularize types ty @@ ex (M.find @@ varname f) vars
+  let apply_regular types = apply_gen (get_r types)
+
+  let mkfn_simple fields =
+    let build (f,vars) (name,_ty) =
+      let u = unique () in
+      (fun body -> f [%expr fun [%p u.p] -> [%e body] ]),
+      M.add (varname name) u vars in
+    List.fold_left build ((fun x -> x), M.empty) fields
+
+  let make_regular types fn =
+    let args = Aux.to_fields fn.Ty.args in
+    let f = unique () in
+    let def body =
+      [%stri let [%p pat var fn.name] =
+               let [%p f.p] = [%e foreign fn] in
+               [%e body] ] in
+    def begin
+      let fe, vars = mkfn_simple @@ Ty.flatten_fields args in
+      fe @@ apply_regular types f.e vars args
+    end
 
   let make_labelled m fn =
     let args = Aux.to_fields fn.Ty.args in
     let k, vars = mkfun args in
     [%stri let make =
-             [%e k @@ apply (qn m @@ varname fn.name) vars args]
+             [%e k @@ apply (ident @@ qn m @@ varname fn.name) vars args]
     ]
 
 
@@ -787,7 +851,7 @@ module Fn = struct
 
   (* Allocate composite fields *)
   let allocate_field types fields vars f body  =
-    let get name = M.find (varname name) vars in
+    let get f = M.find (varname f) vars in
     match f.Ty.field with
     | Simple(f, Array(Some(Path p), Name elt)) ->
       let array = get f in
@@ -795,16 +859,20 @@ module Fn = struct
       let pty = Aux.type_path types fields p in
       let n = Structured.get_path (ex get) pty in
       [%expr let [%p size.p] = [%e n ] in
-        let [%p array.p ] = Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
-        [%e body]
+             let [%p array.p ] = Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
+               [%e body]
       ]
+    | Simple(f, Name t) when Aux.is_record types t ->
+      let f = get f in
+      [%expr let [%p f.p ] =
+               Ctypes.make [%e ex var t] in [%e body] ]
     | Simple (f,t) ->
       begin let f = get f in
         match ptr_to_name t with
         | None -> body
         | Some (p,_) ->
           let alloc = wrap_opt t @@ allocate_n p [%expr 1] in
-          [%expr let [%p f.p] = [%e alloc] in [%e body] ]
+            [%expr let [%p f.p] = [%e alloc] in [%e body] ]
       end
     | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
       let a = get a and i = get i in
@@ -888,7 +956,7 @@ module Fn = struct
   let ty_of_int = Structured.ty_of_int
   let int_of_ty = Structured.int_of_ty
   let from_ptr x y = [%expr Ctypes.CArray.from_ptr [%e x] [%e y] ]
-  let to_output vars f =
+  let to_output types vars f =
     let get x = ex (M.find @@ varname x) vars in
     match f.Ty.field with
     | Ty.Array_f { array = (n, Ty.Option _) ; index = i , it } ->
@@ -897,6 +965,7 @@ module Fn = struct
       | Simple(f, Array(Some(Path _), Name _ )) ->
         from_ptr (get f)
           (ex (M.find @@ varname @@ index_name f) vars)
+      | Simple(n, Name t)  when Aux.is_record types t ->  get n
       | Simple(n, _) -> [%expr Ctypes.(!@) [%e get n] ]
       | Record_extension _ ->
         not_implemented "Record extension used as a function argument"
@@ -932,9 +1001,10 @@ module Fn = struct
 
   let make_native types (fn:Ty.fn)=
     reset_uid ();
+    let rargs = regularize_fields types fn.args in
     let fold f l body = List.fold_right ((@@) f ) l body in
     let input, output =
-      List.partition (fun r -> r.Ty.dir = In || r.dir = In_Out) fn.args in
+      List.partition (fun r -> r.Ty.dir = In || r.dir = In_Out) rargs in
     let apply_twice = List.exists
         (function { Ty.field = Array_f _ ; _ } -> true | _ -> false) output in
     let tyret = fn.return in
@@ -946,10 +1016,10 @@ module Fn = struct
     fun' @@
     fold (input_expand vars) input' @@
     fold (allocate_field types input' vars) output @@
-    let apply = apply (lid @@ varname fn.name) vars all in
+    let apply = apply_regular types (ex var fn.name) vars all in
     let res = unique () in
     let result =
-      let outs = List.map (to_output vars) output in
+      let outs = List.map (to_output types vars) output in
       [%expr let [%p res.p] = [%e apply] in [%e join tyret res.e outs] ] in
     let secondary = fold (secondary_allocate_field vars) output in
     if not apply_twice then
@@ -962,8 +1032,10 @@ module Fn = struct
     else
       [%expr [%e apply]; [%e secondary result] ]
 
-  let make types simple fn =
-    (if simple then make_simple else make_native types) fn
+  let make types = function
+    | B.Regular -> make_regular types
+    | Native -> make_native types
+    | Raw -> make_simple
 end
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
