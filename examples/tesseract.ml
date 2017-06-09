@@ -60,6 +60,9 @@ module Utils = struct
 end
 open Utils
 
+let width = 512
+let heigth = 512
+
 module Sdl = struct
   (** Sdl related function *)
   open Tsdl
@@ -72,7 +75,7 @@ module Sdl = struct
   let () = Sdl.(init Init.(video + events)) <?> "Sdl init"
 
   let w =
-    Sdl.create_window "Vulkan + SDL test" ~w:512 ~h:512
+    Sdl.create_window "Vulkan + SDL test" ~w:width ~h:heigth
       Sdl.Window.(allow_highdpi) <?> "Window creation"
 
   let () = Sdl.show_window w
@@ -93,6 +96,38 @@ end
   let print_extension_property e =
     let open Vkt.Extension_properties in
     Format.printf "%s\n" e#.extension_name
+
+let zero_offset = Vkt.Device_size.zero
+
+let create_buffer device flag mem_size =
+    let buffer_info =
+      Vkt.Buffer_create_info.make
+        ~size: mem_size
+        ~usage:flag
+        ~sharing_mode:Vkt.Sharing_mode.Exclusive
+        () in
+    let buffer = Vkc.create_buffer device buffer_info () <?> "Buffer creation" in
+
+    let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
+ (*    let phymem = Vkc.get_physical_device_memory_properties Device.phy in
+
+    TODO: look at the memory flags output: lot of strange entries *)
+(*
+    debug "memory flags, %a" Vkt.Physical_device_memory_properties.pp phymem;
+*)
+    let alloc_info =
+      Vkt.Memory_allocate_info.make
+        ~allocation_size:memory_rqr#.Vkt.Memory_requirements.size
+        ~memory_type_index:0
+        () in
+
+    let buffer_memory =  Vkc.allocate_memory device alloc_info ()
+                        <?> "Buffer memory allocation" in
+    let () =
+      Vkc.bind_buffer_memory device buffer buffer_memory zero_offset
+      <!> "Bind buffer to buffer datatypes" in
+    buffer, buffer_memory
+
 
 module Instance = struct
   (** Creating a vulkan instance *)
@@ -192,12 +227,16 @@ module Device = struct
       surface_khr <?> "Compatibility surface/device" in
     assert (x = true )
 
+  let features = Vkc.get_physical_device_features phy
+  ;; debug "features %a" Vkt.Physical_device_features.pp features
+
   let x =
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
       let queue_create_infos = A.from_ptr queue_create_info 1 in
       Vkt.Device_create_info.make
         ~queue_create_infos
+        ~enabled_features:(Ctypes.addr features)
         (*  ~pp_enabled_layer_names: layers *)
         ~enabled_extension_names: exts
       ()
@@ -216,6 +255,19 @@ module Image = struct
 
   let surface_format = A.get Device.supported_formats 0
 
+
+  
+  let allocate device image =
+    let reqr = Vkc.get_image_memory_requirements device image in
+    let size = reqr#.Vkt.Memory_requirements.size in
+    debug "Depth buffer size:%d" (Vkt.Device_size.to_int size);
+    let allocate_info =
+      Vkt.Memory_allocate_info.make
+        ~allocation_size:size
+        ~memory_type_index:0 () in
+    Vkc.allocate_memory device allocate_info ()
+
+  
   let format, colorspace =
     let open Vkt.Surface_format_khr in
     surface_format#.format, surface_format#.color_space
@@ -275,14 +327,40 @@ module Image = struct
       ~components
       ()
 
+  let create_view device aspect format im =
+      Vkc.create_image_view device (image_view_info aspect format im) ()
+
   let views =
     let aspect = Vkt.Image_aspect_flags.color in
     let create im =
-      Vkc.create_image_view device (image_view_info aspect format im) ()
+      create_view device aspect format im
       <?> "Creating image view" in
     A.map Vkt.image_view create images
 
 end
+
+let one_time  queue command_pool f =
+  let alloc =
+    Vkt.Command_buffer_allocate_info.make
+      ~command_pool ~level:Vkt.Command_buffer_level.Primary
+      ~command_buffer_count:1 () in
+  let buffers =
+    Vkc.allocate_command_buffers device alloc <?> "one time buffer"  in
+  let b = A.get buffers 0 in
+  let begin_info = Vkt.Command_buffer_begin_info.make
+      ~flags:Vkt.Command_buffer_usage_flags.one_time_submit () in
+  Vkc.begin_command_buffer b begin_info <!> "Begin one-time command";
+  f b;
+  Vkc.end_command_buffer b <!> "End one time-command";
+  let submits = A.from_ptr
+      begin Vkt.Submit_info.make
+          ~command_buffers:buffers ()
+      end 1 in
+  Vkc.queue_submit ~queue ~submits () <?> "Submit one-time command";
+  Vkc.queue_wait_idle queue <!> "Wait end one-time command";
+  debug "Transition done";
+  Vkc.free_command_buffers device command_pool buffers
+
 
 module Depth = struct
 
@@ -314,16 +392,7 @@ module Depth = struct
       ()
   let image = Vkc.create_image device info () <?> "Depth image creation"
 
-  let reqr = Vkc.get_image_memory_requirements device image
-  let size = reqr#.Vkt.Memory_requirements.size
-  ;; debug "Depth buffer size:%d" (Vkt.Device_size.to_int size)
-
-  let allocate_info =
-    Vkt.Memory_allocate_info.make
-      ~allocation_size:size
-      ~memory_type_index:0 ()
-
-  let memory = Vkc.allocate_memory device allocate_info () <?> "Depth memory"
+  let memory = Image.allocate device image <?> "Depth memory"
   let () = Vkc.bind_image_memory device image memory zero_offset
            <?> "Depth binding"
 
@@ -332,27 +401,6 @@ module Depth = struct
     Vkc.create_image_view device (Image.image_view_info aspect format image) ()
     <?> "Depth view"
 
-  let one_time  queue command_pool f =
-    let alloc =
-      Vkt.Command_buffer_allocate_info.make
-        ~command_pool ~level:Vkt.Command_buffer_level.Primary
-        ~command_buffer_count:1 () in
-    let buffers =
-      Vkc.allocate_command_buffers device alloc <?> "one time buffer"  in
-    let b = A.get buffers 0 in
-    let begin_info = Vkt.Command_buffer_begin_info.make
-        ~flags:Vkt.Command_buffer_usage_flags.one_time_submit () in
-    Vkc.begin_command_buffer b begin_info <!> "Begin one-time command";
-    f b;
-    Vkc.end_command_buffer b <!> "End one time-command";
-    let submits = A.from_ptr
-        begin Vkt.Submit_info.make
-        ~command_buffers:buffers ()
-    end 1 in
-    Vkc.queue_submit ~queue ~submits () <?> "Submit one-time command";
-    Vkc.queue_wait_idle queue <!> "Wait end one-time command";
-    debug "Transition done";
-    Vkc.free_command_buffers device command_pool buffers
 
   let transition b =
     let subresource_range =
@@ -374,77 +422,41 @@ module Depth = struct
 
 end
 
-module Pipeline = struct
+module Geom = struct
   (** Create a graphical pipeline *)
 
-  module Shaders = struct
-
-    let frag = read_spirv "shaders/tesseract/frag.spv"
-    let vert = read_spirv "shaders/tesseract/vert.spv"
-
-    let shader_module_info s =
-      let len = String.length s in
-      let c = A.make Vkt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
-      let c' =
-        A.from_ptr Ctypes.(coerce (ptr Vkt.uint_32_t) (ptr char) @@ A.start c) len in
-      String.iteri (fun n x -> A.set c' n x) s;
-      Vkt.Shader_module_create_info.make
-        ~code_size:(Unsigned.Size_t.of_int len)
-        ~code:(A.start c)
-        ()
-
-    let create_shader name s =
-      let info = shader_module_info s in
-      Vkc.create_shader_module device info () <?> "Shader creation :" ^ name
-
-    let frag_shader = create_shader "fragment" frag
-    let vert_shader = create_shader "vertex" vert
-
-    let name = "main"
-    let make_stage stage module' =
-      Vkt.Pipeline_shader_stage_create_info.make
-        ~flags: Vkt.Pipeline_shader_stage_create_flags.empty
-        ~stage
-        ~module'
-        ~name
-        ()
-
-    let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
-    let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
-  end
-
-
   let geom_size = Vec.dim
-  let color_size = 3
-  let stride = geom_size + color_size
+  let texel_size = 2
+  let stride = geom_size + texel_size
 
-  let c = function
-    | 0 -> 1., 0., 0.
-    | 1 -> 0., 1., 0.
-    | 2 -> 0., 0., 1.
-    | 3 -> 0., 1., 1.
-    | 4 -> 1., 0., 1.
-    | 5 -> 1., 1., 0.
-    | _ -> 1., 1., 1.
+  let dx = 1. /. 4.
+  let flip (x, y) =y, x
+  let texcoord c = (dx *. float (c mod 4), dx *. float (c/4))
 
   let scale = 0.5
   let u () = Random.float 1.
 
-  let point (r,g,b) is a k =
-    let f x = 0.75 *.x +. 0.25 *. u () in
-    let r,g,b = f r, f g, f b in
+  let point (u,v) is a k =
     let k = stride * k in
     List.iter (fun i  -> A.set a (k+i) scale) is;
     let k = k + geom_size in
-    A.set a k r;
-    A.set a (k+1) g;
-    A.set a (k+2) b
+    A.set a k u;
+    A.set a (k+1) v
 
+  let tex (u,v as p ) = function
+    | 0 -> p
+    | 1 -> (u +. dx, v)
+    | 2 -> (u, v +. dx)
+    | 3 -> (u +. dx , v +. dx)
+    | 4 ->  (u, v +. dx)
+    | 5 ->  (u +. dx, v)
+    | _ -> assert false
+  
   let vertex_by_face = 6
   let face l i j a k =
-    let c = c k in
+    let c = texcoord k in
     let k = vertex_by_face * k in
-    List.iteri (fun v is -> point c is a @@ k + v)
+    List.iteri (fun v is -> point (tex c v) is a @@ k + v)
     [ l; i::l ; [j] @ l ; [i;j] @ l ; [j] @ l ; [i] @ l ]
 
   let cube i j k =
@@ -466,7 +478,7 @@ module Pipeline = struct
           Format.fprintf ppf "%f " @@ A.get a (stride * k + i)
         done;
       Format.fprintf ppf "|";
-      for i = 0 to color_size - 1 do
+      for i = 0 to texel_size - 1 do
         Format.fprintf ppf " %f" @@ A.get a (stride * k + i + geom_size)
       done;
         Format.fprintf ppf "@]@."
@@ -476,59 +488,11 @@ module Pipeline = struct
 
   ;; debug "Input:@;%a" pp_input input
 
-  let vertex_binding =
-    Vkt.Vertex_input_binding_description.make
-      ~binding:0
-      ~stride:(stride * fsize)
-      ~input_rate:Vkt.Vertex_input_rate.Vertex
-
-  let attributes = A.make Vkt.vertex_input_attribute_description 2
-
-  let geom_attribute =
-    Vkt.Vertex_input_attribute_description.make
-      ~location:0 ~binding:0 ~format:Vkt.Format.R32g32b32a_32_sfloat
-      ~offset:0
-
-  let color_attribute =
-    Vkt.Vertex_input_attribute_description.make
-      ~location:1 ~binding:0 ~format:Vkt.Format.R32g32b_32_sfloat
-      ~offset:(geom_size * fsize)
-
-  ;; A.set attributes 0 !geom_attribute
-  ;; A.set attributes 1 !color_attribute
-
-  let bindings = A.from_ptr vertex_binding 1
 
   let mem_size = Vkt.Device_size.of_int @@ fsize * A.length input
 
-  let create_buffer flag mem_size =
-    let buffer_info =
-      Vkt.Buffer_create_info.make
-        ~size: mem_size
-        ~usage:flag
-        ~sharing_mode:Vkt.Sharing_mode.Exclusive
-        () in
-    let buffer = Vkc.create_buffer device buffer_info () <?> "Buffer creation" in
-
-    let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
-    let phymem = Vkc.get_physical_device_memory_properties Device.phy in
-    debug "memory flags, %a" Vkt.Physical_device_memory_properties.pp phymem;
-
-    let alloc_info =
-      Vkt.Memory_allocate_info.make
-        ~allocation_size:memory_rqr#.Vkt.Memory_requirements.size
-        ~memory_type_index:0
-        () in
-
-    let buffer_memory = Vkc.allocate_memory device alloc_info ()
-                        <?> "Buffer memory allocation" in
-    let () =
-      Vkc.bind_buffer_memory device buffer buffer_memory zero_offset
-      <!> "Bind buffer to buffer datatypes" in
-    buffer, buffer_memory
-
   let buffer, buffer_memory =
-    create_buffer Vkt.Buffer_usage_flags.vertex_buffer mem_size
+    create_buffer device Vkt.Buffer_usage_flags.vertex_buffer mem_size
 
   let () =
     let len = A.length input in
@@ -542,6 +506,239 @@ module Pipeline = struct
     Vkc.unmap_memory device buffer_memory
 
 
+end
+
+module Heat_equation = struct
+
+  let xs = 64 and ys = 64 and nface = 6 and form_factor = 16
+  let xsize = 256 and ysize = 256
+  let texsize = xsize * ysize
+  let model_size  = xs * ys * nface
+  let columns = xsize / xs
+  ;; assert(columns = 4)
+
+  let data = Array.init texsize (fun _ -> Random.float 1.)
+  let data' = Array.make texsize 0.
+
+  type coord2D = int * int
+  type coord = int * int * int
+
+  type dir = X | Y
+  type connection = Direct | Reverse
+  type edge = { dir: dir; normal: int; lim: int; face:int; len: int }
+  type link = edge * connection * edge
+  type atlas = link list array
+
+  let reorient connection edge x =
+    let t = if connection = Direct then x else edge.len - x - 1 in
+    let n = edge.lim in
+    if edge.dir = X then (t,n, edge.face) else (n,t, edge.face)
+
+  let hit (src, connection, dest) (x,y,_k) =
+    let norm, transv = if src.dir = X then (x,y) else (y,x) in
+    if norm = src.lim + src.normal then Some(reorient connection dest transv)
+    else None
+
+
+  let rec edge_transition pos = function
+  | [] -> pos
+  | edge :: q ->
+      match hit edge pos with
+      | None -> edge_transition pos q
+      | Some pos -> pos
+
+  let len = function X -> ys | Y -> xs
+  let edge dir lim face =
+  let lim, normal = if lim = 0 then lim, -1 else lim - 1, 1 in
+  { dir;lim;face; normal; len = len dir }
+
+let (++) atlas (e1,c,e2 as l) =
+  atlas.(e1.face) <- l :: atlas.(e1.face);
+  atlas.(e2.face) <- (e2,c,e1) :: atlas.(e2.face);
+  atlas
+
+let v k = edge X ys k, Direct, edge X 0 (k+1 mod 4)
+
+let atlas =
+  Array.make nface []
+  ++ v 0 ++ v 1  ++ v 2 ++ v 3
+  ++ (edge Y ys 0, Direct, edge Y 0 4)
+  ++ (edge Y ys 4, Reverse, edge Y ys 2 )
+  ++ (edge Y 0 2, Direct, edge Y ys 5 )
+  ++ (edge Y 0 5, Reverse, edge Y ys 0)
+  ++ (edge Y ys 1, Direct, edge X 0 4)
+  ++ (edge X xs 4, Reverse, edge Y ys 3)
+  ++ (edge Y ys 0, Direct, edge X 0 5)
+  ++ (edge X xs 5, Reverse, edge Y 0 1)
+
+let index (x,y,k) =
+    x + xs * (k mod columns) + xsize * ( y + ys * (k/columns))
+
+let border_index atlas (_x,_y, k as pos ) =
+  let pos = edge_transition pos atlas.(k) in
+  index pos
+
+  let laplacian index dt data data' (x,y,k) =
+    let pos = index (x,y,k) in
+    data'.(pos) <- (1. -. dt) *. data.(pos) -.
+    dt *.( 4. *. data.(pos) -. data.(index(x+1,y,k)) -. data.(index(x-1,y,k)) -. data.(index(x,y+1,k)) -. data.(index(x,y-1,k)))
+
+  let diffop dt data data'=
+    for k = 0 to nface - 1 do
+      for y = 1 to ys -2 do
+        for x = 1 to xs -2 do
+          laplacian index dt data data' (x,y,k)
+        done;
+      done;
+    done
+
+    let operator dt data data' = diffop dt data data'; diffop dt data' data
+
+
+   let dt = 0.01
+   let niter = int_of_float @@ 0.1 /. dt
+   let () =
+     for _i = 0 to niter do
+       operator dt data data'
+     done
+   ;;debug "Heat equation computed"
+ end
+
+module Texture = struct
+  open Heat_equation
+  let memsize = Vkt.Device_size.of_int @@ texsize * fsize
+
+  let format = Vkt.Format.R_32_sfloat
+  let src_buffer, memory = create_buffer device
+      Vkt.Buffer_usage_flags.transfer_src memsize
+
+  let () = (* fill texture data *)
+    let mem =
+      Vkc.map_memory ~device ~memory ~offset:zero_offset ~size:memsize ()
+      <!> "Mapping memory for texture" in
+    let data = Ctypes.(coerce (ptr void) (ptr float)) mem   in
+    let a = A.from_ptr data Heat_equation.texsize in
+    for i = 0 to texsize - 1 do A.set a i Heat_equation.data.(i) done;
+    Vkc.unmap_memory device memory
+
+  let extent = (!) @@  Vkt.Extent_3d.make
+      ~width:xsize ~height:ysize ~depth:1
+  let image_info =
+    Vkt.Image_create_info.make
+      ~image_type:Vkt.Image_type.N2d
+      ~format
+      ~extent
+      ~mip_levels:1
+      ~array_layers:1
+      ~tiling:Vkt.Image_tiling.Optimal
+      ~usage:Vkt.Image_usage_flags.(transfer_dst + sampled)
+      ~initial_layout:Vkt.Image_layout.Preinitialized
+      ~sharing_mode:Vkt.Sharing_mode.Exclusive
+      ~samples:Vkt.Sample_count_flags.n1
+      ()
+
+  let image = Vkc.create_image device image_info ()
+              <!> "Texture image"
+
+  let mem = Image.allocate device image <!> "Texture image memory allocation"
+  let () = Vkc.bind_image_memory device image mem zero_offset
+           <!> "Binding texture image"
+
+
+  let qf_ignored = Unsigned.UInt.to_int Vk.Const.queue_family_ignored
+
+  let transition image src_mask aspect_mask dst_mask old_layout new_layout cmd =
+    let subresource_range = (!) @@  Vkt.Image_subresource_range.make
+        ~aspect_mask
+        ~base_mip_level:0 ~level_count:1
+        ~base_array_layer:0 ~layer_count:1 in
+    let barrier =
+      A.of_list Vkt.image_memory_barrier [
+        (!) @@
+        Vkt.Image_memory_barrier.make
+          ~src_access_mask:src_mask
+          ~dst_access_mask:dst_mask
+          ~old_layout
+          ~new_layout
+          ~src_queue_family_index:qf_ignored
+          ~dst_queue_family_index:qf_ignored
+          ~image
+          ~subresource_range
+          ()
+    ]
+    in
+    Vkc.cmd_pipeline_barrier ~command_buffer:cmd
+      ~src_stage_mask:Vkt.Pipeline_stage_flags.top_of_pipe
+      ~dst_stage_mask:Vkt.Pipeline_stage_flags.top_of_pipe
+      ~image_memory_barriers:barrier
+      ()
+
+  let copy_buffer_to_image aspect b img cmd =
+    let image_subresource =
+      !(Vkt.Image_subresource_layers.make
+        ~aspect_mask:aspect
+        ~mip_level:0 ~base_array_layer:0 ~layer_count:1) in
+    let image_offset = !(Vkt.Offset_3d.make ~x:0 ~y:0 ~z:0) in
+    let region =
+      A.of_list Vkt.buffer_image_copy [(!) @@ Vkt.Buffer_image_copy.make
+        ~image_subresource
+        ~buffer_offset:zero_offset
+        ~buffer_row_length:0
+        ~buffer_image_height:0
+        ~image_offset
+        ~image_extent:extent ] in
+    Vkc.cmd_copy_buffer_to_image
+      cmd b img Vkt.Image_layout.Transfer_dst_optimal region
+
+  let transfer src dst cmd =
+    let copy =
+      Vkt.Buffer_copy.(A.of_list t [(!) @@ make zero_offset zero_offset memsize]) in
+    Vkc.cmd_copy_buffer cmd src dst copy
+
+  let color = Vkt.Image_aspect_flags.color
+
+
+  let transfer_full queue pool =
+    let do' =  one_time queue pool in
+    let host, transfer, shader =
+      Vkt.Access_flags.( host_write, transfer_write, shader_read) in
+    List.iter do' [
+      transition image host color transfer
+        Vkt.Image_layout.Preinitialized Vkt.Image_layout.Transfer_dst_optimal;
+      copy_buffer_to_image color src_buffer image;
+      transition image transfer color shader
+        Vkt.Image_layout.Transfer_dst_optimal
+        Vkt.Image_layout.Shader_read_only_optimal]
+
+  let view =
+    Image.create_view device color format image <?> "Creating texture view"
+
+  let sampler_info =
+    let repeat = Vkt.Sampler_address_mode.Repeat in
+    Vkt.Sampler_create_info.make
+      ~mag_filter:Vkt.Filter.Linear
+      ~min_filter:Vkt.Filter.Linear
+      ~mipmap_mode:Vkt.Sampler_mipmap_mode.Linear
+      ~address_mode_u:repeat ~address_mode_v:repeat ~address_mode_w:repeat
+      ~compare_enable:false ~compare_op:Vkt.Compare_op.Always
+      ~mip_lod_bias:0. ~min_lod:0. ~max_lod:0.
+      ~anisotropy_enable:true
+      ~max_anisotropy:16.
+      ~border_color:Vkt.Border_color.Float_opaque_black
+      ~unnormalized_coordinates:false ()
+
+  let sampler = Vkc.create_sampler device sampler_info ()
+                <?> "Creating texture sampler"
+
+  let descriptor_binding =
+    Vkt.Descriptor_set_layout_binding.make
+      ~binding:1
+      ~descriptor_count:1
+      ~descriptor_type:Vkt.Descriptor_type.Combined_image_sampler
+      ~stage_flags:Vkt.Shader_stage_flags.fragment
+      ()
+
+end
 
 module Uniform = struct
 
@@ -552,7 +749,8 @@ module Uniform = struct
       ~stage_flags:Vkt.Shader_stage_flags.vertex ()
 
   let bindings =
-    A.from_ptr binding 1
+    A.of_list Vkt.descriptor_set_layout_binding
+      [!binding; !Texture.descriptor_binding]
 
   let layout_info =
     Vkt.Descriptor_set_layout_create_info.make ~bindings ()
@@ -564,10 +762,12 @@ module Uniform = struct
 
   let size = Vkt.Device_size.of_int ( 4 * 4 * fsize )
   let buffer, memory =
-    create_buffer Vkt.Buffer_usage_flags.uniform_buffer size
+    create_buffer device Vkt.Buffer_usage_flags.uniform_buffer size
 
   let pool_sizes = let open Vkt.Descriptor_pool_size in
-    A.from_ptr (make Vkt.Descriptor_type.Uniform_buffer 1) 1
+    A.of_list t
+      [!(make Vkt.Descriptor_type.Uniform_buffer 1);
+       !(make Vkt.Descriptor_type.Combined_image_sampler 1)]
 
   let pool_info =
     Vkt.Descriptor_pool_create_info.make ~max_sets:1 ~pool_sizes ()
@@ -583,10 +783,16 @@ module Uniform = struct
 
   ;; debug "Allocated %d descriptor sets" (A.length descriptor_sets)
 
+  let image_info = Vkt.Descriptor_image_info. make
+           ~sampler:Texture.sampler
+           ~image_view:Texture.view
+           ~image_layout:Vkt.Image_layout.Shader_read_only_optimal
+
+
   let buffer_info = Vkt.Descriptor_buffer_info.make buffer zero_offset size
   let write_info =
-    A.from_ptr begin
-      Vkt.Write_descriptor_set.make
+    A.of_list Vkt.write_descriptor_set [
+     !(Vkt.Write_descriptor_set.make
         ~dst_set:(A.get descriptor_sets 0) ~dst_binding:0 ~descriptor_count:1
         ~dst_array_element:0
       ~descriptor_type:Vkt.Descriptor_type.Uniform_buffer
@@ -596,7 +802,19 @@ module Uniform = struct
       ~buffer_info
       ~texel_buffer_view:(nullptr Vkt.buffer_view)
       ~image_info:(nullptr Vkt.descriptor_image_info) ()
-      end 1
+      );
+     !(Vkt.Write_descriptor_set.make
+        ~dst_set:(A.get descriptor_sets 0) ~dst_binding:1 ~descriptor_count:1
+        ~dst_array_element:0
+      ~descriptor_type:Vkt.Descriptor_type.Combined_image_sampler
+      (* TODO: the three fields belows corresponds to the
+         constructors of a sum type:
+         descriptor_type is the sum flag, and only on of  *)
+      ~buffer_info:(nullptr Vkt.descriptor_buffer_info)
+      ~texel_buffer_view:(nullptr Vkt.buffer_view)
+      ~image_info ()
+      )]
+
 
     let transfer matrix =
     let m = Vkc.map_memory device memory zero_offset size () <!> "map memory" in
@@ -605,7 +823,33 @@ module Uniform = struct
     Vec.blit_to ~from:matrix ~to':a;
     Vkc.unmap_memory device memory
 
-end
+  end
+
+module Pipeline = struct
+  ;; Gc.major ();;
+  let vertex_binding =
+    Vkt.Vertex_input_binding_description.make
+      ~binding:0
+      ~stride:(Geom.stride * fsize)
+      ~input_rate:Vkt.Vertex_input_rate.Vertex
+
+  let attributes = A.make Vkt.vertex_input_attribute_description 2
+
+  let geom_attribute =
+    Vkt.Vertex_input_attribute_description.make
+      ~location:0 ~binding:0 ~format:Vkt.Format.R32g32b32a_32_sfloat
+      ~offset:0
+
+  let texel_attribute =
+    Vkt.Vertex_input_attribute_description.make
+      ~location:1 ~binding:0 ~format:Vkt.Format.R32g_32_sfloat
+      ~offset:(Geom.geom_size * fsize)
+
+  ;; A.set attributes 0 !geom_attribute
+  ;; A.set attributes 1 !texel_attribute
+
+  let bindings = A.from_ptr vertex_binding 1
+
   let input_description =
     Vkt.Pipeline_vertex_input_state_create_info.make
       ~vertex_binding_descriptions:bindings
@@ -770,6 +1014,44 @@ end
   let simple_render_pass =
     Vkc.create_render_pass device render_pass_info () <?> "Creating render pass"
 
+
+  module Shaders = struct
+
+    let frag = read_spirv "shaders/tesseract/frag.spv"
+    let vert = read_spirv "shaders/tesseract/vert.spv"
+
+    let shader_module_info s =
+      let len = String.length s in
+      let c = A.make Vkt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
+      let c' =
+        A.from_ptr Ctypes.(coerce (ptr Vkt.uint_32_t) (ptr char) @@ A.start c) len in
+      String.iteri (fun n x -> A.set c' n x) s;
+      Vkt.Shader_module_create_info.make
+        ~code_size:(Unsigned.Size_t.of_int len)
+        ~code:(A.start c)
+        ()
+
+    let create_shader name s =
+      let info = shader_module_info s in
+      Vkc.create_shader_module device info () <?> "Shader creation :" ^ name
+
+    let frag_shader = create_shader "fragment" frag
+    let vert_shader = create_shader "vertex" vert
+
+    let name = "main"
+    let make_stage stage module' =
+      Vkt.Pipeline_shader_stage_create_info.make
+        ~flags: Vkt.Pipeline_shader_stage_create_flags.empty
+        ~stage
+        ~module'
+        ~name
+        ()
+
+    let frag_stage = make_stage Vkt.Shader_stage_flags.fragment frag_shader
+    let vert_stage = make_stage Vkt.Shader_stage_flags.vertex vert_shader
+  end
+
+
   let pipeline_info =
     let stages = A.of_list Vkt.pipeline_shader_stage_create_info
         Shaders.[ !vert_stage; !frag_stage ] in
@@ -799,10 +1081,12 @@ end
 end
 
 
+
+
 module Cmd = struct
 
   ;; Vkc.update_descriptor_sets ~device
-    ~descriptor_writes:Pipeline.Uniform.write_info ()
+    ~descriptor_writes:Uniform.write_info ()
 
 
   let images =
@@ -836,7 +1120,9 @@ module Cmd = struct
 
 
   let () = (* initialize depth buffer *)
-    Depth.one_time queue command_pool Depth.transition
+    one_time queue command_pool Depth.transition;
+    (* inialize texture *)
+    Texture.transfer_full queue command_pool
   let framebuffers =
     A.of_list Vkt.framebuffer [framebuffer 0; framebuffer 1]
 
@@ -888,7 +1174,7 @@ module Cmd = struct
 
   let render_pass_infos = A.map (Ctypes.ptr Vkt.render_pass_begin_info)
       render_pass_info framebuffers
-  let vertex_buffers = A.of_list Vkt.buffer [Pipeline.buffer]
+  let vertex_buffers = A.of_list Vkt.buffer [Geom.buffer]
   let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
   let cmd b ifmb =
     Vkc.begin_command_buffer b cmd_begin_info <!> "Begin command buffer";
@@ -899,8 +1185,8 @@ module Cmd = struct
     Vkc.cmd_bind_descriptor_sets ~command_buffer:b
       ~pipeline_bind_point:Vkt.Pipeline_bind_point.Graphics
       ~layout:Pipeline.layout ~first_set:0
-      ~descriptor_sets: Pipeline.Uniform.descriptor_sets ();
-    Vkc.cmd_draw b Pipeline.( vertex_by_face* nfaces) 1 0 0;
+      ~descriptor_sets: Uniform.descriptor_sets ();
+    Vkc.cmd_draw b Geom.( vertex_by_face* nfaces) 1 0 0;
     Vkc.cmd_end_render_pass b;
     Vkc.end_command_buffer b <!> "Command buffer recorded"
 
@@ -910,106 +1196,6 @@ module Cmd = struct
     done
 
   let () = iteri cmd cmd_buffers
-end
-
-module Heat_equation = struct
-
-  let xs = 128 and ys = 128 and nface = 6
-  let space_size  = xs * ys * nface
-
-  let data = Array.init space_size (fun _ -> Random.float 1.)
-  let data' = Array.make space_size 0.
-
-  type coord2D = int * int 
-  type coord = int * int * int
-
-  type dir = X | Y
-  type connection = Direct | Reverse
-  type edge = { dir: dir; normal: int; lim: int; face:int; len: int }
-  type link = edge * connection * edge
-  type atlas = link list array 
-
-  let reorient connection edge x =
-    let t = if connection = Direct then x else edge.len - x - 1 in
-    let n = edge.lim in
-    if edge.dir = X then (t,n, edge.face) else (n,t, edge.face)  
-
-  let hit (src, connection, dest) (x,y,_k) = 
-    let norm, transv = if src.dir = X then (x,y) else (y,x) in
-    if norm = src.lim + src.normal then Some(reorient connection dest transv)
-    else None
-
-
-  let rec edge_transition pos = function
-  | [] -> pos
-  | edge :: q ->
-      match hit edge pos with
-      | None -> edge_transition pos q
-      | Some pos -> pos
-
-  let len = function X -> ys | Y -> xs 
-  let edge dir lim face = 
-  let lim, normal = if lim = 0 then lim, -1 else lim - 1, 1 in  
-  { dir;lim;face; normal; len = len dir }
-
-let (++) atlas (e1,c,e2 as l) =
-  atlas.(e1.face) <- l :: atlas.(e1.face);
-  atlas.(e2.face) <- (e2,c,e1) :: atlas.(e2.face);
-  atlas
-
-let v k = edge X ys k, Direct, edge X 0 (k+1 mod 4)
-
-let atlas =
-  Array.make nface []
-  ++ v 0 ++ v 1  ++ v 2 ++ v 3
-  ++ (edge Y ys 0, Direct, edge Y 0 4)
-  ++ (edge Y ys 4, Reverse, edge Y ys 2 )
-  ++ (edge Y 0 2, Direct, edge Y ys 5 )
-  ++ (edge Y 0 5, Reverse, edge Y ys 0)
-  ++ (edge Y ys 1, Direct, edge X 0 4)
-  ++ (edge X xs 4, Reverse, edge Y ys 3)
-  ++ (edge Y ys 0, Direct, edge X 0 5)
-  ++ (edge X xs 5, Reverse, edge Y 0 1)   
-
-let index (x,y,k) = x + xs * ( y + ys * k)
-
-let border_index atlas (_x,_y, k as pos ) =
-  let pos = edge_transition pos atlas.(k) in
-  index pos
-
-  let laplacian index dt data data' (x,y,k) =
-    let pos = index (x,y,k) in 
-    data'.(pos) <- data.(pos) +. 
-    dt *.( 3. *. data.(pos) -. data.(index(x+1,y,k)) -. data.(index(x-1,y,k)) -. data.(index(x,y+1,k)) -. data.(index(x,y-1,k)))
-
-  let diffop dt data data'=
-    for k = 0 to nface - 1 do
-      for y = 1 to ys -2 do
-        for x = 1 to xs -2 do
-          laplacian index dt data data' (x,y,k)
-        done;
-      done;
-    done
-
-    let operator dt data data' = diffop dt data data'; diffop dt data' data 
-
-
-   let dt = 0.01  
-   let niter = int_of_float @@ 2. /. dt
-   let () = 
-  for _i = 0 to niter do
-     operator dt data data'
-    done
-
-end
-
-module Texture = struct
-  open Heat_equation
-  let memsize = Vkt.Device_size.of_int @@ space_size * fsize
-  let src_buffer = Pipeline.create_buffer Vkt.Buffer_usage_flags.transfer_src memsize
-
-     
-
 end
 
 module Render = struct
@@ -1057,7 +1243,7 @@ module Render = struct
             <?> "Acquire image" in
     present_indices <-@ n;
     debug "Image %d acquired" n;
-    let () = Pipeline.Uniform.transfer Vec.id in
+    let () = Uniform.transfer Vec.id in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
     <?> "Submitting command to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
@@ -1081,7 +1267,7 @@ module Render = struct
   let draw (x, y, z, t) =
     present_indices <-@ acquire_next ();
     let x,y,z,t as state = phase x, phase y, phase z, phase t in
-    let () = Pipeline.Uniform.transfer (rot x y z t) in
+    let () = Uniform.transfer (rot x y z t) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
     <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
