@@ -2,4 +2,9 @@ _build/*
 *~
 spec/vk.xml
 spec/vulkan.h
-lib/vk.ml
+lib/*
+bin/*
+*.spv
+.*
+config/*
+tmp/*

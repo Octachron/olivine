@@ -20,6 +20,7 @@ module Vec = Vec.Make(Float_array)(Dim)
 
 module Utils = struct
   (** Ctype utility functions *)
+
   let get, set = Ctypes.(getf,setf)
   let null = Ctypes.null
 
@@ -65,6 +66,7 @@ let heigth = 512
 
 module Sdl = struct
   (** Sdl related function *)
+
   open Tsdl
 
   let (<?>) x s = match x with
@@ -387,7 +389,7 @@ module Depth = struct
       ~tiling: Vkt.Image_tiling.Optimal
       ~usage:Vkt.Image_usage_flags.(depth_stencil_attachment + transfer_src)
       ~sharing_mode:Vkt.Sharing_mode.Exclusive
-      (** vvv FIXME vvv: this can only be PREINIALIZED or UNDEFINED *)
+      (* vvv FIXME vvv: this can only be PREINIALIZED or UNDEFINED *)
       ~initial_layout:Vkt.Image_layout.Undefined
       ()
   let image = Vkc.create_image device info () <?> "Depth image creation"

@@ -6,6 +6,7 @@ true: safe_string
 true: short_paths
 true: strict_formats
 true: thread
+<bin> or <spec>: -traverse
 <enkindler/*>: package(xmlm), package(fmt), package(ctypes), package(ppx_tools.metaquot)
 <enkindler/libgen.native>: package(compiler-libs.common), package(ppx_tools.metaquot)
 <enkinder/libgen.ml>: package(ppx_tools.metaquot)

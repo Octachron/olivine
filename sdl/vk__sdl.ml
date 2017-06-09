@@ -2,7 +2,7 @@ open Ctypes
 
 let vulkan = Vk.Core.libvulkan
 let lib =
-  Dl.dlopen ~filename:"./libsdlvulkan.so" ~flags:Dl.[RTLD_NOW]
+  Dl.dlopen ~filename:"./bin/libsdlvulkan.so" ~flags:Dl.[RTLD_NOW]
 
 let window: Tsdl.Sdl.window typ =
   Ctypes.view ~read:Obj.magic ~write:Obj.magic (ptr void)

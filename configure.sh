@@ -2,6 +2,7 @@
 
 # create the generated lib folder
 mkdir lib;
+mkdir bin;
 
 mkdir config && echo "let supported_systems = []" > config/econfig.ml;
 
