@@ -461,8 +461,11 @@ module Geom = struct
     [ l; i::l ; [j] @ l ; [i;j] @ l ; [j] @ l ; [i] @ l ]
 
   let cube i j k =
-    [face [] j k; face [] i j; face [] k i;
+    [ face [] k i; face [i] k j; face [j] i k; face [] j k;
+      face [k] j i; face [] i j ]
+   (* [face [] j k; face [] i j; face [] k i;
      face [k] j i; face [j] i k; face [i] k j]
+   *)
 
   let faces = cube 0 1 2
   let nfaces = List.length faces
@@ -558,46 +561,74 @@ let (++) atlas (e1,c,e2 as l) =
   atlas.(e2.face) <- (e2,c,e1) :: atlas.(e2.face);
   atlas
 
-let v k = edge X ys k, Direct, edge X 0 (k+1 mod 4)
+let v k = edge X xs k, Direct, edge X 0 ( (k+1) mod 4)
 
 let atlas =
-  Array.make nface []
-  ++ v 0 ++ v 1  ++ v 2 ++ v 3
-  ++ (edge Y ys 0, Direct, edge Y 0 4)
-  ++ (edge Y ys 4, Reverse, edge Y ys 2 )
-  ++ (edge Y 0 2, Direct, edge Y ys 5 )
-  ++ (edge Y 0 5, Reverse, edge Y ys 0)
-  ++ (edge Y ys 1, Direct, edge X 0 4)
-  ++ (edge X xs 4, Reverse, edge Y ys 3)
-  ++ (edge Y ys 0, Direct, edge X 0 5)
-  ++ (edge X xs 5, Reverse, edge Y 0 1)
+  [ v 0; v 1; v 2; v 3;
+    edge Y ys 0, Direct, edge Y 0 4;
+    edge Y ys 4, Reverse, edge Y ys 2;
+    edge Y 0 2, Direct, edge Y ys 5;
+    edge Y 0 5, Reverse, edge Y 0 0;
+    edge Y ys 1, Direct, edge X 0 4;
+    edge X xs 4, Reverse, edge Y ys 3;
+    edge Y 0 3, Direct, edge X 0 5;
+    edge X xs 5, Reverse, edge Y 0 1
+  ]
 
 let index (x,y,k) =
     x + xs * (k mod columns) + xsize * ( y + ys * (k/columns))
+
+
+let set_edge dir edge values =
+  let n = Array.length values in
+  let pl = edge.len / n in
+  for seg = 0 to n - 1 do
+    for k = 0 to pl - 1 do
+      let pos = reorient dir edge (k + seg * pl)  in
+      data.(index(pos)) <- values.(seg)
+    done;
+  done
+
+let set_link (e,dir,f) =
+  let u () =
+    let f = 1. -. (Random.float 1.) ** 2. in
+    [| f; 1. -. f |] in
+  set_edge Direct e @@ u ();
+  set_edge dir f @@ u ()
+
+;; List.iter set_link atlas
+let paint_face k c =
+  for x = 1 to xs - 2 do for y = 1 to ys - 2 do
+    data.(index(x,y,k)) <- c done; done
 
 let border_index atlas (_x,_y, k as pos ) =
   let pos = edge_transition pos atlas.(k) in
   index pos
 
-  let laplacian index dt data data' (x,y,k) =
+  let laplacian dt data data' (x,y,k) =
     let pos = index (x,y,k) in
-    data'.(pos) <- (1. -. dt) *. data.(pos) -.
+    data'.(pos) <- data.(pos) -.
     dt *.( 4. *. data.(pos) -. data.(index(x+1,y,k)) -. data.(index(x-1,y,k)) -. data.(index(x,y+1,k)) -. data.(index(x,y-1,k)))
 
   let diffop dt data data'=
     for k = 0 to nface - 1 do
       for y = 1 to ys -2 do
         for x = 1 to xs -2 do
-          laplacian index dt data data' (x,y,k)
+          laplacian dt data data' (x,y,k)
         done;
+      done;
+    done
+  ;  for k = 0 to nface -1 do
+      for x = 1 to xs - 2 do
+        data'.(index(x,x,k))<- 1.
       done;
     done
 
     let operator dt data data' = diffop dt data data'; diffop dt data' data
 
 
-   let dt = 0.01
-   let niter = int_of_float @@ 0.1 /. dt
+   let dt = 0.25
+   let niter = int_of_float @@ 100. /. dt
    let () =
      for _i = 0 to niter do
        operator dt data data'
@@ -830,7 +861,7 @@ module Uniform = struct
   end
 
 module Pipeline = struct
-  ;; Gc.major ();;
+   Gc.major () ;;
   let vertex_binding =
     Vkt.Vertex_input_binding_description.make
       ~binding:0
