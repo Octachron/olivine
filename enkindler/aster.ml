@@ -613,6 +613,8 @@ module Structured = struct
     | t -> coerce (ptr void) (Typexp.make true t) [%expr Ctypes.null]
   (*   | ty -> not_implemented "Null array not implemented for %a@." Ty.pp ty *)
 
+
+
   let set types typ r field value =
     let name = varname % fst and ty = snd in
     let array_len (_, ty as _index) = ty_of_int ty (array_len value.e) in
@@ -706,6 +708,12 @@ module Structured = struct
     let sep = [%expr pf ppf ";@ "] in
     def @@ [%expr [%e sseq sep pp_field fields]; pf ppf "@ }@]"]
 
+  let keep_alive exprs owner body =
+    let values = Exp.array @@ List.map (fun e -> [%expr Obj.repr [%e e]]) exprs in
+    [%expr let () =
+             Gc.finalise ( fun e -> let kept_alive = [%e values] in () ) [%e owner]
+      in [%e body]
+    ]
 
   let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
     let seal = [%stri let () = Ctypes.seal t] in
@@ -735,13 +743,29 @@ module Structured = struct
                 [%e ke kind] [%e string @@ typestr name] ]
      :: def_fields tk types fields
 
+let keep_field_alive vars acc = function
+  (*  | Ty.Simple(_,Array _ ) -> acc *)
+  | Ty.Simple(f, _ ) -> ex (M.find @@ varname f) vars :: acc
+  | _ -> acc
+
+let array =
+  reset_uid ();
+  let input = unique () and array = unique () in
+  let keep = keep_alive [array.e] input.e array.e in
+  [%stri let array = fun [%p input.p] ->
+           let [%p array.p] = Ctypes.CArray.of_list t [%e input.e] in
+           [%e keep]
+  ]
+
   let construct types tyname fields =
     let fn, m = mkfun fields in
     let res = unique () in
     let set field = set types tyname res.e field (M.find (repr_name field) m) in
+    let keep_alive =
+      keep_alive (List.fold_left (keep_field_alive m) [] fields) res.e in
     let body =
       [%expr let [%p res.p] = Ctypes.make t in
-        [%e seq set fields res.e ]
+        [%e keep_alive @@ seq set fields res.e ]
       ] in
     [%stri let make = [%e fn body]]
 
@@ -750,7 +774,7 @@ module Structured = struct
       | Union -> []
       | Record -> [construct types name fields] in
     [ module' name
-        (def types (name,kind) name fields @ records);
+        (def types (name,kind) name fields @ array :: records);
       [%stri let [%p pvar @@ varname name] = [%e ident @@ qn name "t"]];
       extern_type name
     ]

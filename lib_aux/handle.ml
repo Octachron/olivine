@@ -5,6 +5,7 @@ module type S = sig
   val null: t
   val view_opt: t option Ctypes.typ
   val pp: Format.formatter -> t -> unit
+  val array: t list -> t Ctypes.CArray.t
 end
 module Make(): S =
 struct
@@ -22,4 +23,9 @@ struct
   let pp ppf (x:t) =
     Format.fprintf ppf "%s" @@ Nativeint.to_string
     @@ Ctypes.( raw_address_of_ptr @@ coerce t (ptr void) x)
+
+  let array l =
+    let a = Ctypes.CArray.of_list t l in
+    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    a
 end
