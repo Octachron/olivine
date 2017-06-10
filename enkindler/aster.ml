@@ -128,8 +128,10 @@ let unique () =
 let reset_uid () = counter := 0
 
 let coerce ~from ~to' value = [%expr Ctypes.coerce [%e from] [%e to'] [%e value]]
-let ptr x = [%expr ptr [%e x] ]
+let ptr x = [%expr Ctypes.ptr [%e x] ]
 let void = [%expr void]
+let addr x = [%expr Ctypes.addr [%e x] ]
+let (!@) x = [%expr !@[%e x]]
 
 let views name =
   let n = var name and no = var L.(name//"opt") in
@@ -192,8 +194,8 @@ let mkfun fields =
 
   let regularize types ty exp= match ty with
     | Ty.Ptr Name t | Const Ptr Name t when Aux.is_record types t ->
-      [%expr Ctypes.addr [%e exp] ]
-    | Option Ptr Name _ -> [%expr may Ctypes.addr [%e exp] ]
+      addr exp
+    | Option Ptr Name _ -> [%expr may [%e addr exp] ]
     | _ ->  exp
 
 
@@ -426,7 +428,7 @@ module Record_extension = struct
 
   let def (name,exts) =
     let name = typestr name in
-    let ty t = [%type: [%t typ t] Ctypes.structure Ctypes.ptr] in
+    let ty t = typ t in
     let ext e = H.Te.decl ~args:(Pcstr_tuple [ty e]) (nloc @@ mkconstr e) in
     let exts = H.Te.decl (nloc "No_extension") :: List.map ext exts in
     let extend = H.Str.type_extension @@ H.Te.mk (nlid name) exts in
@@ -451,7 +453,7 @@ module Record_extension = struct
     let v = ident' "x" in
     let case x = Exp.case (constr.p x v.p)
         [%expr [%e str x] ,
-               [%e coerce (ptr @@ typext x) (ptr void) v.e]] in
+               [%e coerce (ptr @@ typext x) (ptr void) (addr v.e)]] in
     let noext_case =
       Exp.case [%pat? No_extension] [%expr [%e str name], Ctypes.null ] in
     let exn = Exp.case [%pat? _ ] [%expr raise Unknown_record_extension ] in
@@ -460,7 +462,7 @@ module Record_extension = struct
 
   let merge (name,exts) ~tag ~data =
     let case ext = Exp.case (strp ext)
-        (constr.e ext @@ coerce (ptr void) (ptr @@ typext ext) data ) in
+        (constr.e ext @@ (!@) @@ coerce (ptr void) (ptr @@ typext ext) data ) in
     let noext = Exp.case (strp name) [%expr No_extension] in
     let exn = Exp.case [%pat? _] [%expr raise Unknown_record_extension ] in
     let cases = noext :: (List.map case exts) @ [exn] in
@@ -623,7 +625,7 @@ module Structured = struct
       [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value] ] in
     match field with
     | Ty.Simple(f, (Ptr Name t | Const Ptr Name t)) when Aux.is_record types t ->
-      setf (varname f) [%expr Ctypes.addr [%e value.e]]
+      setf (varname f) (addr @@ value.e)
     | Ty.Simple(f, (Option (Const Ptr Name t| Ptr Name t)
                    | Const Option(Const Ptr Name t |Ptr Name t))) when
         Aux.is_record types t ->
@@ -730,16 +732,17 @@ module Structured = struct
       :: seal :: (List.map lens fields) @ [pp types fields]
 
   let kind_cstr (type a) (kind: a kind) typ = match kind with
-    | Union -> [%type: [%t typ] Ctypes.union Ctypes.typ]
-    | Record -> [%type: [%t typ] Ctypes.structure Ctypes.typ]
+    | Union -> [%type: [%t typ] Ctypes.union]
+    | Record -> [%type: [%t typ] Ctypes.structure]
 
   let ke (type a) (kind:a kind) = match kind with
     | Union -> [%expr union]
     | Record -> [%expr structure]
 
   let def types (_,kind as tk) name fields =
-    [%stri type t ]
-    :: [%stri let t: [%t kind_cstr kind [%type:t] ] =
+    [%stri type mark ]
+    :: [%stri type t = [%t kind_cstr kind [%type:mark] ] ]
+    :: [%stri let t: t Ctypes.typ =
                 [%e ke kind] [%e string @@ typestr name] ]
      :: def_fields tk types fields
 
