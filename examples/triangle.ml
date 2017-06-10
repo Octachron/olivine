@@ -6,11 +6,11 @@ module Vkw = Vk__sdl
 
 module Utils = struct
 
+  let (#.) x f = f x
+
   let pp_opt pp ppf = function
     | None -> ()
     | Some x -> pp ppf x
-
-  let ( #. ) x f = f x
 
   let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
 
@@ -78,10 +78,6 @@ module Sdl = struct
 
 end
 
-  let print_extension_property e =
-    let open Vkt.Extension_properties in
-    Format.printf "%s\n" e#.extension_name
-
 module Instance = struct
   (** Creating a vulkan instance *)
 
@@ -103,7 +99,8 @@ module Instance = struct
   let extension_properties =
     Vkc.enumerate_instance_extension_properties () <?> "Extension properties"
 
-  ;; A.iter print_extension_property extension_properties
+  ;; A.iter (debug "extension properties: %a" Vkt.Extension_properties.pp)
+    extension_properties
 end
 let instance = Instance.x
 
@@ -123,22 +120,18 @@ module Device = struct
     debug "Device properties acquired";
     p
 
-  let print_property device =
-    let p = property device in
-    debug "Device: %s\n" p#.Vkt.Physical_device_properties.device_name
-
-  ;; A.iter print_property phy_devices
+  let () = for i = 0 to A.length phy_devices - 1 do
+      Format.printf "Device %d properties:%a" i
+        Vkt.Physical_device_properties.pp (property @@ A.get phy_devices i)
+    done
 
   let phy = A.get phy_devices 0
 
   let queue_family_properties =
     Vkc.get_physical_device_queue_family_properties phy
 
-  let print_queue_property ppf property =
-    Format.fprintf ppf "Queue flags: %a \n" (pp_opt Vkt.Queue_flags.pp)
-      property#.Vkt.Queue_family_properties.queue_flags
-
-  ;; A.iter (print_queue_property Format.std_formatter) queue_family_properties
+  ;; A.iter (debug "Queue flags:@ @[%a@]" Vkt.Queue_family_properties.pp)
+    queue_family_properties
 
   let queue_family = 0
   let priorities = A.of_list Ctypes.float [ 1.]
@@ -152,9 +145,8 @@ module Device = struct
   let device_extensions =
     Vkc.enumerate_device_extension_properties phy () <?> "device extensions"
 
-  ;; Format.printf "Device extensions:\n@[<v 2>"
-  ;; A.iter print_extension_property device_extensions
-  ;; Format.printf "@]@."
+  ;; A.iter (debug "Device extension:@ @[%a@]" Vkt.Extension_properties.pp)
+    device_extensions
 
   let surface_khr =
     Vkw.create_surface instance Sdl.w () <?> "Obtaining surface"
@@ -163,31 +155,14 @@ module Device = struct
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
     <?> "Surface capabilities"
 
-  let pp_extent_2d ppf extent = let open Vkt.Extent_2d in
-    Format.fprintf ppf "[%d×%d]"
-      extent#.width extent#.height
-
-  let pp_capability ppf cap = let open Vkt.Surface_capabilities_khr in
-    Format.fprintf ppf
-      "@[min_image:%d; max_image_count:%d; current_extent:%a;@;\
-       transform:%a;@ composite_alpha:%a;@ usage_flags:%a@]"
-      cap#.min_image_count cap#.max_image_count
-      pp_extent_2d cap#.current_extent
-      (pp_opt Vkt.Surface_transform_flags_khr.pp) cap#.supported_transforms
-      (pp_opt Vkt.Composite_alpha_flags_khr.pp) cap#.supported_composite_alpha
-      (pp_opt Vkt.Image_usage_flags.pp) cap#.supported_usage_flags
-
-  ;; debug "Surface capabilities: %a" pp_capability capabilities
+  ;; debug "Surface capabilities: %a" Vkt.Surface_capabilities_khr.pp capabilities
 
   let supported_formats =
     Surface.get_physical_device_surface_formats_khr phy surface_khr
     <?> "supported surface formats"
 
-  let pp_sformat ppf sformat = let open Vkt.Surface_format_khr in
-    Format.fprintf ppf "surface format @[{@ format=@[%a@];@ color_space=@[%a@]}"
-      Vkt.Format.pp sformat#.format Vkt.Color_space_khr.pp sformat#.color_space
-
-  ;; A.iter (debug "%a" pp_sformat) supported_formats
+  ;; A.iter (debug "Supported formats: %a" Vkt.Surface_format_khr.pp)
+    supported_formats
 
   let present_modes =
     Surface.get_physical_device_surface_present_modes_khr phy surface_khr
@@ -228,8 +203,8 @@ module Image = struct
     surface_format#.format, surface_format#.color_space
 
   let image_count, extent = let open Vkt.Surface_capabilities_khr in
-    Device.capabilities#.min_image_count,
-    Device.capabilities#. current_extent
+    Device.capabilities |> min_image_count,
+    Device.capabilities |> current_extent
 
   let swap_chain_info =
     let qfi = A.of_list Vkt.uint_32_t [0] in
@@ -339,7 +314,7 @@ module Pipeline = struct
     ()
 
   let viewport =
-    let width = float Image.extent#.Vkt.Extent_2d.width
+    let width = float  Image.extent#.Vkt.Extent_2d.width
     and height = float Image.extent#.Vkt.Extent_2d.height in
   Vkt.Viewport.make ~x: 0. ~y: 0. ~width ~height
       ~min_depth: 0.
@@ -567,15 +542,15 @@ module Render = struct
   let im_semaphore = create_semaphore ()
   let render_semaphore = create_semaphore ()
 
-  let wait_sems = A.of_list Vkt.semaphore [im_semaphore]
-  let sign_sems = A.of_list Vkt.semaphore [render_semaphore]
+  let wait_sems = Vkt.Semaphore.array [im_semaphore]
+  let sign_sems = Vkt.Semaphore.array [render_semaphore]
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
     Ctypes.allocate view top_of_pipe
 
   let submit_info _index (* CHECK-ME *) =
-    A.of_list Vkt.submit_info [
+    Vkt.Submit_info.array [
     Vkt.Submit_info.make
       ~wait_semaphores: wait_sems
       ~wait_dst_stage_mask: wait_stage
@@ -583,7 +558,7 @@ module Render = struct
       ~signal_semaphores: sign_sems ()
   ]
 
-  let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
+  let swapchains = Vkt.Swapchain_khr.array [Image.swap_chain]
 
   let present_indices = A.of_list Vkt.uint_32_t [0]
   (* Warning need to be alive as long as present_info can be used! *)
