@@ -547,7 +547,7 @@ module Structured = struct
       get_path (ex var) pty
     | _ -> assert false
 
-    let rec int_of_ty var = function
+  let rec int_of_ty var = function
     | Ty.Ptr t -> int_of_ty [%expr Ctypes.(!@) [%e var]] t
     | Option t -> int_of_ty [%expr unwrap [%e var]] t
     | Name t when L.to_path t = ["uint32";"t"] -> var
@@ -556,6 +556,19 @@ module Structured = struct
 
 
   let start x = [%expr Ctypes.CArray.start [%e x]]
+
+  let inner = L.simple ["Fields"]
+
+  let setf r f value =
+    [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value] ]
+
+  let union (n,_) =
+    reset_uid ();
+    let u = unique () and r = unique () in
+    [%stri let [%p pat var n] = fun [%p u.p] ->
+        let [%p r.p] = Ctypes.make t in
+        [%e setf r.e (varname n) u.e ]; [%e r.e]
+    ]
 
   let getter typename types fields (out,field) =
     let u = unique () in
@@ -601,7 +614,6 @@ module Structured = struct
       | Simple(name,_) -> get_field (varname name)
     end
 
-  let inner = L.simple ["Fields"]
 
   let rec ty_of_int ty x =
     match ty with
@@ -621,8 +633,7 @@ module Structured = struct
     let name = varname % fst and ty = snd in
     let array_len (_, ty as _index) = ty_of_int ty (array_len value.e) in
     let optzero f = if Aux.is_option (ty f) then [%expr None] else [%expr 0] in
-    let setf f value =
-      [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value] ] in
+    let setf f x = setf r f x in
     match field with
     | Ty.Simple(f, (Ptr Name t | Const Ptr Name t)) when Aux.is_record types t ->
       setf (varname f) (addr @@ value.e)
@@ -720,7 +731,7 @@ module Structured = struct
   let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
     let seal = [%stri let () = Ctypes.seal t] in
     match kind with
-    | Union -> List.map sfield fields @ [seal]
+    | Union -> module' inner (List.map sfield fields) :: [seal]
     | Record ->
       let lens f = getter typename types fields (ident' @@ repr_name f, f) in
       let exts= match Aux.record_extension fields with
@@ -774,7 +785,7 @@ let array =
 
   let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     let records = match kind with
-      | Union -> []
+      | Union -> List.map union fields
       | Record -> [construct types name fields] in
     [ module' name
         (def types (name,kind) name fields @ array :: records);

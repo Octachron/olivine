@@ -235,7 +235,7 @@ module Device = struct
   let x =
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
-      let queue_create_infos = A.of_list Vkt.device_queue_create_info
+      let queue_create_infos = Vkt.Device_queue_create_info.array
           [queue_create_info] in
       Vkt.Device_create_info.make
         ~queue_create_infos
@@ -259,7 +259,6 @@ module Image = struct
   let surface_format = A.get Device.supported_formats 0
 
 
-  
   let allocate device image =
     let reqr = Vkc.get_image_memory_requirements device image in
     let size = reqr#.Vkt.Memory_requirements.size in
@@ -270,7 +269,6 @@ module Image = struct
         ~memory_type_index:0 () in
     Vkc.allocate_memory device allocate_info ()
 
-  
   let format, colorspace =
     let open Vkt.Surface_format_khr in
     surface_format#.format, surface_format#.color_space
@@ -355,7 +353,7 @@ let one_time  queue command_pool f =
   Vkc.begin_command_buffer b begin_info <!> "Begin one-time command";
   f b;
   Vkc.end_command_buffer b <!> "End one time-command";
-  let submits = A.of_list Vkt.submit_info
+  let submits = Vkt.Submit_info.array
       [ Vkt.Submit_info.make ~command_buffers:buffers ()] in
   Vkc.queue_submit ~queue ~submits () <?> "Submit one-time command";
   Vkc.queue_wait_idle queue <!> "Wait end one-time command";
@@ -419,7 +417,7 @@ module Depth = struct
     let stage = Vkt.Pipeline_stage_flags.top_of_pipe  in
     Vkc.cmd_pipeline_barrier
       ~command_buffer:b ~src_stage_mask:stage ~dst_stage_mask:stage
-      ~image_memory_barriers:(A.of_list Vkt.image_memory_barrier  [barrier]) ()
+      ~image_memory_barriers:(Vkt.Image_memory_barrier.array  [barrier]) ()
 
 end
 
@@ -629,9 +627,10 @@ let border_index atlas (_x,_y, k as pos ) =
 
    let dt = 0.25
    let niter = int_of_float @@ 100. /. dt
+   let iter () = operator dt data data'
    let () =
      for _i = 0 to niter do
-       operator dt data data'
+       iter ()
      done
    ;;debug "Heat equation computed"
  end
@@ -644,7 +643,7 @@ module Texture = struct
   let src_buffer, memory = create_buffer device
       Vkt.Buffer_usage_flags.transfer_src memsize
 
-  let () = (* fill texture data *)
+  let transfer_data () = (* fill texture data *)
     let mem =
       Vkc.map_memory ~device ~memory ~offset:zero_offset ~size:memsize ()
       <!> "Mapping memory for texture" in
@@ -653,6 +652,8 @@ module Texture = struct
     for i = 0 to texsize - 1 do A.set a i Heat_equation.data.(i) done;
     Vkc.unmap_memory device memory
 
+;; transfer_data ()
+  
   let extent = Vkt.Extent_3d.make ~width:xsize ~height:ysize ~depth:1
   let image_info =
     Vkt.Image_create_info.make
@@ -684,7 +685,7 @@ module Texture = struct
         ~base_mip_level:0 ~level_count:1
         ~base_array_layer:0 ~layer_count:1 in
     let barrier =
-      A.of_list Vkt.image_memory_barrier [
+      Vkt.Image_memory_barrier.array [
         Vkt.Image_memory_barrier.make
           ~src_access_mask:src_mask
           ~dst_access_mask:dst_mask
@@ -710,7 +711,7 @@ module Texture = struct
         ~mip_level:0 ~base_array_layer:0 ~layer_count:1 in
     let image_offset = Vkt.Offset_3d.make ~x:0 ~y:0 ~z:0 in
     let region =
-      A.of_list Vkt.buffer_image_copy [ Vkt.Buffer_image_copy.make
+      Vkt.Buffer_image_copy.array [ Vkt.Buffer_image_copy.make
         ~image_subresource
         ~buffer_offset:zero_offset
         ~buffer_row_length:0
@@ -722,14 +723,14 @@ module Texture = struct
 
   let transfer src dst cmd =
     let copy =
-      Vkt.Buffer_copy.(A.of_list t [make zero_offset zero_offset memsize]) in
+      Vkt.Buffer_copy.(array [make zero_offset zero_offset memsize]) in
     Vkc.cmd_copy_buffer cmd src dst copy
 
   let color = Vkt.Image_aspect_flags.color
 
 
-  let transfer_full queue pool =
-    let do' =  one_time queue pool in
+  let transfer_full cmd =
+    let do' f = f cmd in
     let host, transfer, shader =
       Vkt.Access_flags.( host_write, transfer_write, shader_read) in
     List.iter do' [
@@ -779,7 +780,7 @@ module Uniform = struct
       ~stage_flags:Vkt.Shader_stage_flags.vertex ()
 
   let bindings =
-    A.of_list Vkt.descriptor_set_layout_binding
+    Vkt.Descriptor_set_layout_binding.array
       [binding; Texture.descriptor_binding]
 
   let layout_info =
@@ -788,14 +789,14 @@ module Uniform = struct
   let layout = Vkc.create_descriptor_set_layout device layout_info ()
                <?> "Descriptor layout creation"
 
-  let layouts = A.of_list Vkt.descriptor_set_layout [layout]
+  let layouts = Vkt.Descriptor_set_layout.array [layout]
 
   let size = Vkt.Device_size.of_int ( (Vec.dim + 1 ) * Vec.dim * fsize )
   let buffer, memory =
     create_buffer device Vkt.Buffer_usage_flags.uniform_buffer size
 
   let pool_sizes = let open Vkt.Descriptor_pool_size in
-    A.of_list t
+    array
       [make Vkt.Descriptor_type.Uniform_buffer 1;
        make Vkt.Descriptor_type.Combined_image_sampler 1]
 
@@ -813,20 +814,21 @@ module Uniform = struct
 
   ;; debug "Allocated %d descriptor sets" (A.length descriptor_sets)
 
-  let image_info = A.of_list Vkt.descriptor_image_info
+  let image_info = Vkt.Descriptor_image_info.array
     [Vkt.Descriptor_image_info. make
            ~sampler:Texture.sampler
            ~image_view:Texture.view
            ~image_layout:Vkt.Image_layout.Shader_read_only_optimal
     ]
 
-  let buffer_info = A.of_list Vkt.descriptor_buffer_info
+  let buffer_info =
+    Vkt.Descriptor_buffer_info.array
       [Vkt.Descriptor_buffer_info.make buffer zero_offset size]
 
   let empty_array ty = A.make ty 0
 
   let write_info =
-    A.of_list Vkt.write_descriptor_set [
+    Vkt.Write_descriptor_set.array [
      Vkt.Write_descriptor_set.make
         ~dst_set:(A.get descriptor_sets 0) ~dst_binding:0 ~descriptor_count:1
         ~dst_array_element:0
@@ -861,7 +863,6 @@ module Uniform = struct
   end
 
 module Pipeline = struct
-   Gc.major () ;;
   let vertex_binding =
     Vkt.Vertex_input_binding_description.make
       ~binding:0
@@ -883,8 +884,8 @@ module Pipeline = struct
   ;; A.set attributes 0 geom_attribute
   ;; A.set attributes 1 texel_attribute
 
-  let bindings = A.of_list Vkt.vertex_input_binding_description
-      [vertex_binding]
+  let bindings =
+    Vkt.Vertex_input_binding_description.array [vertex_binding]
 
   let input_description =
     Vkt.Pipeline_vertex_input_state_create_info.make
@@ -910,8 +911,8 @@ module Pipeline = struct
       ~offset: Vkt.Offset_2d.(make ~x:0 ~y:0)
       ~extent:Image.extent
 
-  let viewports = A.of_list Vkt.viewport [viewport]
-  let scissors = A.of_list Vkt.rect_2d [scissor]
+  let viewports = Vkt.Viewport.array [viewport]
+  let scissors = Vkt.Rect_2d.array [scissor]
 
   let viewport_state =
     Vkt.Pipeline_viewport_state_create_info.make
@@ -970,7 +971,7 @@ module Pipeline = struct
 
   let blend_state_info =
     let attachments =
-      A.of_list Vkt.pipeline_color_blend_attachment_state [no_blend] in
+      Vkt.Pipeline_color_blend_attachment_state.array [no_blend] in
     let consts = A.of_list Ctypes.float [ 0.; 0.; 0.; 0. ] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~logic_op_enable: false
@@ -1021,7 +1022,7 @@ module Pipeline = struct
       ~attachment: 1
       ~layout:Depth.layout
 
-  let dependencies = A.of_list Vkt.subpass_dependency
+  let dependencies = Vkt.Subpass_dependency.array
     [ let stage = Vkt.Pipeline_stage_flags.color_attachment_output in
     Vkt.Subpass_dependency.make
       ~src_subpass:(Unsigned.UInt.to_int Vk.Const.subpass_external)
@@ -1034,7 +1035,7 @@ module Pipeline = struct
     ]
 
   let subpass =
-    let color = A.of_list Vkt.attachment_reference [color_attachment] in
+    let color = Vkt.Attachment_reference.array [color_attachment] in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
       ~color_attachments: color
@@ -1129,7 +1130,7 @@ module Cmd = struct
 
   let images =
     Array.init 2 ( fun i ->
-        A.of_list Vkt.image_view [A.get Image.views i; Depth.view])
+        Vkt.Image_view.array [A.get Image.views i; Depth.view])
   let framebuffer_info i =
 
     Vkt.Framebuffer_create_info.make
@@ -1160,9 +1161,9 @@ module Cmd = struct
   let () = (* initialize depth buffer *)
     one_time queue command_pool Depth.transition;
     (* inialize texture *)
-    Texture.transfer_full queue command_pool
+    one_time queue command_pool Texture.transfer_full
   let framebuffers =
-    A.of_list Vkt.framebuffer [framebuffer 0; framebuffer 1]
+    Vkt.Framebuffer.array [framebuffer 0; framebuffer 1]
 
   let n_cmd_buffers =  (A.length framebuffers)
   let buffer_allocate_info =
@@ -1184,23 +1185,16 @@ module Cmd = struct
       ()
 
   let clear_colors =
-    let open Vkt.Clear_value in
-    let x = Ctypes.make t in
-    let c = Ctypes.make Vkt.clear_color_value in
     let a = A.of_list Ctypes.float [ 0.;0.;0.; 1.] in
-    set c Vkt.Clear_color_value.float_32 a;
-    set x color c;
-    x
+    let c =Vkt.Clear_color_value.float_32 a in
+    Vkt.Clear_value.color c
 
   let clear_depths =
-    let open Vkt.Clear_value in
-    let x = Ctypes.make t in
     let f = Vkt.Clear_depth_stencil_value.make ~depth:10. ~stencil:0 in
-    set x depth_stencil f;
-    x
+    Vkt.Clear_value.depth_stencil f
 
   let clear_values =
-    A.of_list Vkt.clear_value [clear_colors;clear_depths]
+    Vkt.Clear_value.array [clear_colors;clear_depths]
 
   let render_pass_info fmb =
     Vkt.Render_pass_begin_info.make
@@ -1212,7 +1206,7 @@ module Cmd = struct
 
   let render_pass_infos = A.map Vkt.render_pass_begin_info
       render_pass_info framebuffers
-  let vertex_buffers = A.of_list Vkt.buffer [Geom.buffer]
+  let vertex_buffers = Vkt.Buffer.array [Geom.buffer]
   let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
   let cmd b ifmb =
     Vkc.begin_command_buffer b cmd_begin_info <!> "Begin command buffer";
@@ -1247,15 +1241,15 @@ module Render = struct
   let im_semaphore = create_semaphore ()
   let render_semaphore = create_semaphore ()
 
-  let wait_sems = A.of_list Vkt.semaphore [im_semaphore]
-  let sign_sems = A.of_list Vkt.semaphore [render_semaphore]
+  let wait_sems = Vkt.Semaphore.array [im_semaphore]
+  let sign_sems = Vkt.Semaphore.array [render_semaphore]
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
     Ctypes.allocate view color_attachment_output
 
   let submit_info _index (* CHECK-ME *) =
-    A.of_list Vkt.submit_info [
+    Vkt.Submit_info.array [
     Vkt.Submit_info.make
       ~wait_semaphores: wait_sems
       ~wait_dst_stage_mask: wait_stage

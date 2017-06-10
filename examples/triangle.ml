@@ -5,9 +5,6 @@ module Vkr = Vk.Raw
 module Vkw = Vk__sdl
 
 module Utils = struct
-  (** Ctype utility functions *)
-  let get, set = Ctypes.(getf,setf)
-  let null = Ctypes.null
 
   let pp_opt pp ppf = function
     | None -> ()
@@ -529,13 +526,9 @@ module Cmd = struct
       ()
 
   let clear_values =
-    let open Vkt.Clear_value in
-    let x = Ctypes.make t in
-    let c = Ctypes.make Vkt.clear_color_value in
     let a = A.of_list Ctypes.float [ 0.;0.;0.; 1.] in
-    set c Vkt.Clear_color_value.float_32 a;
-    set x color c;
-    x
+    let c = Vkt.Clear_color_value.float_32 a in
+    Vkt.Clear_value.color c
 
   let render_pass_info fmb =
     let clear_values = A.of_list Vkt.clear_value [clear_values] in
