@@ -592,7 +592,7 @@ module Render = struct
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
 
-  let present_indices = Ctypes.allocate Vkt.uint_32_t 0
+  let present_indices = A.of_list Vkt.uint_32_t [0]
   (* Warning need to be alive as long as present_info can be used! *)
 
   let present_info =
@@ -606,7 +606,7 @@ module Render = struct
     let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
       ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
             <?> "Acquire image" in
-    present_indices <-@ n;
+    A.set present_indices 0 n;
     debug "Image %d acquired" n;
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
     <?> "Submitting command to queue";
@@ -622,8 +622,8 @@ module Render = struct
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.raw_pp x; exit 2)
 
   let draw () =
-    present_indices <-@ acquire_next ();
-    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
+    A.set present_indices 0 @@ acquire_next ();
+    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info present_indices) ()
     <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <!> "Present to queue"

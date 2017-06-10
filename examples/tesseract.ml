@@ -782,15 +782,18 @@ module Uniform = struct
 
   ;; debug "Allocated %d descriptor sets" (A.length descriptor_sets)
 
-  let image_info = Ctypes.addr @@ (* FIXME *)
-    Vkt.Descriptor_image_info. make
+  let image_info = A.of_list Vkt.descriptor_image_info
+    [Vkt.Descriptor_image_info. make
            ~sampler:Texture.sampler
            ~image_view:Texture.view
            ~image_layout:Vkt.Image_layout.Shader_read_only_optimal
+    ]
 
+  let buffer_info = A.of_list Vkt.descriptor_buffer_info
+      [Vkt.Descriptor_buffer_info.make buffer zero_offset size]
 
-  let buffer_info = Ctypes.addr @@ (* FIXME *)
-    Vkt.Descriptor_buffer_info.make buffer zero_offset size
+  let empty_array ty = A.make ty 0
+
   let write_info =
     A.of_list Vkt.write_descriptor_set [
      Vkt.Write_descriptor_set.make
@@ -801,8 +804,8 @@ module Uniform = struct
          constructors of a sum type:
          descriptor_type is the sum flag, and only on of  *)
       ~buffer_info
-      ~texel_buffer_view:(nullptr Vkt.buffer_view)
-      ~image_info:(nullptr Vkt.descriptor_image_info) ();
+      ~texel_buffer_view:(empty_array Vkt.buffer_view)
+      ~image_info:(empty_array Vkt.descriptor_image_info) ();
      Vkt.Write_descriptor_set.make
         ~dst_set:(A.get descriptor_sets 0) ~dst_binding:1 ~descriptor_count:1
         ~dst_array_element:0
@@ -810,8 +813,8 @@ module Uniform = struct
       (* TODO: the three fields belows corresponds to the
          constructors of a sum type:
          descriptor_type is the sum flag, and only on of  *)
-      ~buffer_info:(nullptr Vkt.descriptor_buffer_info)
-      ~texel_buffer_view:(nullptr Vkt.buffer_view)
+      ~buffer_info:(empty_array Vkt.descriptor_buffer_info)
+      ~texel_buffer_view:(empty_array Vkt.buffer_view)
       ~image_info ()
       ]
 
@@ -1231,7 +1234,7 @@ module Render = struct
 
   let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
 
-  let present_indices = Ctypes.allocate Vkt.uint_32_t 0
+  let present_indices = A.of_list Vkt.uint_32_t [0]
   (* Warning need to be alive as long as present_info can be used! *)
 
   let present_info =
@@ -1245,7 +1248,7 @@ module Render = struct
     let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
       ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
             <?> "Acquire image" in
-    present_indices <-@ n;
+    A.set present_indices 0 n;
     debug "Image %d acquired" n;
     let () = Uniform.transfer (Vec.zero `vec) Vec.id in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
@@ -1271,11 +1274,11 @@ module Render = struct
   let rot x y z t = Vec.( r 0 1 x * r 1 2 y * r 2 0 z * r 0 3 t)
   let phase (angle,speed) = (angle +. speed, speed +. u 0.001)
   let draw (p, (x, y, z, t)) =
-    present_indices <-@ acquire_next ();
+    A.set present_indices 0 @@ acquire_next ();
     let x,y,z,t as state = phase x, phase y, phase z, phase t in
     let p = vec_phase p in
     let () = Uniform.transfer (fst p) (rot x y z t) in
-    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info !present_indices) ()
+    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info present_indices) ()
     <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
     <!> "Present to queue";

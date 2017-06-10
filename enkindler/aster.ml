@@ -626,7 +626,9 @@ module Structured = struct
                    | Const Option(Const Ptr Name t |Ptr Name t))) when
         Aux.is_record types t ->
       setf (varname f) [%expr may Ctypes.addr [%e value.e]]
-    | Ty.Simple (f,ty) ->
+    | Ty.Simple(f, Array(Some Path _, _)) ->
+      setf (varname f) (start value.e)
+    | Ty.Simple (f,_ty) ->
       setf (varname f) value.e
     | Ty.Array_f { index; array } as t when Aux.is_option_f t ->
       [%expr match [%e value.e] with
