@@ -1,17 +1,17 @@
 
-
-* Formatter for record types
-
-* Improve generated code
+* Improve generated code readability, check current github PR
 
 * Better recognition of out parameters
 
-* Handle shared size between array input
-
-* Handle constant-size arrays
+* Recognize primitive implementation of sum types in function inputs
 
 * Specialize extension functions to use the extension functor argument
   when possible.
+
+* Liveness analysis: make sure that the GC don't collect values that live
+on the C side
+
+* Expose record setter
 
 Done:
 
@@ -31,3 +31,9 @@ Done:
 
 * Remove useless prefix in name
   e.g. p_, s_, pp_
+
+* Formatter for record types
+
+* Handle shared size between array input
+
+* Handle constant-size arrays
