@@ -70,6 +70,7 @@ between singleton and non-singleton values through a phantom type parameter
 
 ## Unions
   Unions are mapped to a Ctype union type.
+  A constructor is generated for each field of the union type
 
 ## Records
 

@@ -37,3 +37,5 @@ Done:
 * Handle shared size between array input
 
 * Handle constant-size arrays
+
+* Constructor for union type
