@@ -711,7 +711,7 @@ module Structured = struct
   let keep_alive exprs owner body =
     let values = Exp.array @@ List.map (fun e -> [%expr Obj.repr [%e e]]) exprs in
     [%expr let () =
-             Gc.finalise ( fun e -> let kept_alive = [%e values] in () ) [%e owner]
+             Gc.finalise ( fun _ -> let _kept_alive = [%e values] in () ) [%e owner]
       in [%e body]
     ]
 
