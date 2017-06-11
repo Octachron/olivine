@@ -835,13 +835,14 @@ module Fn = struct
     [%stri let [%p (var fn.name).p] = [%e foreign fn] ]
 
   let apply_gen get name vars args =
-    let get f = get vars f in
-    let app f = function
+    let get f = Asttypes.Nolabel, get vars f in
+    let add_arg l = function
       | Ty.Array_f { array ; index } ->
-        [%expr [%e f] [%e get index] [%e get array] ]
-      | Simple field -> [%expr [%e f] [%e get field ] ]
+         (get array) :: (get index) :: l
+      | Simple field -> get field :: l
       | Record_extension _  -> assert false in
-    List.fold_left app name args
+    let args = List.rev @@ List.fold_left add_arg [] args in
+    Exp.apply name args
 
   let apply = apply_gen (fun vars (f,_ty) -> ex (M.find @@ varname f) vars)
 
