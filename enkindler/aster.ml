@@ -119,13 +119,16 @@ let list merge map acc =
 let listr merge map l last =
   List.fold_right (fun x acc -> merge (map x) acc) l last
 
-let counter = ref 0
-let unique () =
-  incr counter;
-  let s =  "x'" ^ string_of_int !counter ^ "'" in
+
+module M = Enkindler_common.StringMap
+let dict : int M.t ref = ref M.empty
+let unique str =
+  let c = match M.find_opt str !dict with Some x -> x | None -> 1 in
+  dict := M.add str (1+c) !dict;
+  let s =  str ^"'" ^ string_of_int c in
   { p = Pat.var (nloc s); e = Exp.ident (nlid s) }
 
-let reset_uid () = counter := 0
+let reset_uid () = dict := M.empty
 
 let coerce ~from ~to' value = [%expr Ctypes.coerce [%e from] [%e to'] [%e value]]
 let ptr x = [%expr Ctypes.ptr [%e x] ]
@@ -158,8 +161,6 @@ let repr_name = function
   | Simple(n, _ ) -> varname n
   | Record_extension _ -> "ext"
 
-module M = Enkindler_common.StringMap
-
 let index_name f = L.(f//"size'")
 
 let mkfun fields =
@@ -173,16 +174,16 @@ let mkfun fields =
     let vars = List.fold_left (fun m (k,x) -> M.add k x m) m in
     function
     | Ty.Record_extension _ as f ->
-      let u = unique () and opt = [%expr No_extension] in
+      let u = unique "ext" and opt = [%expr No_extension] in
       def ~opt f u.p, vars ["ext", u]
     | Array_f { array= n, _; index = i, _  } as f ->
-      let u = unique () and v = unique () in
+      let u = unique (varname n) and v = unique (varname i) in
       def f u.p, vars [varname n, u; varname i, v ]
     | Simple(n, Array _) as f ->
-      let u = unique () and v = unique () in
+      let u = unique (varname n) and v = unique "size" in
       def f u.p, vars [varname n, u; varname @@ index_name n, v]
     | Ty.Simple(n,_)  as f ->
-      let u = unique () in
+      let u = unique (varname n) in
       def f u.p, vars [varname n, u] in
   let terminator =
     if List.exists Aux.is_option_f fields || List.length fields = 0
@@ -350,7 +351,7 @@ module Enum = struct
   let pp pre ty constrs =
     let cstr = construct ty in
     let pp = Pat.var @@ nloc @@ pre ^ "pp" in
-    let x = unique () in
+    let x = unique "x" in
     let m =
       let case c = let s = constr ty c in
         Exp.case (cstr.p s) (string s) in
@@ -564,14 +565,14 @@ module Structured = struct
 
   let union (n,_) =
     reset_uid ();
-    let u = unique () and r = unique () in
+    let u = unique "x" and r = unique "res" in
     [%stri let [%p pat var n] = fun [%p u.p] ->
         let [%p r.p] = Ctypes.make t in
         [%e setf r.e (varname n) u.e ]; [%e r.e]
     ]
 
   let getter typename types fields (out,field) =
-    let u = unique () in
+    let u = unique "record" in
     let get_field' = get_field' u.e and get_field = get_field u.e in
     let def x = [%stri let [%p out.p] = fun [%p u.p] -> [%e x] ] in
     def begin match field with
@@ -697,7 +698,7 @@ module Structured = struct
     | a :: q -> [%expr [%e map a]; [%e sep]; [%e sseq sep map q] ]
 
   let pp types fields =
-    let u = unique () in
+    let u = unique "x" in
     let with_pf x = [%expr let pf ppf = Printer.fprintf ppf in [%e x]  ] in
     let pp_f (name,ty) =
         let fmt = string @@ varname name ^ "=%a" in
@@ -764,7 +765,7 @@ let keep_field_alive vars acc = function
 
 let array =
   reset_uid ();
-  let input = unique () and array = unique () in
+  let input = unique "input" and array = unique "array" in
   let keep = keep_alive [array.e] input.e array.e in
   [%stri let array = fun [%p input.p] ->
            let [%p array.p] = Ctypes.CArray.of_list t [%e input.e] in
@@ -773,7 +774,7 @@ let array =
 
   let construct types tyname fields =
     let fn, m = mkfun fields in
-    let res = unique () in
+    let res = unique "res" in
     let set field = set types tyname res.e field (M.find (repr_name field) m) in
     let keep_alive =
       keep_alive (List.fold_left (keep_field_alive m) [] fields) res.e in
@@ -851,14 +852,14 @@ module Fn = struct
 
   let mkfn_simple fields =
     let build (f,vars) (name,_ty) =
-      let u = unique () in
+      let u = unique (varname name) in
       (fun body -> f [%expr fun [%p u.p] -> [%e body] ]),
       M.add (varname name) u vars in
     List.fold_left build ((fun x -> x), M.empty) fields
 
   let make_regular types fn =
     let args = Aux.to_fields fn.Ty.args in
-    let f = unique () in
+    let f = unique "f" in
     let def body =
       [%stri let [%p pat var fn.name] =
                let [%p f.p] = [%e foreign fn] in
@@ -948,7 +949,7 @@ module Fn = struct
     | _ -> body
 
   let extract_opt input output nullptr map body =
-    let scrutinee = unique () in
+    let scrutinee = unique "scrutinee" in
     [%expr let [%p output.p] = match [%e input] with
         | None -> None, [%e nullptr]
         | Some [%p scrutinee.p] -> [%e map scrutinee.e] in  [%e body]
@@ -1013,7 +1014,7 @@ module Fn = struct
   let join ty res outputs =
     let n = List.length outputs in
     if Aux.is_result ty then
-      let u = unique () in
+      let u = unique "ok" in
       let outputs = if outputs = [] then [[%expr ()]] else outputs in
       [%expr match [%e res] with
         | Error _ as e -> e
@@ -1029,13 +1030,13 @@ module Fn = struct
   let look_out vars output = List.fold_left ( fun (l,vars) f ->
       match f.Ty.field with
       | Ty.Array_f { array = a, _ ; index = i, _ } ->
-        let u = unique () and v = unique () in
+        let u = unique (varname a) and v = unique (varname i) in
         u.e :: l, vars |> M.add (varname i) u |> M.add (varname a) v
       | Simple(n, Array _ ) ->
-        let u = unique () and v = unique () in
+        let u = unique (varname n) and v = unique "size" in
         u.e :: l, vars |> M.add (varname n) v |> M.add (varname @@ index_name n) u
       | f ->
-        let u = unique () in
+        let u = unique (repr_name f) in
         u.e :: l, vars |> M.add (repr_name f) u
         ) ([], vars) output
 
@@ -1057,7 +1058,7 @@ module Fn = struct
     fold (input_expand vars) input' @@
     fold (allocate_field types input' vars) output @@
     let apply = apply_regular types (ex var fn.name) vars all in
-    let res = unique () in
+    let res = unique "res" in
     let result =
       let outs = List.map (to_output types vars) output in
       [%expr let [%p res.p] = [%e apply] in [%e join tyret res.e outs] ] in
