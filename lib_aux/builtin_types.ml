@@ -117,15 +117,18 @@ module type aliased = sig
   val to_string: t -> string
 end
 
-module Alias(X:aliased): sig
-  type t = private X.t
-  val make: X.t -> t
+module type alias = sig
+  type x
+  type t = private x
+  val make: x -> t
   val ctype: t Ctypes.typ
   val of_int : int -> t
   val zero: t
   val to_int: t -> int
   val pp: Format.formatter -> t -> unit
-end = struct
+end
+
+module Alias(X:aliased): alias with type x := X.t = struct
   type t = X.t
   let make x = x
   let zero = X.zero

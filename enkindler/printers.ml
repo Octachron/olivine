@@ -4,21 +4,32 @@ module Ty = B.Ty
 module L = Name_study
 module Arith = B.Arith
 
+
+
 let is_bits name =
   match name.L.postfix with
   | "bits" :: _  -> true
   | _ -> false
 
+let pp ppf dual =
+  let open Ast__utils in
+  Pprintast.structure (str ppf) (str dual);
+  Pprintast.signature (sg ppf) (sg dual)
+
+let pp_str ppf dual = Pprintast.structure ppf @@ Ast__utils.str dual
+
+
 let pp_type builtins results types ppf (name,ty) =
-  Pprintast.structure ppf
+  let nil = Ast__utils.nil in
+  pp_str ppf
   @@ match ty with
-  | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> []
+  | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> nil
   | Result {ok;bad} ->
     Aster.Result.make results (name,ok,bad)
   | Name t -> Aster.alias builtins (name,t)
-  | FunPtr fn -> [Aster.Funptr.make (name,fn)]
+  | FunPtr fn -> Aster.Funptr.make (name,fn)
   | Union fields -> Aster.Structured.make types Union (name,fields)
-  | Bitset { field_type = Some _; _ } -> []
+  | Bitset { field_type = Some _; _ } -> nil
   | Bitset { field_type = None; _ } -> Aster.Bitset.make (name,None)
   | Bitfields {fields;values} ->
     Aster.Bitset.make_extended (name,(fields,values))
@@ -30,7 +41,7 @@ let pp_type builtins results types ppf (name,ty) =
         let kind = if is_result then Aster.Enum.Poly else Aster.Enum.Std in
         Aster.Enum.make kind (name,constrs)
       end
-    else []
+    else Ast__utils.nil
   | Record r ->
     Aster.Structured.make types Record (name,r.fields)
   | Record_extensions _ -> (* FIXME *)

@@ -137,13 +137,16 @@ let addr x = [%expr Ctypes.addr [%e x] ]
 let (!@) x = [%expr !@[%e x]]
 
 let views name =
-  let n = var name and no = var L.(name//"opt") in
-  let e = open' name [%expr view, view_opt ]
-  in [%stri let [%p n.p], [%p no.p] = [%e e]]
+  let n = var name and no = L.(name//"opt") in
+  let e = open' name [%expr view, view_opt ] in
+  let t = typ ~par:name ~:"t" in
+  item
+  [[%stri let [%p n.p], [%p pat var no] = [%e e]]]
+  [ val' name [%type: [%t t] Ctypes.typ]; val' no [%type: [%t t] option Ctypes.typ]]
 
 let extern_type name =
   decltype ~manifest:(H.Typ.constr (nloc @@ qn name "t")  [])
-    (nloc @@ typestr name)
+    (typestr name)
 
 let wrap_opt ty v =
   if Aux.is_option ty then
@@ -245,57 +248,63 @@ module Bitset = struct
       { set_name with postfix = set_name.postfix @ [ "bit" ]  } in
     remove_context context name
 
-  let named namer f set_name (name,value) =
-    let v = var @@ namer set_name name in
-    [%stri let [%p v.p] = [%e f] [%e int.e value]]
-
-  let field = named field_name [%expr make_index]
-  let value = named value_name [%expr of_int]
+  let named ty namer f set_name (name,value) =
+    let n = namer set_name name in
+    let v = var n in
+    item [%stri let [%p v.p] = [%e f] [%e int.e value]]
+    (val' n ty)
+  let field = named [%type: index] field_name [%expr make_index]
+  let value = named [%type: 'a set]  value_name [%expr of_int]
 
   let values set_name (fields,values) =
-    List.map (field set_name) fields
-    @ List.map (value set_name) values
+    imap (field set_name) fields
+    @* imap (value set_name) values
 
   let pp set (fields,_) =
     let field (name,_) =
       let name = field_name set name in
       [%expr [%e ex var name], [%e string (varname name)]] in
     let l = listr (fun x l -> [%expr [%e x] :: [%e l] ]) field fields [%expr []] in
-    [%stri let pp x = pp_tags [%e l] x]
+    item [%stri let pp x = pp_tags [%e l] x]
+      [%sigi: val pp: Format.formatter -> 'a t -> unit]
 
   let resume bitname name =
-    let index_view b n =
+    let index_view b ty n =
       let v = Pat.var (nloc b) and e = ident (qn name n) in
-      [%stri let [%p v] = [%e e ]] in
-    [extern_type name; views name;
-     index_view bitname "index_view";
-     index_view (bitname^"_opt") "index_view_opt" ]
+      item [%stri let [%p v] = [%e e ]]
+        (val' ~:b [%type: [%t ty] Ctypeq.typ ]) in
+    let ty = typ ~par:name ~:"index" in
+    extern_type name ^:: views name
+    @* index_view bitname ty "index_view"
+    ^:: index_view (bitname^"_opt") [%type: [%t ty] option] "index_view_opt"
+    ^:: nil
 
   let make_extended (bitname, fields) =
   let name = set_name bitname in
   let core_name = let open L in
     { name with postfix = List.filter (fun x -> x <> "flags") name.postfix }
   in
+  let values = values core_name fields in
   module' name (
-    [%stri include Bitset.Make()]
-    :: values core_name fields
-    @ [pp core_name fields]
+    item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
+    ^:: values
+    @* pp core_name fields ^:: nil
   )
-  :: resume (varname bitname) name
+  ^:: resume (varname bitname) name
 
   let make (name,opt) =
     let bitname = bit_name name in
     match opt with
-    | Some _ -> []
+    | Some _ -> nil
     | None ->
       make_genf name "Bitset"
-      :: resume (varname bitname) name
+      ^:: resume (varname bitname) name
 
 end
 
 module Handle = struct
   let make name =
-    [ make_genf name "Handle"; extern_type name; views name ]
+    make_genf name "Handle" ^:: extern_type name ^:: views name
 end
 
 module Enum = struct
@@ -310,7 +319,7 @@ module Enum = struct
   let def_std name constrs =
     let constr c = let n = constr (Std,name) c in
       H.Type.constructor (nloc n) in
-    variant (nloc "t") @@ List.map constr constrs
+    variant "t" @@ List.map constr constrs
 
   let def_poly name constrs =
     let constr c = constr (Poly,name) c in
@@ -334,19 +343,21 @@ module Enum = struct
 
   let conv ?(cases=[]) f params constrs =
      Exp.function_ (List.map (case f params) constrs @ cases)
-
   let to_int ty constrs =
     let c = construct ty in
     let f =
       conv (fun n d -> Exp.case (c.p n) (int.e d)) ty constrs in
-    [%stri let to_int = [%e f] ]
+    item [%stri let to_int = [%e f] ]
+      (val' ~:"to_int" [%type: t -> int])
 
   let of_int ty constrs =
     let c = construct ty in
     let app n d = H.Exp.case (int.p d) (c.e n) in
     let cases = [Exp.case (Pat.any ()) [%expr assert false]] in
     let f = conv ~cases app ty constrs in
-    [%stri let of_int = [%e f] ]
+    let sigi = val' ~:"of_int" [%type: int -> t] in
+    let stri = [%stri let of_int = [%e f] ] in
+    item stri sigi
 
   let pp pre ty constrs =
     let cstr = construct ty in
@@ -356,35 +367,47 @@ module Enum = struct
       let case c = let s = constr ty c in
         Exp.case (cstr.p s) (string s) in
       Exp.match_ x.e (List.map case constrs) in
-    [%stri let [%p pp] = fun ppf [%p x.p] -> Printer.pp_print_string ppf [%e m]]
+    item
+      [%stri let [%p pp] = fun ppf [%p x.p] -> Printer.pp_print_string ppf [%e m]]
+      (val' ~:(pre ^ "pp") [%type: Format.formatter -> t -> unit])
 
   let view =
-    [%stri let view = Ctypes.view ~write:to_int ~read:of_int int]
+    item [%stri let view = Ctypes.view ~write:to_int ~read:of_int int]
+      (val' ~:"view" [%type: t Ctypes.typ])
+
   let view_result =
-    [%stri let view = Vk__result.view  ~ok:(of_int,to_int) ~error:(of_int,to_int)]
+    item
+      [%stri let view = Vk__result.view  ~ok:(of_int,to_int) ~error:(of_int,to_int)]
+    (val' ~:"view" [%type: (t,t) result Ctypes.typ])
+
   let pp_result =
-    [%stri let pp = Vk__result.pp raw_pp]
+    item [%stri let pp = Vk__result.pp raw_pp]
+      (val' ~:"pp" [%type: Format.formatter -> (t,t) result -> unit])
 
   let view_opt =
-    [%stri let view_opt =
-             let read x = if x = max_int then None else Some(of_int x) in
-             let write = function None -> max_int | Some x -> to_int x in
-             Ctypes.view ~read ~write int
-    ]
-
+    item
+      [%stri let view_opt =
+               let read x = if x = max_int then None else Some(of_int x) in
+               let write = function None -> max_int | Some x -> to_int x in
+               Ctypes.view ~read ~write int
+      ]
+      (val' ~:"view_opt" [%type: t option Ctypes.typ])
 
   let make impl (name,constrs) =
     let is_result = Aux.is_result_name name in
     let pre = if is_result then "raw_" else "" in
     let ty = impl, name in
     let str =
-      (List.map (fun f -> f ty constrs)
-         [def; to_int;of_int; pp pre ])
-      @ (if is_result then [pp_result; view_result] else [view])
-      @ [view_opt] in
+      def ty constrs
+      ^:: to_int ty constrs
+      ^:: of_int ty constrs
+      ^:: pp pre ty constrs
+      ^:: (if is_result then pp_result ^:: view_result ^:: nil
+          else view ^:: nil )
+      @* view_opt ^:: nil in
     let m =
       module' name str in
-    [m; views name ; extern_type name ]
+    m ^:: views name @* extern_type name ^:: nil
 
 end
 
@@ -408,18 +431,25 @@ module Result = struct
   let view m name constrs =
     let constrs =
       List.map (fun name -> name, T.Abs (find name m)) constrs in
-    module' name Enum.[ of_int (Poly,name) constrs;
-                        to_int (Poly,name) constrs ]
+    module' name @@
+    Enum.( of_int (Poly,name) constrs ^::
+           to_int (Poly,name) constrs ^:: nil
+         )
 
   let make m (name,ok,error) = match ok, error with
-    | [], x | x, [] -> [view m name x]
+    | [], x | x, [] -> (view m name x) ^:: nil
     | _ ->
       let v, ok_name, error_name = let open Subresult in
-        var (composite_nominal ok error), side_name ok, side_name error in
+        (composite_nominal ok error), side_name ok, side_name error in
+      let ty x = polyvariant_type @@ List.map typestr x in
       let conv name = open' name [%expr of_int, to_int] in
-      [[%stri let [%p v.p] =
+      item [%stri let [%p pat var v] =
                Vk__result.view ~ok:[%e conv ok_name] ~error:[%e conv error_name]
-      ]]
+      ]
+        (val' v
+            [%type: ([%t ty ok], [%t ty error]) result ]
+        ) ^:: nil
+
 end
 
 module Record_extension = struct
@@ -427,16 +457,22 @@ module Record_extension = struct
   let stype = ident' "stype__generated"
   let pnext = ident' "pnext__generated"
 
-  let def (name,exts) =
-    let name = typestr name in
+  let name root_name =  L.(root_name//"ext")
+
+  let def (typename,exts) =
+    let name = typestr @@ name typename  in
     let ty t = typ t in
     let ext e = H.Te.decl ~args:(Pcstr_tuple [ty e]) (nloc @@ mkconstr e) in
     let exts = H.Te.decl (nloc "No_extension") :: List.map ext exts in
-    let extend = H.Str.type_extension @@ H.Te.mk (nlid name) exts in
+    let te = H.Te.mk (nlid name) exts in
+    let extend = item (H.Str.type_extension te) (H.Sig.type_extension te)  in
     let decl =
-      H.Str.type_ tyrec [H.Type.mk ~kind:P.Ptype_open (nloc name)] in
-    [ [%stri exception Unknown_record_extension];
-      decl; extend ]
+      type' [H.Type.mk ~kind:P.Ptype_open (nloc name)] in
+    item [%stri exception Unknown_record_extension]
+      [%sigi: exception Unknown_record_extension]
+    ^:: decl
+    ^:: extend
+    ^:: nil
 
   let constr =
     let n = nlid % mkconstr in
@@ -472,9 +508,10 @@ module Record_extension = struct
 
 end
 
-module Typexp = struct
-    let rec make degraded x =
-      let make = make degraded in
+module Type = struct
+
+  let rec converter degraded x =
+      let make = converter degraded in
       match x with
       | Ty.Const t -> make t
       | Name n -> tyvar n
@@ -505,6 +542,47 @@ module Typexp = struct
       | FunPtr _ ->
         failwith "Not_implemented: funptr"
 
+  let rec mk = function
+      | Ty.Const t -> mk t
+      | Name n -> [%type: [%t typ n]]
+      | Ptr ty -> [%type: [%t mk ty] Ctypes.ptr ]
+      | Option ty -> [%type: [%t mk ty] option ]
+      | String -> [%type: string]
+      | Array (Some (Const _ |Lit _ |Path _ ) , ty) ->
+        [%type: [%t mk ty] Ctypes.CArray.t ]
+      | Result {ok;bad} ->
+        let ok = polyvariant_type @@ List.map mkconstr ok in
+        let bad = polyvariant_type @@ List.map mkconstr bad in
+        [%type: ([%t ok], [%t  bad]) result ]
+      | Record_extensions _ -> [%type: void Ctypes.ptr ]
+      (* ^FIXME^?: better typing? *)
+      | Array (_,ty) -> [%type: [%t mk ty] Ctypes.ptr]
+      | FunPtr _ -> not_implemented "funptr type"
+      | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
+      | Handle _  ->
+        failwith "Anonymous type"
+
+    let fn ?(with_label=false) typename fields ret =
+      let (->>) (l,x) r = H.Typ.arrow l x r in
+      let label n f =
+        if not with_label then Asttypes.Nolabel
+        else if Aux.is_option_f f then
+          Asttypes.Optional (varname n)
+        else
+          Labelled (varname n) in
+      let arg f = match f with
+        | Ty.Array_f { array=n, ty; _ } ->
+          label n f, mk ty
+        | Simple(n,ty) as f ->
+          label n f , mk ty
+        | Record_extension _ ->
+          label ~:"ext" f ,  typ (Record_extension.name typename) in
+      let ret = if List.exists Aux.is_option_f fields then
+          (Nolabel, [%type: unit] ) ->> ret
+        else
+          ret in
+      List.fold_right (fun field f -> arg field ->> f ) fields ret
+
 
 end
 
@@ -515,16 +593,20 @@ module Structured = struct
     | Union: Ty.simple_field kind
     | Record: Ty.field kind
 
-  let sfield (name,typ) =
+  let sfield (name,t) =
     (* Note: we could try to simplify further field names,
        but they happen to be quite short in practice *)
-    let name = var name and str = varname name and ty = Typexp.make false typ in
-    [%stri let [%p name.p] = field t [%e string str] [%e ty] ]
+    let str = varname name and conv = Type.converter false t in
+    let ty = Type.mk t in
+    item
+      [%stri let [%p pat var name] = field t [%e string str] [%e conv] ]
+      (val' name [%type: ([%t ty] , t) Ctypes.field])
 
   let field = function
-    | Ty.Simple f -> [sfield f]
-    | Array_f r -> [sfield r.index; sfield r.array]
-    | Record_extension {tag; ptr; _ } -> [sfield tag; sfield ptr]
+    | Ty.Simple f -> sfield f ^:: nil
+    | Array_f r -> sfield r.index ^:: sfield r.array ^:: nil
+    | Record_extension {tag; ptr; _ } ->
+      sfield tag ^:: sfield ptr ^:: nil
 
   let (#.) r x = [%expr Ctypes.getf [%e r] [%e x]]
   let fname x = Exp.ident (nloc @@ lid "Fields" / x)
@@ -558,23 +640,32 @@ module Structured = struct
 
   let start x = [%expr Ctypes.CArray.start [%e x]]
 
-  let inner = L.simple ["Fields"]
+  let inner = ~:"Fields"
 
   let setf r f value =
     [%expr Ctypes.setf [%e r] [%e ident(qn inner @@ f)] [%e value] ]
 
-  let union (n,_) =
+  let union (n,ty) =
     reset_uid ();
     let u = unique "x" and r = unique "res" in
-    [%stri let [%p pat var n] = fun [%p u.p] ->
+    item [%stri let [%p pat var n] = fun [%p u.p] ->
         let [%p r.p] = Ctypes.make t in
         [%e setf r.e (varname n) u.e ]; [%e r.e]
     ]
+      (val' n [%type: t -> [%t Type.mk ty] ])
 
-  let getter typename types fields (out,field) =
-    let u = unique "record" in
+  let type_field = function
+    | Ty.Simple(_,ty) -> Type.mk ty
+    | Array_f { array = _, ty; _ } -> Type.mk ty
+    | Record_extension _ -> typ ~:"ext"
+
+  let getter typename types fields (out_name,field) =
+    let u = unique "record" and out = var out_name in
     let get_field' = get_field' u.e and get_field = get_field u.e in
-    let def x = [%stri let [%p out.p] = fun [%p u.p] -> [%e x] ] in
+    let def x =
+      item
+        [%stri let [%p out.p] = fun [%p u.p] -> [%e x] ]
+        (val' out_name @@ type_field field) in
     def begin match field with
       | Ty.Array_f {index=i,ty; array = a, tya} as f when Aux.is_option_f f ->
         let index = int_of_ty (ex ident' "n") (unwrap_opt_ty ty) in
@@ -625,7 +716,7 @@ module Structured = struct
 
   let nullptr = function
     | Ty.Option _ -> [%expr None]
-    | t -> coerce (ptr void) (Typexp.make true t) [%expr Ctypes.null]
+    | t -> coerce (ptr void) (Type.converter true t) [%expr Ctypes.null]
   (*   | ty -> not_implemented "Null array not implemented for %a@." Ty.pp ty *)
 
 
@@ -705,9 +796,12 @@ module Structured = struct
         [%expr pf ppf [%e fmt] [%e printer types ty]
             ([%e (var name).e]  [%e u.e]) ] in
     let def x =
-      [%stri let pp ppf = fun [%p u.p] ->
-          let pf ppf = Printer.fprintf ppf in
-          pf ppf "@[{@ "; [%e with_pf x] ] in
+      item
+        [%stri let pp ppf = fun [%p u.p] ->
+            let pf ppf = Printer.fprintf ppf in
+            pf ppf "@[{@ "; [%e with_pf x] ]
+        (val' ~:"pp"[%type: Format.formatter -> t -> unit])
+    in
     let pp_field (field:Ty.field) = match field with
       | Record_extension _ -> [%expr pf ppf "ext=⟨unsupported⟩"]
       | Array_f { array=name, (Ty.Ptr ty| Const Ptr ty | Array(_,ty));
@@ -730,18 +824,18 @@ module Structured = struct
     ]
 
   let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
-    let seal = [%stri let () = Ctypes.seal t] in
+    let seal = hidden [%stri let () = Ctypes.seal t] in
     match kind with
-    | Union -> module' inner (List.map sfield fields) :: [seal]
+    | Union -> module' inner (imap sfield fields) ^:: seal
     | Record ->
-      let lens f = getter typename types fields (ident' @@ repr_name f, f) in
+      let lens f = getter typename types fields (~:(repr_name f), f) in
       let exts= match Aux.record_extension fields with
         | Some exts -> Record_extension.def (typename,exts)
-        | None -> [] in
+        | None -> nil in
       exts
-      @  module' (L.simple ["Fields"])
-        List.(flatten @@ map field fields)
-      :: seal :: (List.map lens fields) @ [pp types fields]
+      @*  module' inner
+        (List.fold_right (fun x l -> field x @* l) fields nil)
+      ^:: seal @* (imap lens fields) @* pp types fields ^:: nil
 
   let kind_cstr (type a) (kind: a kind) typ = match kind with
     | Union -> [%type: [%t typ] Ctypes.union]
@@ -752,27 +846,30 @@ module Structured = struct
     | Record -> [%expr structure]
 
   let def types (_,kind as tk) name fields =
-    [%stri type mark ]
-    :: [%stri type t = [%t kind_cstr kind [%type:mark] ] ]
-    :: [%stri let t: t Ctypes.typ =
-                [%e ke kind] [%e string @@ typestr name] ]
-     :: def_fields tk types fields
+    hidden [%stri type mark ]
+    @* item [%stri type t = [%t kind_cstr kind [%type:mark] ] ] [%sigi: type t]
+    ^:: item
+      [%stri let t: t Ctypes.typ = [%e ke kind] [%e string @@ typestr name] ]
+      (val' ~:"t" [%type: t Ctypes.typ])
+    ^:: def_fields tk types fields
 
-let keep_field_alive vars acc = function
-  (*  | Ty.Simple(_,Array _ ) -> acc *)
-  | Ty.Simple(f, _ ) -> ex (M.find @@ varname f) vars :: acc
-  | _ -> acc
+  let keep_field_alive vars acc = function
+    (*  | Ty.Simple(_,Array _ ) -> acc *)
+    | Ty.Simple(f, _ ) -> ex (M.find @@ varname f) vars :: acc
+    | _ -> acc
 
-let array =
-  reset_uid ();
-  let input = unique "input" and array = unique "array" in
-  let keep = keep_alive [array.e] input.e array.e in
-  [%stri let array = fun [%p input.p] ->
-           let [%p array.p] = Ctypes.CArray.of_list t [%e input.e] in
-           [%e keep]
-  ]
+  let array =
+    reset_uid ();
+    let input = unique "input" and array = unique "array" in
+    let keep = keep_alive [array.e] input.e array.e in
+    item
+      [%stri let array = fun [%p input.p] ->
+          let [%p array.p] = Ctypes.CArray.of_list t [%e input.e] in
+          [%e keep]
+      ]
+      (val' ~:"array" [%type: t Ctypes.CArray.t ] )
 
-  let construct types tyname fields =
+     let construct types tyname fields =
     let fn, m = mkfun fields in
     let res = unique "res" in
     let set field = set types tyname res.e field (M.find (repr_name field) m) in
@@ -782,26 +879,28 @@ let array =
       [%expr let [%p res.p] = Ctypes.make t in
         [%e keep_alive @@ seq set fields res.e ]
       ] in
-    [%stri let make = [%e fn body]]
+    item [%stri let make = [%e fn body]]
+      (val' ~:"make" @@ Type.fn ~with_label:true tyname fields [%type: t])
 
   let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     let records = match kind with
-      | Union -> List.map union fields
-      | Record -> [construct types name fields] in
-    [ module' name
-        (def types (name,kind) name fields @ array :: records);
-      [%stri let [%p pvar @@ varname name] = [%e ident @@ qn name "t"]];
-      extern_type name
-    ]
+      | Union -> imap union fields
+      | Record -> construct types name fields ^:: nil in
+    module' name
+      (def types (name,kind) name fields @* array ^:: records)
+    ^:: item
+      [%stri let [%p pat var name] = [%e ident @@ qn name "t"]]
+       (val' name @@ typ ~par:name ~:"t")
+    ^::  extern_type name
+    ^:: nil
 
 end
-
 
 module Funptr = struct
 
   let mkty args ret =
-    let ret  = Typexp.make true ret in
-    listr (fun l r -> [%expr[%e l] @-> [%e r] ]) (Typexp.make true)
+    let ret  = Type.converter true ret in
+    listr (fun l r -> [%expr[%e l] @-> [%e r] ]) (Type.converter true)
       args
       [%expr returning [%e ret]]
 
@@ -812,14 +911,21 @@ module Funptr = struct
   let make (tyname, (fn:Ty.fn)) =
     let ty = pty tyname and tyo = pty L.(tyname//"opt")in
     match List.map snd @@ Ty.flatten_fn_fields fn.args with
-    | [] -> [%stri let [%p ty] = ptr void]
+    | [] -> item
+              [[%stri let [%p ty] = ptr void]]
+              [val' tyname [%type: void Ctypes.ptr]]
     | args ->
-      [%stri let [%p ty], [%p tyo] =
-               let ty = [%e mkty args fn.return] in
-               Foreign.funptr ty, Foreign.funptr_opt ty
-      ]
+      let t = Type.fn fn.name (Aux.to_fields fn.args) (Type.mk fn.return) in
+      item
+        [[%stri let [%p ty], [%p tyo] =
+                 let ty = [%e mkty args fn.return] in
+                 Foreign.funptr ty, Foreign.funptr_opt ty
+        ]]
+        [ val' tyname t;
+          val' L.(tyname//"opt") [%type: [%t t] option] ]
 
 end
+
 
 module Fn = struct
   open Funptr
@@ -1083,15 +1189,25 @@ end
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
 let alias builtins (name,origin) =
   if not @@ B.Name_set.mem name builtins then
-    module_gen name H.Mod.(apply (ident (nlid "Alias"))
-                             (ident @@ nlid @@ modname origin))
-    :: [%str
-      let [%p pat var name] = [%e ident @@ qn name "ctype"]
-let [%p pat var L.(name//"opt")] = integer_opt [%e packed name]
-]
-  else
-    []
-
+    let sign =
+      let constraint' = H.Type.mk ~manifest:(typ ~par:(~:"X") ~:"t") (nloc "x") in
+      H.Mty.(with_ (ident @@ nlid "alias") [P.Pwith_typesubst constraint'] ) in
+    let t = typ ~par:(~:"Alias") ~:"t" in
+    ( module_gen name @@
+      item
+        H.Mod.(apply (ident (nlid "Alias"))
+                 (ident @@ nlid @@ modname origin))
+        sign
+    )
+    ^:: item
+      [%stri let [%p pat var name] = [%e ident @@ qn name "ctype"] ]
+      (val' name [%type: [%t t] Ctypes.typ])
+    ^:: item
+      [%stri let [%p pat var L.(name//"opt")] = integer_opt [%e packed name] ]
+       (val' L.(name//"opt") [%type: [%t t] option Ctypes.typ])
+    ^:: nil
+else
+    nil
 
 let float_const f = Exp.constant (H.Const.float @@ string_of_float f)
 module Const = struct

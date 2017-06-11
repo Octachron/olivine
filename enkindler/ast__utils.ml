@@ -9,11 +9,24 @@ end
 open Aliases
 
 type ('a,'b) dual = {p:'a ; e:'b}
+type ('a,'b) item = { structure:'a; signature:'b }
 
+let sg x =  x.signature
+let str x =  x.structure
+let item structure signature = {structure;signature}
+let hidden s = { structure = [s]; signature = [] }
+
+let ( ^:: ) it1 it2 = item (str it1 :: str it2) (sg it1 :: sg it2)
+let (@*) it1 it2 = item (str it1 @ str it2) (sg it1 @ sg it2)
+let rec imap f = function
+  | [] -> item [] []
+  | a :: q -> f a ^:: imap f q
 
 let nloc = Location.mknoloc
 
+
 let typestr n = Fmt.strf "%a" L.pp_type n
+let val' name ty  = H.Sig.value @@ H.Val.mk (nloc @@ typestr name) ty
 
 let lid s =  Longident.Lident s
 let nlid x = nloc(lid x)
@@ -34,7 +47,13 @@ let (/) x s = Longident.( Ldot(x,s) )
 let qn module' x =
   (lid @@modname module') / x
 
-let typ n = H.Typ.constr (nloc @@ typename n) []
+let typ ?par name =
+  let lid =
+    match par with
+    | Some  m -> lid (modname m) / typestr name
+    | None -> typename name in
+  H.Typ.constr (nloc @@ lid ) []
+
 let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
 
 let typexp n = [%expr [%e typename n]]
@@ -55,17 +74,26 @@ let int = {
 let string s = Ast_helper.(Exp.constant @@ Const.string s)
 
 
+
 let norec = Asttypes.Nonrecursive
 let tyrec = Asttypes.Recursive
+let type' ?(recflag=tyrec) ty =
+  item (H.Str.type_ recflag ty) (H.Sig.type_ recflag ty)
 
-let decltype ?(recflag=tyrec) ?manifest ?kind name =
-  H.Str.type_ recflag [H.Type.mk ?kind ?manifest name]
+let decltype ?recflag ?manifest ?kind name =
+  type' ?recflag [H.Type.mk ?kind ?manifest @@ nloc name]
 
 let module_gen name me =
-  H.( Str.module_ @@ Mb.mk (nloc @@ modname name) me )
+  let name = nloc @@ modname name in
+  item
+  H.( Str.module_ @@ Mb.mk name @@ str me )
+  H.(Sig.module_ @@ Md.mk name @@ sg me )
 
-let module' name str = module_gen name (H.Mod.structure str)
+let module' name dual = module_gen name @@
+  item (H.Mod.structure @@ str dual) (H.Mty.signature @@ sg dual)
 
+let (~:) x = L.simple [x]
+let nil = item [] []
 
 let include' me = Ast_helper.(Str.include_ @@ Incl.mk me)
 module Me = struct
@@ -73,16 +101,20 @@ module Me = struct
 end
 
 let make_genf name f =
-  module_gen name H.Mod.( apply (ident @@ nloc @@ lid f/"Make") @@ structure [])
-
+  module_gen name @@ item
+    H.Mod.( apply (ident @@ nloc @@ lid f/"Make") @@ structure [])
+    (H.Mty.ident (nloc @@ lid f/"S"))
 
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name
 
-let polyvariant name constrs =
+let polyvariant_type constrs =
   let ty c =
     P.Rtag (c,[],true,[]) in
-  let typ = H.Typ.variant (List.map ty constrs) Asttypes.Closed None in
-  H.Str.type_ norec [H.Type.mk ~manifest:typ name]
+  H.Typ.variant (List.map ty constrs) Asttypes.Closed None
+
+let polyvariant name constrs =
+  let typ = polyvariant_type constrs in
+  type' [H.Type.mk ~manifest:typ name]
 
 let open' name e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) e
