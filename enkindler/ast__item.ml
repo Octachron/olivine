@@ -12,3 +12,11 @@ let nil = item [] []
 let rec imap f = function
   | [] -> nil
   | a :: q -> f a ^:: imap f q
+
+let rev s = { structure = List.rev s.structure;
+              signature = List.rev s.signature
+            }
+
+let fold_map f x =
+  rev
+ @@ List.fold_left (fun acc x -> f x @* acc ) nil x

@@ -954,7 +954,7 @@ module Pipeline = struct
      ()
 
   let depth_info =
-    let st = Ctypes.make Vkt.stencil_op_state in
+    let st = Vkt.Stencil_op_state.unsafe_make () in
     Vkt.Pipeline_depth_stencil_state_create_info.make
       ~depth_test_enable:true
       ~depth_write_enable:true
@@ -1246,7 +1246,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    Ctypes.allocate view color_attachment_output
+    A.of_list view [color_attachment_output]
 
   let submit_info _index (* CHECK-ME *) =
     Vkt.Submit_info.array [

@@ -95,13 +95,18 @@ let make_genf name f =
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name
 
-let polyvariant_type constrs =
+let polyvariant_type ~closed constrs =
   let ty c =
     P.Rtag (c,[],true,[]) in
-  H.Typ.variant (List.map ty constrs) Asttypes.Closed None
+  let tyn c = c in
+  if not closed then
+    H.Typ.variant [] Asttypes.Open (Some (List.map tyn constrs))
+  else
+    H.Typ.variant (List.map ty constrs) Asttypes.Closed None
+
 
 let polyvariant name constrs =
-  let typ = polyvariant_type constrs in
+  let typ = polyvariant_type ~closed:true constrs in
   type' [H.Type.mk ~manifest:typ name]
 
 let open' name e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) e

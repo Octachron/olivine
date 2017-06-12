@@ -39,6 +39,7 @@ module Uint_8_t = struct
   let pp ppf x = Format.pp_print_string ppf (to_string x)
 end
 
+type uint_8_t = U8.t
 let uint_8_t = Ctypes.uint8_t
 
 
@@ -64,6 +65,7 @@ module Size_t = struct
   type t = S.t
   let ctype = Ctypes.size_t
 end
+type size_t = Size_t.t
 let size_t_opt = integer_opt (module Size_t)
 
 module Uint_32_t = struct
@@ -192,3 +194,10 @@ let array_opt n t =
   let read = may (fun x -> Ctypes.CArray.from_ptr x n) in
   let write = may Ctypes.CArray.start in
   Ctypes.view read write (Ctypes.ptr_opt t)
+
+let convert_string n s =
+  let a = Ctypes.CArray.make Ctypes.char n ~initial:' ' in
+  for i = 0 to min n (String.length s) -1 do
+    Ctypes.CArray.set a i s.[i]
+  done;
+  a

@@ -547,7 +547,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    Ctypes.allocate view top_of_pipe
+    A.of_list view [top_of_pipe]
 
   let submit_info _index (* CHECK-ME *) =
     Vkt.Submit_info.array [

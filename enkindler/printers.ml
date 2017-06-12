@@ -35,7 +35,7 @@ let pp_type side builtins results types ppf (name,ty) =
   | Result {ok;bad} ->
     Aster.Result.make results (name,ok,bad)
   | Name t -> Aster.alias builtins (name,t)
-  | FunPtr fn -> Aster.Funptr.make (name,fn)
+  | FunPtr fn -> Aster.Funptr.make types (name,fn)
   | Union fields -> Aster.Structured.make types Union (name,fields)
   | Bitset { field_type = Some _; _ } -> nil
   | Bitset { field_type = None; _ } -> Aster.Bitset.make (name,None)
