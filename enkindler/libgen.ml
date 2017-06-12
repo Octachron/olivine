@@ -1,6 +1,7 @@
 module Dict = Name_study.Dict
 module R = Name_study.M
 module S = Enkindler_common.StringSet
+module I = Ast__item
 
 let read filename =
   let spec = open_in filename in
@@ -68,13 +69,17 @@ let make_dict spec =
   , exts |> add_ext "KHX" |> add_ext "EXT"
 
 let preambule =
+  I.item
   [%str
     open Ctypes
     let libvulkan = Dl.dlopen ~filename:"libvulkan.so" ~flags:Dl.[RTLD_NOW]
     let foreign name = Foreign.foreign ~from:libvulkan name
     module Printer = Format
-  ],
-  [%sig: ]
+  ]
+[%sig:
+  open Ctypes
+  module Printer = Format
+]
 
 let () =
   let info = read Sys.argv.(1) in

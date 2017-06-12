@@ -12,6 +12,7 @@ module Aliases= struct
   module P = Parsetree
 end
 open Aliases
+open Ast__item
 open Ast__utils
 
 
@@ -266,13 +267,13 @@ module Bitset = struct
       [%expr [%e ex var name], [%e string (varname name)]] in
     let l = listr (fun x l -> [%expr [%e x] :: [%e l] ]) field fields [%expr []] in
     item [%stri let pp x = pp_tags [%e l] x]
-      [%sigi: val pp: Format.formatter -> 'a t -> unit]
+      [%sigi: val pp: Printer.formatter -> 'a set -> unit]
 
   let resume bitname name =
     let index_view b ty n =
       let v = Pat.var (nloc b) and e = ident (qn name n) in
       item [%stri let [%p v] = [%e e ]]
-        (val' ~:b [%type: [%t ty] Ctypeq.typ ]) in
+        (val' ~:b [%type: [%t ty] Ctypes.typ ]) in
     let ty = typ ~par:name ~:"index" in
     extern_type name ^:: views name
     @* index_view bitname ty "index_view"
@@ -369,7 +370,7 @@ module Enum = struct
       Exp.match_ x.e (List.map case constrs) in
     item
       [%stri let [%p pp] = fun ppf [%p x.p] -> Printer.pp_print_string ppf [%e m]]
-      (val' ~:(pre ^ "pp") [%type: Format.formatter -> t -> unit])
+      (val' ~:(pre ^ "pp") [%type: Printer.formatter -> t -> unit])
 
   let view =
     item [%stri let view = Ctypes.view ~write:to_int ~read:of_int int]
@@ -382,7 +383,7 @@ module Enum = struct
 
   let pp_result =
     item [%stri let pp = Vk__result.pp raw_pp]
-      (val' ~:"pp" [%type: Format.formatter -> (t,t) result -> unit])
+      (val' ~:"pp" [%type: Printer.formatter -> (t,t) result -> unit])
 
   let view_opt =
     item
@@ -554,7 +555,7 @@ module Type = struct
         let ok = polyvariant_type @@ List.map mkconstr ok in
         let bad = polyvariant_type @@ List.map mkconstr bad in
         [%type: ([%t ok], [%t  bad]) result ]
-      | Record_extensions _ -> [%type: void Ctypes.ptr ]
+      | Record_extensions _ -> [%type: unit Ctypes.ptr ]
       (* ^FIXME^?: better typing? *)
       | Array (_,ty) -> [%type: [%t mk ty] Ctypes.ptr]
       | FunPtr _ -> not_implemented "funptr type"
@@ -654,10 +655,10 @@ module Structured = struct
     ]
       (val' n [%type: t -> [%t Type.mk ty] ])
 
-  let type_field = function
+  let type_field typename = function
     | Ty.Simple(_,ty) -> Type.mk ty
     | Array_f { array = _, ty; _ } -> Type.mk ty
-    | Record_extension _ -> typ ~:"ext"
+    | Record_extension _ -> typ L.(typename//"ext")
 
   let getter typename types fields (out_name,field) =
     let u = unique "record" and out = var out_name in
@@ -665,7 +666,7 @@ module Structured = struct
     let def x =
       item
         [%stri let [%p out.p] = fun [%p u.p] -> [%e x] ]
-        (val' out_name @@ type_field field) in
+        (val' out_name @@ type_field typename field) in
     def begin match field with
       | Ty.Array_f {index=i,ty; array = a, tya} as f when Aux.is_option_f f ->
         let index = int_of_ty (ex ident' "n") (unwrap_opt_ty ty) in
@@ -800,7 +801,7 @@ module Structured = struct
         [%stri let pp ppf = fun [%p u.p] ->
             let pf ppf = Printer.fprintf ppf in
             pf ppf "@[{@ "; [%e with_pf x] ]
-        (val' ~:"pp"[%type: Format.formatter -> t -> unit])
+        (val' ~:"pp"[%type: Printer.formatter -> t -> unit])
     in
     let pp_field (field:Ty.field) = match field with
       | Record_extension _ -> [%expr pf ppf "ext=⟨unsupported⟩"]
@@ -913,16 +914,21 @@ module Funptr = struct
     match List.map snd @@ Ty.flatten_fn_fields fn.args with
     | [] -> item
               [[%stri let [%p ty] = ptr void]]
-              [val' tyname [%type: void Ctypes.ptr]]
+              [val' tyname [%type: unit Ctypes.ptr]]
     | args ->
       let t = Type.fn fn.name (Aux.to_fields fn.args) (Type.mk fn.return) in
-      item
+
+      decltype ~manifest:t (typestr fn.name)
+      ^:: item
         [[%stri let [%p ty], [%p tyo] =
                  let ty = [%e mkty args fn.return] in
                  Foreign.funptr ty, Foreign.funptr_opt ty
         ]]
         [ val' tyname t;
-          val' L.(tyname//"opt") [%type: [%t t] option] ]
+          val' L.(tyname//"opt") [%type: [%t t] option];
+        ]
+
+
 
 end
 

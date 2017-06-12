@@ -17,6 +17,10 @@ type uint_32_t = int (* ASSUME 64 bits *)
 let uint_32_t = Ctypes.view ~read:(U32.to_int) ~write:(U32.of_int)
     Ctypes.uint32_t
 
+type void = unit
+type int_32_t = int
+type bool_32 = bool
+
 module Int = struct
   type t = int
   let zero = 0

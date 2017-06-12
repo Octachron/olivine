@@ -1,6 +1,8 @@
 module L = Name_study
 type path = L.name list
-
+module I = Ast__item
+  module U = Ast__utils
+type ast_item = (Parsetree.structure, Parsetree.signature) I.item
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
 module T = Retype
@@ -35,8 +37,7 @@ and item =
   | Fn of { implementation: implementation; fn:fn }
   | Type of L.name * type'
   | Module of module'
-  | Stri of Parsetree.structure_item
-  | Sigi of Parsetree.signature_item
+  | Ast of ast_item
 and sig' = item M.t
 
 let rec is_empty m =
@@ -67,7 +68,7 @@ type lib = {
   content: module';
   result: int Result.Map.t;
   root: string;
-  preambule: Parsetree.structure * Parsetree.signature ;
+  preambule: ast_item ;
   builtins: Name_set.t
 }
 
@@ -92,7 +93,7 @@ let item_name = function
   | Type (n, _) -> Some n
   | Fn f -> Some f.fn.name
   | Const (n,_) -> Some n
-  | Stri _ | Sigi _ -> None
+  | Ast _ -> None
 
 
 let update_assoc key default f items =
@@ -342,14 +343,18 @@ let rec take_module name = function
 
 
 let open' s =
-  Stri Ast_helper.(Str.open_ @@ Opn.mk @@ Ast__utils.nlid @@  " Vk__" ^ s ^ "\n")
-let opens = List.map open'
+  let open Ast_helper in
+  let opn = Opn.mk @@ Ast__utils.nlid @@  " Vk__" ^ s ^ "\n" in
+   I.item (Str.open_ opn) (Sig.open_ opn)
+
+let opens x = I.imap open' x
+let ast x = Ast x
 
 let core_submodules =
   let raw_open = ["const"; "types"; "subresult"] in
   List.map (fun m -> Module m)
-    [make ~sig':(opens @@ raw_open @ ["raw"]) [vk] core;
-     make ~sig':(opens raw_open) [vk] raw;
+    [make ~sig':[ast @@ opens @@ raw_open @ ["raw"]] [vk] core;
+     make ~sig':[ast @@ opens raw_open] [vk] raw;
      make [vk] subresult]
 
 
@@ -361,12 +366,16 @@ let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
   | None -> l
   | Some t ->
     let args = [Format.asprintf "X:%s" t] in
-    let preambule = Ast__utils.(include' @@ Me.apply ("Foreign_"^t) "X") in
+    let preambule =
+      I.item
+        [U.include' @@ U.Me.apply ("Foreign_"^t) "X"]
+        []
+in
     let items = S.of_list
       @@ List.filter (fun name -> not @@ sys_specific @@ L.make dict name)
       @@ ext.commands (*@ ext.types*) in
     let branch' = L.simple [branch] in
-    let ext_m = make ~args ~sig':(core_submodules @ [Stri preambule])
+    let ext_m = make ~args ~sig':(core_submodules @ [Ast preambule])
         [vk; branch']  name in
     let m = generate_core dict registry (items, ext_m) in
  (*   begin if List.length m.submodules > 3 then
@@ -383,7 +392,7 @@ let generate_extensions dict registry extensions =
   let gen_branch name exts acc =
     let submodules =
       List.fold_left (generate_subextension dict registry name) [] exts in
-    Module ( normalize @@ make ~sig':(submodules @ preambule) [vk]
+    Module ( normalize @@ make ~sig':(submodules @ [ast preambule]) [vk]
              @@ L.simple [name])
     :: acc in
    M.fold gen_branch exts []
@@ -407,8 +416,13 @@ let find_submodule name lib =
 let generate root preambule dict (spec:Typed.spec) =
   let registry = spec.entities in
   let submodules =
+    let sig' = let open I in
+      [ ast @@
+        opens ["const"] @* item [[%stri include Builtin_types]]
+          [%sig: include (module type of Builtin_types) open Unsigned ]
+      ] in
     core_submodules
-    @ [ Module (make ~sig':( opens ["const"] @ [Stri [%stri include Builtin_types]]) [vk] types) ] in
+    @ [ Module (make ~sig' [vk] types) ] in
   let items =
        S.of_list
     @@ List.filter (filter_extension dict registry)

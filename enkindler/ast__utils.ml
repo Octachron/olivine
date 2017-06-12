@@ -7,20 +7,9 @@ module Aliases = struct
   module P = Parsetree
 end
 open Aliases
+open Ast__item
 
 type ('a,'b) dual = {p:'a ; e:'b}
-type ('a,'b) item = { structure:'a; signature:'b }
-
-let sg x =  x.signature
-let str x =  x.structure
-let item structure signature = {structure;signature}
-let hidden s = { structure = [s]; signature = [] }
-
-let ( ^:: ) it1 it2 = item (str it1 :: str it2) (sg it1 :: sg it2)
-let (@*) it1 it2 = item (str it1 @ str it2) (sg it1 @ sg it2)
-let rec imap f = function
-  | [] -> item [] []
-  | a :: q -> f a ^:: imap f q
 
 let nloc = Location.mknoloc
 
@@ -93,8 +82,6 @@ let module' name dual = module_gen name @@
   item (H.Mod.structure @@ str dual) (H.Mty.signature @@ sg dual)
 
 let (~:) x = L.simple [x]
-let nil = item [] []
-
 let include' me = Ast_helper.(Str.include_ @@ Incl.mk me)
 module Me = struct
   let apply f x = H.Mod.(apply (ident @@ nlid f) (ident @@ nlid x))
