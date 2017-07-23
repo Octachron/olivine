@@ -927,11 +927,13 @@ module Structured = struct
 
   let keep_alive exprs owner body =
     let values = Exp.array @@ List.map (fun e -> [%expr Obj.repr [%e e]]) exprs in
-    [%expr let () =
-             Gc.finalise ( fun _ -> let _kept_alive = [%e values] in () ) [%e owner]
+    [%expr
+      let () = try
+          Gc.finalise_last
+            ( fun () -> let _kept_alive = [%e values] in () ) [%e owner]
+        with Invalid_argument _ -> () (* FIXME *)
       in [%e body]
     ]
-
 
 
   let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
