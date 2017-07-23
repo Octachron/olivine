@@ -122,7 +122,7 @@ let split_sticky_camel_case dict s =
     if Char.lowercase_ascii c <> c then
       capital lower (sub start n :: acc) n
     else if is_num c then
-        numeric (sub start n :: acc) n n
+        capital numeric (sub start n :: acc) n
     else if n + 1 < mx then
       lower acc start (n+1)
     else
@@ -134,7 +134,7 @@ let split_sticky_camel_case dict s =
     | None -> false, start+1 in
     let stop = n = mx in
     if stop then sub start n :: acc
-    else if word_stop then capital k ( sub start n :: acc ) n
+    else if word_stop then capital lower ( sub start n :: acc ) n
     else k acc start n
   and numeric acc start n =
     let c = s.[n] in

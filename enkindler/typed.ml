@@ -174,7 +174,7 @@ let flatten tree =
       Buffer.add_string b "enum ⦗";
       List.iter (flatten b) children;
       Buffer.add_string b "⦘"
-
+    | Node { name="comment"; _ } -> ()
     | Node { name; _ } -> raise @@ Type_error ("Unexpected type node: " ^ name)
   in
   List.iter (flatten b) tree;
@@ -436,6 +436,7 @@ let enum_data constrs x =
     (n%("name"), pos) :: constrs
   | Data _ -> constrs
   | Node { name="unused"; _ } -> (*Why?*) constrs
+  | Node { name="comment"; _ } -> constrs
   | Node n -> raise @@ Type_error
       ("Expected enum node, got " ^ n.name ^ " node")
 let bitset_data (fields,values) = function

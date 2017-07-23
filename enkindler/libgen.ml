@@ -59,6 +59,7 @@ let make_dict spec =
   |> add Main "1d"
   |> add Main "2d"
   |> add Main "3d"
+  |> add Main "16Bit"
   |> add Main "UUID"
   |> add_word "Win32"
   |> add_post "flags"
@@ -75,6 +76,7 @@ let preambule =
     let libvulkan = Dl.dlopen ~filename:"libvulkan.so" ~flags:Dl.[RTLD_NOW]
     let foreign name = Foreign.foreign ~from:libvulkan name
     module Printer = Format
+    module Option = struct type 'a t = 'a option = None | Some of 'a end
   ]
 [%sig:
   open Ctypes
