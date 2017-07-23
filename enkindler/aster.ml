@@ -151,7 +151,7 @@ let extern_type name =
 
 let wrap_opt ty v =
   if Aux.is_option ty then
-    [%expr Some [%e v]]
+    [%expr Option.Some [%e v]]
   else
     v
 
@@ -217,8 +217,7 @@ let regularize types ty exp= match ty with
 let regularize_fields types fields =
   let reg f =
     match f.Ty.field with
-    | Simple(n, (Ptr Name t| Const Ptr Name t))
-      when Aux.is_record types t ->
+    | Simple(n, (Ptr Name t | Const Ptr Name t)) when Aux.is_record types t ->
       { f with field = Simple(n, Name t) }
     | Simple(n, Option Ptr Name t) when Aux.is_record types t ->
       { f with field = Simple(n, Option (Name t)) }
@@ -399,8 +398,11 @@ module Enum = struct
   let view_opt =
     item
       [%stri let view_opt =
-               let read x = if x = max_int then None else Some(of_int x) in
-               let write = function None -> max_int | Some x -> to_int x in
+               let read x = if x = max_int then
+                   Option.None
+                 else Option.Some(of_int x) in
+               let write = function Option.None -> max_int
+                                  | Option.Some x -> to_int x in
                Ctypes.view ~read ~write int
       ]
       (val' ~:"view_opt" [%type: t option Ctypes.typ])
@@ -408,13 +410,13 @@ module Enum = struct
   let view_result_opt =
     item
       [%stri let view_opt =
-               let read x = if x = max_int then None
-                 else if x < 0 then Some(Error(of_int x))
-                 else Some(Ok(of_int x))
+               let read x = if x = max_int then Option.None
+                 else if x < 0 then Option.Some(Error(of_int x))
+                 else Option.Some(Ok(of_int x))
                in
                let write = function
-                 |None -> max_int
-                 | Some (Error x| Ok x) -> to_int x in
+                 | Option.None -> max_int
+                 | Option.Some (Error x| Ok x) -> to_int x in
                Ctypes.view ~read ~write int
       ]
       (val' ~:"view_opt" [%type: (t,t) result option Ctypes.typ])
@@ -764,10 +766,10 @@ module Structured = struct
         count
         @ main
         [%expr match [%e get_field' i], [%e get_field' a] with
-          | [%p if Aux.is_option ty then [%pat? Some n] else [%pat? n]],
-            [%p if Aux.is_option tya then [%pat? Some a] else [%pat? a]] ->
-            Some [%e mk_array index [%expr a] ]
-          | _ -> None
+          | [%p if Aux.is_option ty then [%pat? Option.Some n] else [%pat? n]],
+            [%p if Aux.is_option tya then [%pat? Option.Some a] else [%pat? a]] ->
+            Option.Some [%e mk_array index [%expr a] ]
+          | _ -> Option.None
         ]
       | Array_f {array= x, tya; index = n, ty } ->
         let count = [n , Type.mk types ty, get_field' n ] in
@@ -810,7 +812,7 @@ module Structured = struct
 
   let rec ty_of_int ty x =
     match ty with
-    | Ty.Option t -> [%expr Some [%e ty_of_int t x]]
+    | Ty.Option t -> [%expr Option.Some [%e ty_of_int t x]]
     | Name t -> [%expr [%e ident @@ qn t "of_int"] [%e x] ]
     | _ -> x
   let array_len x = [%expr Ctypes.CArray.length [%e x] ]
@@ -830,8 +832,8 @@ module Structured = struct
     match field with
     | Ty.Simple(f, (Ptr Name t | Const Ptr Name t)) when Aux.is_record types t ->
       setf (varname f) (addr @@ value.e)
-    | Ty.Simple(f, (Option (Const Ptr Name t| Ptr Name t)
-                   | Const Option(Const Ptr Name t |Ptr Name t))) when
+    | Ty.Simple(f, (Option (Const Ptr Name t | Ptr Name t)
+                   | Const Option(Const Ptr Name t | Ptr Name t))) when
         Aux.is_record types t ->
       setf (varname f) [%expr may Ctypes.addr [%e value.e]]
     | Ty.Simple(f, Array(Some (Lit n), t)) when Aux.is_char t ->
@@ -846,10 +848,10 @@ module Structured = struct
       setf (varname f) value.e
     | Ty.Array_f { index; array } as t when Aux.is_option_f t ->
       [%expr match [%e value.e] with
-        | None ->
+        | Option.None ->
           [%e setf (name index) (optzero index)];
           [%e setf  (name array) (nullptr @@ ty array)]
-        | Some [%p value.p] ->
+        | Option.Some [%p value.p] ->
           [%e setf (name index) (array_len index) ];
           [%e setf (name array) (wrap_opt (ty array) @@ start value.e)]
       ]
@@ -1119,7 +1121,7 @@ module Fn = struct
   let allocate_field types fields vars f body  =
     let get f = M.find (varname f) vars in
     match f.Ty.field with
-    | Simple(f, Array(Some(Path p), Name elt)) ->
+    | Simple(f, Array(Some Path p, Name elt)) ->
       let array = get f in
       let size =  get @@ index_name f in
       let pty = Aux.type_path types fields p in
@@ -1142,7 +1144,7 @@ module Fn = struct
     | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
       let a = get a and i = get i in
       [%expr let [%p i.p] = Ctypes.allocate [%e ex var L.(t//"opt")] None in
-        let [%p a.p] = None in [%e body]
+        let [%p a.p] = Option.None in [%e body]
       ]
     | Array_f { array=a, elt; index=i, size } ->
       let a = get a and i = get i in
@@ -1209,8 +1211,8 @@ module Fn = struct
       let f = M.find (varname f) vars in
       if Aux.is_option ty then
         [%expr let [%p f.p] = match [%e f.e] with
-            | Some [%p f.p] -> Some [%e start f.e]
-            | None -> None in [%e body]
+            | Option.Some [%p f.p] -> Option.Some [%e start f.e]
+            | Option.None -> Option.None in [%e body]
         ]
       else
         [%expr let [%p f.p] =[%e start f.e] in [%e body] ]
