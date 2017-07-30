@@ -7,8 +7,8 @@
 %token OVER
 %token EOF
 
-%nonassoc MACRO
 %left OVER
+%nonassoc MACRO
 
 
 %{ open Latex %}
@@ -28,4 +28,3 @@ item:
     | LBRACE i=items RBRACE {Group i}
     | a=item OVER b=item {Macro("over",[a;b])}
     | LCEIL i=items RCEIL {Macro("ceil",[Group i])}
-    | OVER

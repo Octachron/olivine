@@ -219,6 +219,14 @@ let rec pp ppf =
   | EOF -> fp ppf "eof"
 and pp_args ppf x = fp ppf "{%a}" pp x
 
+let rec pp_item ppf = function
+  | Latex.Macro(name,args) -> fp ppf "\%s{%a}" name pp_latex args
+  | Word s -> fp ppf "%s" s
+  | Group s -> fp ppf "%a" pp_latex s
+and pp_latex ppf = function
+  | [] -> ()
+  | a :: q -> fp ppf "%a %a" pp_item a pp_latex q
+
 let rec lexbuf ppf lex =
   match Latex_lexer.start lex with
   | EOF -> pp ppf EOF
@@ -239,7 +247,8 @@ let len_info s =
       let lex () = Lexing.from_string s in
       debug "tokenized, %a" Tmp.lexbuf (lex ());
       let p = Latex_parser.start Latex_lexer.start (lex ()) in
-      Ty.Math_expr p
+      debug "parsed, %a" Tmp.pp_latex p;
+      Ty.Math_expr (Retype.math p)
     | s ->
       let p = List.filter ((<>) "") @@ String.split_on_char ':' s in
       match p with

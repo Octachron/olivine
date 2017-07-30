@@ -60,6 +60,45 @@ type direction =
 
 type pos = Abs of int | Bit of int | Offset of int
 
+type 'a math =
+  | Int: int -> int math
+  | Float: float -> float math
+  | Var: string -> int math
+  | Div: 'a math * 'a math -> 'a math
+  | Ceil: float math -> int math
+  | To_float: int math -> float math
+
+
+let rec to_float: type a. a math -> float math = function
+  | Var _ as v -> To_float v
+  | Div(x,y) -> Div(to_float x, to_float y)
+  | Ceil _ as c -> To_float c
+  | To_float _ as f -> f
+  | Float _ as f -> f
+  | Int n -> Float (float n)
+
+let int_of_word s =
+    try Int(int_of_string s) with
+      Failure _ -> Var s
+
+let rec math: Latex.item -> int math = let open Latex in function
+  | Macro ("ceil", [a] ) -> Ceil (to_float @@ math a)
+  | Macro("over", [a;b] ) -> Div(math a, math b)
+  | Macro("mathit", [Group [Word s] | Word s]) -> Var s
+  | Macro("mathit", [Macro _ ]) ->
+    Format.eprintf "Wrong argument: macro for mathit macro@."; exit 2
+  | Macro("mathit", ([] |  _ :: _ :: _) ) ->
+    Format.eprintf "Wrong arity for mathit macro@."; exit 2
+  | Macro(s, _) ->
+    Format.eprintf "Unknown latex macro %s@." s; exit 2
+  | Word s -> int_of_word s
+  | Group [x] -> math x
+  | Group _ -> failwith "Not implemented group"
+
+let math = function
+  | [a] -> math a
+  | _ -> failwith "Too much items in latex expression"
+
 module Typexpr(X:name) = struct
   include X
 
@@ -70,7 +109,7 @@ module Typexpr(X:name) = struct
     | Path of name list
     | Const of name
     | Null_terminated
-    | Math_expr of Latex.t
+    | Math_expr of int math
 
   let pp_dir ppf x =
     Fmt.pf ppf "%s" (match x with
