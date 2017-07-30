@@ -6,6 +6,9 @@ module Ty = Retype.Ty
 module Arith = Retype.Arith
 open Xml.Infix
 
+let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
+
+
 type entity =
   | Const of Arith.t
   | Type of Ty.typexpr
@@ -198,11 +201,45 @@ let is_prefix s s' =
   ; true
   with X -> false
 
+
+module Tmp = struct
+  open Latex_parser
+
+let fp ppf x = Format.fprintf ppf x
+
+let rec pp ppf =
+  function
+  | LBRACE -> fp ppf "{"
+  | RBRACE -> fp ppf "}"
+  | LCEIL -> fp ppf  "⌈"
+  | RCEIL -> fp ppf "⌉"
+  | WORD s -> fp ppf {|"%s"|} s
+  | MACRO(s) -> fp ppf  "\\%s" s
+  | OVER -> fp ppf "/"
+  | EOF -> fp ppf "eof"
+and pp_args ppf x = fp ppf "{%a}" pp x
+
+let rec lexbuf ppf lex =
+  match Latex_lexer.start lex with
+  | EOF -> pp ppf EOF
+  | x -> fp ppf "%a %a" pp x lexbuf lex
+
+end
+
 let len_info s =
   let lens = String.split_on_char ',' s in
+  let latex = "latexmath" in
   let len = function
     | "null-terminated" -> Ty.Null_terminated
-    | s when is_prefix "latexmath" s -> Ty.Math_expr
+    | s when is_prefix latex s ->
+      let n = String.length s in
+      let st = String.length latex  in
+      let s = String.sub s (st+2) (n-st-3) in
+      debug "latex, %s" s;
+      let lex () = Lexing.from_string s in
+      debug "tokenized, %a" Tmp.lexbuf (lex ());
+      let p = Latex_parser.start Latex_lexer.start (lex ()) in
+      Ty.Math_expr p
     | s ->
       let p = List.filter ((<>) "") @@ String.split_on_char ':' s in
       match p with
@@ -225,7 +262,6 @@ let array_refine node =
     in
     refine lens
 
-let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
 
 let rec optionalize l typ = match l, typ with
   | false :: q , Ty.Ptr typ -> Ty.Ptr (optionalize q typ)

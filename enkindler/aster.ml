@@ -608,7 +608,7 @@ module Type = struct
           | Some _ -> t
         end
       | Ptr ty -> [%type: [%t mk ty] Ctypes.ptr ]
-      | Array ((None|Some (Path _ | Math_expr)),ty)
+      | Array ((None|Some (Path _ | Math_expr _ )),ty)
         when decay_array -> [%type: [%t mk ty] Ctypes.ptr ]
       | Array(Some (Null_terminated|Path _| Lit _ | Const _), t)
         when Aux.is_char t && not raw_type ->   [%type: string]
@@ -880,7 +880,7 @@ module Structured = struct
         | Some Ty.Bitfields _ -> pp (Bitset.set_name t)
         | _ -> pp t end
     | Array(_, Name t) when L.to_path t = ["char"] ->[%expr pp_string]
-    | Array(Some Math_expr,_t) -> (*FIXME*) abstract
+    | Array(Some Math_expr _, _t) -> (*FIXME*) abstract
     | Array(_,t) -> [%expr pp_array [%e printer t]]
     | Option t -> [%expr pp_opt [%e printer t]]
     | Const t -> printer t

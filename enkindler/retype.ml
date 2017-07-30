@@ -70,7 +70,7 @@ module Typexpr(X:name) = struct
     | Path of name list
     | Const of name
     | Null_terminated
-    | Math_expr
+    | Math_expr of Latex.t
 
   let pp_dir ppf x =
     Fmt.pf ppf "%s" (match x with
@@ -146,7 +146,7 @@ module Typexpr(X:name) = struct
   let pp_constexp pp ppf = function
     | Lit n -> fp ppf "%a" pp n
     | Null_terminated -> fp ppf "%s" "null-terminated"
-    | Math_expr -> fp ppf "%s" "math-expr"
+    | Math_expr _ -> fp ppf "%s" "math-expr"
     | Const name -> fp ppf "%a" X.pp name
     | Path p -> fp ppf "[%a]" (Fmt.list ~sep:dot X.pp) p
 

@@ -172,7 +172,7 @@ module Rename = struct
     | Path p -> Ty.Path (List.map (!) p)
     | Const n -> Ty.Const !n
     | Null_terminated -> Ty.Null_terminated
-    | Math_expr -> Ty.Math_expr
+    | Math_expr x -> Ty.Math_expr x
   and fn (!) {Cty.args; name; original_name; return } =
     Ty.{ args = fn_fields (!) args;
          name = ! name; original_name;
