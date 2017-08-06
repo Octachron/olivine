@@ -276,13 +276,14 @@ module Pipeline = struct
 
     let shader_module_info s =
       let len = String.length s in
-      let c = A.make Vkt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
+      let code = A.make Vkt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
       let c' =
-        A.from_ptr Ctypes.(coerce (ptr Vkt.uint_32_t) (ptr char) @@ A.start c) len in
+        A.from_ptr
+          Ctypes.(coerce (ptr Vkt.uint_32_t) (ptr char) @@ A.start code) len in
       String.iteri (fun n x -> A.set c' n x) s;
       Vkt.Shader_module_create_info.make
         ~code_size:(Unsigned.Size_t.of_int len)
-        ~code:(A.start c)
+        ~code
         ()
 
     let create_shader name s =

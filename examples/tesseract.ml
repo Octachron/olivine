@@ -1066,7 +1066,7 @@ module Pipeline = struct
       String.iteri (fun n x -> A.set c' n x) s;
       Vkt.Shader_module_create_info.make
         ~code_size:(Unsigned.Size_t.of_int len)
-        ~code:(A.start c)
+        ~code:c
         ()
 
     let create_shader name s =

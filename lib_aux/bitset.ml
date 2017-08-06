@@ -27,6 +27,7 @@ module type S = sig
   val ( * ) : 'a set -> 'a set -> t
 
   val of_int: int -> 'a set
+  val to_int: 'a set -> int
   val view: t Ctypes.typ
   val view_opt: t option Ctypes.typ
   val index_view: index Ctypes.typ
@@ -64,6 +65,7 @@ module Make(): S = struct
   let ( * ) = intersection
 
   let of_int n = n
+  let to_int n = n
   let id x = x
   let view = Ctypes.view id id Ctypes.int
 

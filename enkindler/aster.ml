@@ -83,18 +83,27 @@ module Aux = struct
   let type_path types fields p =
     let rec type_path (types) acc (ty, fields) = function
       | [] -> acc
-      | [a] -> (ty,a) :: acc
       | a :: q ->
         match find_field_type a fields with
         | Some (Ty.Const Ptr Name tn| Ptr Name tn|Name tn as tyo) ->
-          let direct = match tyo with Name _ -> true | _ -> false in
-          let fields = find_record tn types in
-          type_path types ((ty, a) :: acc) (Some (direct,tn),fields) q
+          begin match q with
+            | [] -> (ty,tyo,a) :: acc
+            | _ :: _ ->
+              let direct = match tyo with Name _ -> true | _ -> false in
+              let fields = find_record tn types in
+              type_path types ((ty,tyo,a) :: acc) (Some (direct,tn),fields) q
+          end
         | Some ty ->
-          Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
-          raise @@ Invalid_argument "Non-record path"
+          (None,ty,a) :: acc
+(*          Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
+            raise @@ Invalid_argument "Non-record path" *)
         | _ -> raise @@ Invalid_argument "Unknown type in path" in
     type_path types [] (None, fields) p
+
+  let rec last_type = function
+    | [] -> assert false
+    | [_,ty,_] -> ty
+    | _ :: q -> last_type q
 
   let rec final_option types fields =
     function
@@ -111,6 +120,20 @@ module Aux = struct
 
 end
 
+module M = Enkindler_common.StringMap
+module Math = struct
+
+  let (%) = M.find
+  let rec expr: type a. (a, Name_study.name) T.math -> _ = function
+    | T.Int n -> H.Exp.constant @@ H.Const.int n
+    | T.Var v -> ex var v
+    | T.Ceil T.Div(x,y) ->
+      [%expr let x, y = [%e expr x], [%e expr y] in if x mod y = 0 then x / y else 1 + x/y ]
+    | T.Floor x -> expr x
+    | T.Div (x,y) -> [%expr [%e expr x] / [%e expr y] ]
+
+end
+
 let not_implemented fmt =
   Format.kasprintf (fun s -> raise (Invalid_argument s)) fmt
 
@@ -121,7 +144,6 @@ let listr merge map l last =
   List.fold_right (fun x acc -> merge (map x) acc) l last
 
 
-module M = Enkindler_common.StringMap
 let dict : int M.t ref = ref M.empty
 let unique str =
   let c = match M.find_opt str !dict with Some x -> x | None -> 1 in
@@ -229,6 +251,14 @@ let annotate fmt =
   Fmt.kstrf (fun s e -> Exp.attr e @@
               (nloc "debug", P.PStr [H.Str.eval @@ string s ]))
     fmt
+
+let module_name name =
+  let rec rename = function
+    |  "bits" :: "flag" :: q ->
+      "flags" :: q
+    | [] -> []
+    | a :: q -> a :: rename q in
+  L.{ name with postfix = rename name.postfix }
 
 module Bitset = struct
 
@@ -610,12 +640,12 @@ module Type = struct
       | Ptr ty -> [%type: [%t mk ty] Ctypes.ptr ]
       | Array ((None|Some (Path _ | Math_expr _ )),ty)
         when decay_array -> [%type: [%t mk ty] Ctypes.ptr ]
-      | Array(Some (Null_terminated|Path _| Lit _ | Const _), t)
+      | Array(Some _, t)
         when Aux.is_char t && not raw_type ->   [%type: string]
       | Option ty ->
         if strip_option then mk ty else [%type: [%t mk ty] option ]
       | String -> [%type: string]
-      | Array (Some (Const _ |Lit _ |Path _ ) , ty) ->
+      | Array (Some _ , ty) ->
         [%type: [%t mk ty] Ctypes.CArray.t ]
       | Result {ok;bad} ->
         let ok = polyvariant_type ~closed:false @@ List.map mkconstr ok in
@@ -701,19 +731,12 @@ module Structured = struct
 
   let rec get_path f = function
     | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
-    | [None, a] -> f a
-    | (Some (direct, ty), a) :: q ->
+    | [None,_, a] -> f a
+    | (Some (direct, ty),_, a) :: q ->
       (if direct then get_path f q else [%expr Ctypes.(!@) [%e get_path f q]])
       #% (ident (lid  (modname ty) / (varname a)))
-    | (None, _) :: _ -> raise @@
+    | (None, _, _) :: _ -> raise @@
       Invalid_argument "Printers.pp_path: partially type type path"
-
-  let array_index types fields = function
-    | Ty.Lit n -> int.e n
-    | Path p ->
-      let pty= Aux.type_path types fields p in
-      get_path (ex var) pty
-    | _ -> assert false
 
   let rec int_of_ty var = function
     | Ty.Ptr t -> int_of_ty [%expr Ctypes.(!@) [%e var]] t
@@ -721,6 +744,45 @@ module Structured = struct
     | Name t when L.to_path t = ["uint32";"t"] -> var
     | Name t -> [%expr [%e ident @@ qn t "to_int"][%e var] ]
     | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
+
+  let rec oint_of_ty var = function
+    | Ty.Ptr t -> oint_of_ty [%expr Ctypes.(!@) [%e var]] t
+    | Option t ->
+      let v = unique "i" in
+      [%expr may (fun [%p v.p] ->[%e oint_of_ty v.e t]) [%e var]]
+    | Name t when L.to_path t = ["uint32";"t"] -> var
+    | Name t -> [%expr [%e ident @@ qn (module_name t) "to_int"][%e var] ]
+    | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
+
+  let int_of_path ?(conv=true) get_field pty =
+    let p = get_path get_field pty in
+    if conv then
+      oint_of_ty p (Aux.last_type pty)
+    else p
+
+  let tuple =
+    {e= (function
+         | [x] -> x
+         | l -> H.Exp.tuple l);
+     p=(function
+         | [p] -> p
+         | l -> H.Pat.tuple l
+       )
+    }
+
+  let array_index ?(conv=true) get_field types fields = function
+    | Ty.Lit n -> int.e n
+    | Path p -> int_of_path ~conv get_field (Aux.type_path types fields p)
+    | Math_expr m ->
+      let vars = T.vars [] m in
+      let v = tuple.e @@
+        List.map
+          (fun p -> let pty = Aux.type_path types fields [p] in
+          int_of_path ~conv get_field pty)
+          vars in
+      let n = tuple.p @@ (List.map (fun x -> pat var x) vars) in
+      [%expr let [%p n] = [%e v] in [%e Math.expr m] ]
+    | _ -> assert false
 
 
   let start x = [%expr Ctypes.CArray.start [%e x]]
@@ -767,7 +829,8 @@ module Structured = struct
         @ main
         [%expr match [%e get_field' i], [%e get_field' a] with
           | [%p if Aux.is_option ty then [%pat? Option.Some n] else [%pat? n]],
-            [%p if Aux.is_option tya then [%pat? Option.Some a] else [%pat? a]] ->
+            [%p if Aux.is_option tya then [%pat? Option.Some a] else [%pat? a]]
+            ->
             Option.Some [%e mk_array index [%expr a] ]
           | _ -> Option.None
         ]
@@ -785,18 +848,24 @@ module Structured = struct
         main @@
         Record_extension.merge (typename, exts) (get_field' tag) (get_field' ptr)
       | Simple (n, Array(Some (Lit i), ty )) when Aux.is_char ty ->
-       main [%expr Ctypes.string_from_ptr [%e start @@ get_field' n] [%e int.e i] ]
+        main [%expr Ctypes.string_from_ptr [%e start @@ get_field' n]
+            [%e int.e i] ]
       | Simple (n, Array(Some (Const s), ty)) when Aux.is_char ty ->
-        main[%expr Ctypes.string_from_ptr [%e start @@ get_field' n] [%e (var s).e] ]
-      | Simple(n, (Option Array(Some Path p, inty)| Array(Some Path p,inty) as t)) ->
-        let p' = Aux.type_path types fields p in
+        main[%expr Ctypes.string_from_ptr [%e start @@ get_field' n]
+            [%e (var s).e] ]
+      | Simple(n, (Option Array(Some (Path _ | Math_expr _ as p), inty)
+                  | Array(Some (Path _ | Math_expr _ as p),inty) as t)) ->
+        let index = array_index get_field' types fields p in
         let a =
           if Aux.is_char inty then
             [%expr Ctypes.string_from_ptr (Ctypes.CArray.start a) i]
           else
           mk_array [%expr i] [%expr a] in
         let body = let aopt = Aux.is_option t
-          and opt = Aux.final_option types fields p in
+          and opt = match p with
+            | Path p ->
+              Aux.final_option types fields p
+            | _ -> false in
           if opt && aopt then
             [%expr maybe (may (fun i a -> [%e a]) i) a]
           else if opt then
@@ -805,7 +874,7 @@ module Structured = struct
             [%expr may (fun a -> [%e a]) a ]
           else a in
         main [%expr let a = [%e get_field' n]
-          and i = [%e get_path get_field' p'] in [%e body] ]
+          and i = [%e index] in [%e body] ]
       | Simple(name,_) -> main @@ get_field (varname name)
     end
 
@@ -840,9 +909,9 @@ module Structured = struct
       setf (varname f) [%expr convert_string [%e int.e n] [%e value.e]]
     | Ty.Simple(f, Array(Some (Const n), t)) when Aux.is_char t ->
       setf (varname f) [%expr convert_string [%e ex var n] [%e value.e]]
-    | Ty.Simple(f, Array(Some Path _, _)) ->
+    | Ty.Simple(f, Array(Some (Path _| Math_expr _), _)) ->
       setf (varname f) (start value.e)
-   | Ty.Simple(f, Option Array(Some Path _, _)) ->
+   | Ty.Simple(f, Option Array(Some (Path _|Math_expr _), _)) ->
       setf (varname f) [%expr may Ctypes.CArray.start [%e value.e] ]
    | Ty.Simple (f,_ty) ->
       setf (varname f) value.e
@@ -880,7 +949,6 @@ module Structured = struct
         | Some Ty.Bitfields _ -> pp (Bitset.set_name t)
         | _ -> pp t end
     | Array(_, Name t) when L.to_path t = ["char"] ->[%expr pp_string]
-    | Array(Some Math_expr _, _t) -> (*FIXME*) abstract
     | Array(_,t) -> [%expr pp_array [%e printer t]]
     | Option t -> [%expr pp_opt [%e printer t]]
     | Const t -> printer t
@@ -1123,14 +1191,14 @@ module Fn = struct
   let allocate_field types fields vars f body  =
     let get f = M.find (varname f) vars in
     match f.Ty.field with
-    | Simple(f, Array(Some Path p, Name elt)) ->
+    | Simple(f, Array(Some p , Name elt)) ->
       let array = get f in
       let size =  get @@ index_name f in
-      let pty = Aux.type_path types fields p in
-      let n = Structured.get_path (ex get) pty in
+      let n = Structured.array_index ~conv:false (ex get) types fields p in
       [%expr let [%p size.p] = [%e n ] in
-             let [%p array.p ] = Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
-               [%e body]
+        let [%p array.p ] =
+          Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
+        [%e body]
       ]
     | Simple(f, Name t) when Aux.is_record types t ->
       let f = get f in

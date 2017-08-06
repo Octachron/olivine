@@ -60,43 +60,60 @@ type direction =
 
 type pos = Abs of int | Bit of int | Offset of int
 
-type 'a math =
-  | Int: int -> int math
-  | Float: float -> float math
-  | Var: string -> int math
-  | Div: 'a math * 'a math -> 'a math
-  | Ceil: float math -> int math
-  | To_float: int math -> float math
+type ('a,'b) math =
+  | Int: int -> (int,'b) math
+  | Var: 'b -> (int,'b) math
+  | Div: ('a,'b) math * ('a,'b) math -> (int * int,'b) math
+  | Ceil: (int * int,'b) math -> (int,'b) math
+  | Floor: (int * int,'b) math -> (int,'b) math
 
 
-let rec to_float: type a. a math -> float math = function
-  | Var _ as v -> To_float v
-  | Div(x,y) -> Div(to_float x, to_float y)
-  | Ceil _ as c -> To_float c
-  | To_float _ as f -> f
-  | Float _ as f -> f
-  | Int n -> Float (float n)
+let rec to_int: type a. (a,'b) math -> (int,'b) math = function
+  | Var _ as v -> v
+  | Div(_,_) as d -> Floor d
+  | Ceil _ as c -> c
+  | Int _ as n -> n
+  | Floor _ as f -> f
 
 let int_of_word s =
     try Int(int_of_string s) with
       Failure _ -> Var s
 
-let rec math: Latex.item -> int math = let open Latex in function
-  | Macro ("ceil", [a] ) -> Ceil (to_float @@ math a)
-  | Macro("over", [a;b] ) -> Div(math a, math b)
-  | Macro("mathit", [Group [Word s] | Word s]) -> Var s
-  | Macro("mathit", [Macro _ ]) ->
-    Format.eprintf "Wrong argument: macro for mathit macro@."; exit 2
-  | Macro("mathit", ([] |  _ :: _ :: _) ) ->
-    Format.eprintf "Wrong arity for mathit macro@."; exit 2
-  | Macro(s, _) ->
-    Format.eprintf "Unknown latex macro %s@." s; exit 2
-  | Word s -> int_of_word s
-  | Group [x] -> math x
-  | Group _ -> failwith "Not implemented group"
+let rec vars: type a. 'b list -> (a,'b) math -> 'b list = fun l ->
+  function
+  | Var v -> v :: l
+  | Int _ -> l
+  | Floor x -> vars l x
+  | Ceil x -> vars l x
+  | Div (x,y) -> vars (vars l x) y
+
+let rec math: Latex.item -> (int, 'name) math =
+  let open Latex in function
+    | Macro ("ceil", [Macro("over",[a;b])] ) ->
+      Ceil (Div(math a, math b))
+    | Macro("over", [a;b] ) -> Floor(Div(math a, math b))
+    | Macro("mathit", [Word s]) -> Var ( s)
+    | Macro("mathit", [Macro _ ]) ->
+      Format.eprintf "Wrong argument: macro for mathit macro@."; exit 2
+    | Macro("mathit", ([] | _ :: _ :: _) ) ->
+      Format.eprintf "Wrong arity for mathit macro@."; exit 2
+    | Macro(s, l) ->
+      Format.eprintf "Unknown latex macro %s applied to: %a @." s Latex.pp l;
+      exit 2
+    | Word s -> int_of_word s
+    | Group [x] -> math x
+    | Group _ -> failwith "Not implemented group"
+
+let rec rename: type a n name. ( n -> name) ->  (a,n) math -> (a,name) math  =
+  fun namer -> function
+  | Var x -> Var(namer x)
+  | Int _ as n -> n
+  | Div(x,y) -> Div(rename namer x, rename namer y)
+  | Ceil x -> Ceil (rename namer x)
+  | Floor x -> Floor (rename namer x)
 
 let math = function
-  | [a] -> math a
+  | [a] -> math @@ Latex.normalize a
   | _ -> failwith "Too much items in latex expression"
 
 module Typexpr(X:name) = struct
@@ -109,7 +126,7 @@ module Typexpr(X:name) = struct
     | Path of name list
     | Const of name
     | Null_terminated
-    | Math_expr of int math
+    | Math_expr of (int,name) math
 
   let pp_dir ppf x =
     Fmt.pf ppf "%s" (match x with
