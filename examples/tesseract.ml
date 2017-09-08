@@ -28,7 +28,7 @@ module Utils = struct
     | None -> ()
     | Some x -> pp ppf x
 
-  let pp_array ~sep pp ppf a = Format.fprintf ppf "[|%a|]" (Format.pp_print_list ~pp_sep:sep pp) @@ A.to_list a 
+  let pp_array ~sep pp ppf a = Format.fprintf ppf "[|%a|]" (Format.pp_print_list ~pp_sep:sep pp) @@ A.to_list a
   let space = Format.pp_print_cut
   let ( #. ) x f= f x
 
@@ -111,16 +111,18 @@ let create_buffer device flag mem_size =
     let buffer = Vkc.create_buffer device buffer_info () <?> "Buffer creation" in
 
     let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
- (*    let phymem = Vkc.get_physical_device_memory_properties Device.phy in
-
-    TODO: look at the memory flags output: lot of strange entries *)
-(*
-    debug "memory flags, %a" Vkt.Physical_device_memory_properties.pp phymem;
-*)
+    let bit =
+      memory_rqr #. Vkt.Memory_requirements.memory_type_bits in
+    let rec find_first k n =
+      if k > 32 then failwith "No memory"
+      else
+      if n land bit = n then k else
+        find_first (k+1) (n lsl 1) in
+    let memory_type_index = find_first 0 1 in
     let alloc_info =
       Vkt.Memory_allocate_info.make
         ~allocation_size:memory_rqr#.Vkt.Memory_requirements.size
-        ~memory_type_index:0
+        ~memory_type_index
         () in
 
     let buffer_memory =  Vkc.allocate_memory device alloc_info ()
@@ -180,6 +182,12 @@ module Device = struct
   ;; A.iter print_property phy_devices
 
   let phy = A.get phy_devices 0
+
+   let phymem = Vkc.get_physical_device_memory_properties phy
+(*    TODO: look at the memory flags output: lot of strange entries *)
+
+  ;; debug "memory flags, %a" Vkt.Physical_device_memory_properties.pp phymem
+
 
   let queue_family_properties =
     Vkc.get_physical_device_queue_family_properties phy
