@@ -8,7 +8,6 @@ open Xml.Infix
 
 let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
 
-
 type entity =
   | Const of Arith.t
   | Type of Ty.typexpr
@@ -148,6 +147,8 @@ type spec = {
   includes: c_include list;
   requires: require list;
 }
+
+
 
 let case cases default x =
   let validate x (attribute, eq) =
@@ -597,31 +598,47 @@ module Extension_reader = struct
       | "enum" when n%??"offset" ->
         { ext with enums = enum n :: ext.enums }
       | "enum" when n%??"value" || n%??"name" -> (*FIXME*) ext
+      | "comment" -> ext
       | n ->
         raise @@ Type_error
           (Fmt.strf "Extension.data: unexpected node %s: %a"
              n Extension.pp_metadata ext.metadata
           )
 
+  let extension_requires ext =
+    ext
+    |> List.map (function | Xml.Node { name = "require"; children; _ } -> children
+                          | _ -> raise (Type_error
+                                   "Non require children to extension nodes")
+      )
+    |> List.concat
+
 let extension = function
   | Xml.Data _ -> raise @@ Type_error "Extension: unexpected data"
-  | Node  ({ name = "extension";
-             children =
-               [Node { name = "require";
-                       children = (Node version) :: _name :: q ;_  }];
-             _ } as n) ->
-    let metadata =
-      { Extension.version = int_of_string (version%("name"));
-        name = n%("name");
-        number = int_of_string @@ n%("number");
-        type' = n%?("type")
-      }
-    in
-    let start =
-      { Extension.metadata; types = []; commands = []; enums = [];
-        bits = [] } in
-    List.fold_right data q start
-  | Node _ -> raise @@ Type_error "Extension: unexpected node"
+  | Node ({ name = "extension"; children; _ } as n) ->
+    let all_children = extension_requires children in
+    (* TODO: analyze correctly requirements *)
+    begin match  all_children with
+      | Node ({ name="enum";_} as version) :: Node({name="enum";_} as name)  :: q ->
+        let metadata =
+          let name = name%("name") in
+          (* name are now suffixed by "_extension_name" … *)
+          let name = String.(sub name 0 (length name - length "_extension_name")) in
+          { Extension.version = int_of_string (version%("value"));
+            name;
+            number = int_of_string @@ n%("number");
+            type' = n%?("type")
+          }
+        in
+        let start =
+          { Extension.metadata; types = []; commands = []; enums = [];
+            bits = [] } in
+        List.fold_right data q start
+      | _ -> raise (Type_error "Unexpected structure to extensions children")
+    end
+  | Node { name; _ } as n ->
+    Fmt.epr "@[<hov>%a@]@." Xml.pp_xml n;
+    raise @@ Type_error ("Extension: unexpected node" ^ name )
 end
 
 let extend spec =
