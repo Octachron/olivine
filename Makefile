@@ -46,7 +46,7 @@ test-tesseract: bin/tesseract
 
 vkspec:
 	mkdir -p spec\
-	&& wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml" -o spec/vk.xml
+	&& cd spec && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml"
 
 clean:
 	$(CC) -clean; rm lib/vk.ml
