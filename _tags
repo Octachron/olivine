@@ -22,5 +22,5 @@ true: thread
 <sdl/*>: package(tsdl), package(ctypes.foreign)
 <lib/*> or <lib_aux/*>: package(ctypes.foreign), thread
 <examples/*>: package(ctypes.foreign), package(tsdl)
-"vk.cma": package(ctypes.foreign), thread
+"vk.cmxa": package(ctypes.foreign), thread
 "libsdlvulkan.so": precious
