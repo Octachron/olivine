@@ -155,6 +155,7 @@ let reset_uid () = dict := M.empty
 
 let coerce ~from ~to' value = [%expr Ctypes.coerce [%e from] [%e to'] [%e value]]
 let ptr x = [%expr Ctypes.ptr [%e x] ]
+let ptr_opt x = [%expr Ctypes.ptr_opt [%e x] ]
 let void = [%expr void]
 let addr x = [%expr Ctypes.addr [%e x] ]
 let (!@) x = [%expr !@[%e x]]
@@ -583,8 +584,8 @@ end
 
 module Type = struct
 
-  let rec converter degraded x =
-      let make = converter degraded in
+  let rec converter ~degraded x =
+      let make = converter ~degraded in
       match x with
       | Ty.Const t -> make t
       | Name n -> tyvar n
@@ -1089,7 +1090,7 @@ module Funptr = struct
 
   let mkty args ret =
     let ret  = Type.converter true ret in
-    listr (fun l r -> [%expr[%e l] @-> [%e r] ]) (Type.converter true)
+    listr (fun l r -> [%expr[%e l] @-> [%e r] ]) (Type.converter ~degraded:true)
       args
       [%expr returning [%e ret]]
 
@@ -1179,18 +1180,26 @@ module Fn = struct
     ]
 
 
+  module Option = struct
+    let map f = function
+      | None -> None
+      | Some x -> Some (f x)
+  end
+
   let rec ptr_to_name ?(ellide=true) = function
-    | Ty.Option t -> ptr_to_name ~ellide t
-    | Ty.Name t -> Some(ident (typename t), t )
+    | Ty.Option t ->
+      Option.map (fun (ty,name) -> (Ty.Option ty, name))
+        (ptr_to_name ~ellide t)
+    | Ty.Name t -> Some(Ty.Name t, t )
     | Ty.Ptr p | Array(_,p) ->
-      begin match ptr_to_name ~ellide:false p with
-        | Some(p,elt) -> Some((if ellide then p else ptr p),elt)
-        | None -> None
-      end
+      Option.map (fun (p,elt) -> if ellide then (p,elt) else (Ty.Ptr p, elt) )
+        @@ ptr_to_name ~ellide:false p
     | _ -> None
 
   let nullptr_typ p = [%expr nullptr [%e p]]
   let allocate_n ty n = [%expr Ctypes.allocate_n [%e ty] [%e n]]
+  let allocate ty value = [%expr Ctypes.allocate [%e ty] [%e value]]
+
 
   (* Allocate composite fields *)
   let allocate_field types fields vars f body  =
@@ -1205,6 +1214,9 @@ module Fn = struct
           Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
         [%e body]
       ]
+    | Simple(f, Option _ ) ->
+      let f = get f in
+      [%expr let [%p f.p ] = None in [%e body] ]
     | Simple(f, Name t) when Aux.is_record types t ->
       let f = get f in
       [%expr let [%p f.p ] = [%e Structured.unsafe_make t] in [%e body] ]
@@ -1212,8 +1224,9 @@ module Fn = struct
       begin let f = get f in
         match ptr_to_name t with
         | None -> body
-        | Some (p,_) ->
-          let alloc = wrap_opt t @@ allocate_n p [%expr 1] in
+        | Some (ty,_) ->
+          let alloc = wrap_opt t @@ allocate_n
+              (Type.converter true ty) [%expr 1] in
             [%expr let [%p f.p] = [%e alloc] in [%e body] ]
       end
     | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
@@ -1226,8 +1239,9 @@ module Fn = struct
       begin match ptr_to_name elt, ptr_to_name size with
         | None, _ | _, None -> body
         | Some (e,_), Some(s,_) ->
-          let alloc_size = wrap_opt size @@ allocate_n s [%expr 1]
-          and alloc_elt = nullptr_typ e in
+          let alloc_size = wrap_opt size @@ allocate_n
+              (Type.converter ~degraded:true s) [%expr 1]
+          and alloc_elt = nullptr_typ (Type.converter ~degraded:true e) in
           [%expr let [%p a.p] = [%e alloc_elt] and [%p i.p] = [%e alloc_size] in
             body
           ]
@@ -1243,10 +1257,10 @@ module Fn = struct
       let a = M.find (varname a) vars and i = M.find (varname i) vars in
       let size = Structured.int_of_ty i.e it in
       begin match ptr_to_name tya with
-        | Some (elt, _ ) ->
-          let alloc = allocate_n elt size in
+        | Some (Option elt, _ ) ->
+          let alloc = allocate_n (Type.converter ~degraded:true elt) size in
           [%expr let [%p a.p] = [%e wrap_opt tya @@ alloc] in [%e body] ]
-        | None -> assert false end
+        | Some _ | None -> assert false end
     | _ -> body
 
   let extract_opt input output nullptr map body =
@@ -1308,6 +1322,8 @@ module Fn = struct
         from_ptr (get f)
           (ex (M.find @@ varname @@ index_name f) vars)
       | Simple(n, Name t)  when Aux.is_record types t ->  get n
+      | Simple(n, Ptr Option _) ->
+        [%expr unwrap (Ctypes.(!@) [%e get n]) ]
       | Simple(n, _) -> [%expr Ctypes.(!@) [%e get n] ]
       | Record_extension _ ->
         not_implemented "Record extension used as a function argument"
