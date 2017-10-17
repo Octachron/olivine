@@ -87,10 +87,10 @@ module Me = struct
   let apply f x = H.Mod.(apply (ident @@ nlid f) (ident @@ nlid x))
 end
 
-let make_genf name f =
+let make_genf ?(suffix="") name f =
   module_gen name @@ item
-    H.Mod.( apply (ident @@ nloc @@ lid f/"Make") @@ structure [])
-    (H.Mty.ident (nloc @@ lid f/"S"))
+    H.Mod.( apply (ident @@ nloc @@ lid f/("Make" ^ suffix)) @@ structure [])
+    (H.Mty.ident (nloc @@ lid f/("S"^suffix)))
 
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name

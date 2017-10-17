@@ -41,7 +41,7 @@ let pp_type side builtins results types ppf (name,ty) =
   | Bitset { field_type = None; _ } -> Aster.Bitset.make (name,None)
   | Bitfields {fields;values} ->
     Aster.Bitset.make_extended (name,(fields,values))
-  | Handle _ ->  Aster.Handle.make name
+  | Handle {dispatchable;_} ->  Aster.Handle.make ~dispatchable name
   | Enum constrs ->
     if not @@ is_bits name then
       begin

@@ -343,8 +343,13 @@ module Bitset = struct
 end
 
 module Handle = struct
-  let make name =
-    make_genf name "Handle" ^:: extern_type name ^:: views name
+  let make ~dispatchable name =
+    if dispatchable then
+      make_genf name "Handle" ^:: extern_type name ^:: views name
+    else
+      make_genf ~suffix:"_non_dispatchable" name "Handle"
+      ^:: extern_type name
+      ^:: views name
 end
 
 module Enum = struct
