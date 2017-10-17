@@ -12,7 +12,7 @@ void main() {
     vec4 newpos = ubo.translation + ubo.rotation * (pos - vec4(0.5,0.5,0.5,0));
     vec2 proj = vec2(newpos);
     float true_z = 1.5 + newpos.z;
-    float z = true_z / 10;
-    gl_Position = vec4(proj,z, true_z ) ;
+    float z = true_z / 100;
+    gl_Position = vec4(proj,z/10,true_z); //z, true_z ) ;
     fragTexCoord =  texpos;
 }
