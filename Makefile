@@ -5,10 +5,10 @@ SPIR=glslangValidator -V
 
 all: bin/infolivine vk.cmxa bin/triangle bin/tesseract bin/libgen
 
-bin/triangle: bin/libsdlvulkan.so vk.cmxa shaders/triangle/vert.spv shaders/triangle/frag.spv
+bin/triangle: vk.cmxa shaders/triangle/vert.spv shaders/triangle/frag.spv
 	$(CCO) examples/$(notdir $@).native && mv $(notdir $@).native $@
 
-bin/tesseract: bin/libsdlvulkan.so vk.cmxa shaders/tesseract/vert.spv shaders/tesseract/frag.spv
+bin/tesseract: vk.cmxa shaders/tesseract/vert.spv shaders/tesseract/frag.spv
 	$(CCO) examples/$(notdir $@).native && mv $(notdir $@).native $@
 
 bin/infolivine:  _tags enkindler/*
@@ -27,9 +27,6 @@ term: enkindler.cma
 
 enkindler.cma: _tags enkindler/*
 	$(CCO) $@
-
-bin/libsdlvulkan.so: sdl/vulkan_sdl.c
-	gcc -shared -o bin/libsdlvulkan.so -fPIC -lvulkan sdl/vulkan_sdl.c
 
 shaders/%/frag.spv : shaders/%/base.frag
 	cd shaders/$* && $(SPIR) base.frag

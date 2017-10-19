@@ -1,8 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
 module Vkc = Vk.Core
-module Vkr = Vk.Raw
-module Vkw = Vk__sdl
 
 module Utils = struct
 
@@ -59,9 +57,11 @@ module Sdl = struct
 
   let () = Sdl.(init Init.(video + events)) <?> "Sdl init"
 
+  let () = Format.eprintf "Initialization error:%s\n%!" @@ Sdl.get_error ()
+
   let w =
     Sdl.create_window "Vulkan + SDL test" ~w:512 ~h:512
-      Sdl.Window.(allow_highdpi) <?> "Window creation"
+      Sdl.Window.(allow_highdpi + vulkan ) <?> "Window creation"
 
   let () = Sdl.show_window w
   let e = Sdl.Event.create ()
@@ -149,7 +149,15 @@ module Device = struct
     device_extensions
 
   let surface_khr =
-    Vkw.create_surface instance Sdl.w () <?> "Obtaining surface"
+    Vkt.Surface_khr.unsafe_from_int64
+    @@ Tsdl.Sdl.Vulkan.unsafe_uint64_of_surface
+    @@ match
+        Tsdl.Sdl.Vulkan.create_surface Sdl.w
+        @@ Tsdl.Sdl.Vulkan.unsafe_instance_of_ptr
+        @@ Vkt.Instance.to_ptr instance
+    with
+    | None -> exit 2
+    | Some s -> s
 
   let capabilities =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr

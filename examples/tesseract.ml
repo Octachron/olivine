@@ -1,7 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
 module Vkc = Vk.Core
-module Vkw = Vk__sdl
 
 ;; Random.self_init ()
 module Dim = struct let value = 4 end
@@ -78,7 +77,7 @@ module Sdl = struct
 
   let w =
     Sdl.create_window "Vulkan + SDL test" ~w:width ~h:heigth
-      Sdl.Window.(allow_highdpi) <?> "Window creation"
+      Sdl.Window.(allow_highdpi + vulkan) <?> "Window creation"
 
   let () = Sdl.show_window w
   let e = Sdl.Event.create ()
@@ -204,7 +203,15 @@ module Device = struct
   ;; Format.printf "@]@."
 
   let surface_khr =
-    Vkw.create_surface instance Sdl.w () <?> "Obtaining surface"
+    Vkt.Surface_khr.unsafe_from_int64
+    @@ Tsdl.Sdl.Vulkan.unsafe_uint64_of_surface
+    @@ match
+      Tsdl.Sdl.Vulkan.create_surface Sdl.w
+      @@ Tsdl.Sdl.Vulkan.unsafe_instance_of_ptr
+      @@ Vkt.Instance.to_ptr instance
+    with
+    | None -> exit 2
+    | Some s -> s
 
   let capabilities =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
