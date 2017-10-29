@@ -18,18 +18,29 @@ open Ast__utils
 
 let unique, reset_uid = C.id_maker ()
 
-let addr_f t exp =
-  [%expr [%e ident(qn t "addr")] [%e exp] ]
+let addr_f t =
+  [%expr [%e ident(qn t "addr")] ]
 
 let make_f t exp =
   [%expr [%e ident(qn t "unsafe_make")] [%e exp] ]
 
+let ($) f x = [%expr [%e f] [%e x]]
+
+let regularize_type types = function
+  | Ty.Ptr (Name t as n) | Const Ptr (Name t as n) when Inspect.is_record types t ->
+    n
+  | ty -> ty
+
 
 let regularize types ty exp= match ty with
   | Ty.Ptr Name t | Const Ptr Name t when Inspect.is_record types t ->
-    addr_f t exp
+    addr_f t $ exp <?> "Regularized pointer to struct"
+  | Option Ptr Name t| Const Option Ptr Name t when Inspect.is_record types t ->
+    [%expr may [%e addr_f t] [%e exp]]  <?> "Regularized optional pointer to struct"
+  | (Ptr Option Name t|Const Ptr Option Name t) when Inspect.is_record types t ->
+    [%expr may [%e addr_f t] [%e exp]]  <?> "Regularized pointer to optional struct"
   | Option Ptr Name _ -> [%expr may [%e C.addr exp] ]
-  | _ ->  exp
+  | ty ->  exp <?> Fmt.strf "No regularization: %a" Ty.pp ty
 
 
 let regularize_fields types fields =
@@ -55,10 +66,14 @@ let foreign fn =
   let args = arg_types fn in
   [%expr foreign [%e string fn.original_name] [%e Ast__funptr.mkty args fn.return]]
 
-let make_simple (fn:Ty.fn) =
-  [%stri let [%p (var fn.name).p] = [%e foreign fn] ]
+let make_simple types (f:Ty.fn) =
+  item
+    [[%stri let [%p (var f.name).p] = [%e foreign f] ]]
+    [val' f.name @@ Ast__type.fn ~decay_array:All types
+       f.name (List.map (fun ty -> Ty.Simple ty) @@ Ty.flatten_fn_fields f.args)
+       (Ast__type.mk ~raw_type:true ~decay_array:All types f.return)]
 
-let apply_gen get name vars args =
+let apply_gen ?attrs get name vars args =
   let get f = Asttypes.Nolabel, get vars f in
   let add_arg l = function
     | Ty.Array_f { array ; index } ->
@@ -66,14 +81,16 @@ let apply_gen get name vars args =
     | Simple field -> get field :: l
     | Record_extension _  -> assert false in
   let args = List.rev @@ List.fold_left add_arg [] args in
-  Exp.apply name args
+  Exp.apply ?attrs name args
 
 let apply = apply_gen (fun vars (f,_ty) -> ex (M.find @@ varname f) vars)
 
 
 let get_r types vars (f,ty) =
   regularize types ty @@ ex (M.find @@ varname f) vars
-let apply_regular types = apply_gen (get_r types)
+
+
+let apply_regular ?attrs types = apply_gen ?attrs (get_r types)
 
 let mkfn_simple fields =
   let build (f,vars) (name,_ty) =
@@ -89,17 +106,26 @@ let make_regular types fn =
     [%stri let [%p pat var fn.name] =
              let [%p f.p] = [%e foreign fn] in
              [%e body] ] in
-  def begin
-    let fe, vars = mkfn_simple @@ Ty.flatten_fields args in
-    fe @@ apply_regular types f.e vars args
-  end
+  item
+    [ def begin
+          let fe, vars = mkfn_simple @@ Ty.flatten_fields args in
+          fe @@ apply_regular types f.e vars args
+        end
+    ]
+    [val' fn.name @@ Ast__type.fn types
+       ~regular_struct:true
+       fn.name (List.map (fun ty -> Ty.Simple ty) @@ Ty.flatten_fields args)
+       (Ast__type.mk types ~regular_struct:true fn.return)
+    ]
 
-let make_labelled m fn =
+let make_labelled types m fn =
   let args = Inspect.to_fields fn.Ty.args in
   let k, vars = Ast__structured.mkfun args in
-  [%stri let make =
-           [%e k @@ apply (ident @@ qn m @@ varname fn.name) vars args]
-  ]
+  item
+    [%stri let make =
+             [%e k @@ apply (ident @@ qn m @@ varname fn.name) vars args]
+    ]
+    [val' fn.name @@ Ast__type.fn2 types ~regular_struct:true ~with_label:true fn]
 
 
 module Option = struct
@@ -227,6 +253,9 @@ let input_expand vars f body = match f with
       ]
     else
       [%expr let [%p f.p] =[%e start f.e] in [%e body] ]
+  | Simple(f, Array(Some (Const _ | Lit _),_) )->
+    let f = M.find (varname f) vars in
+    [%expr let [%p f.p] = [%e start f.e] in [%e body] ]
   | _ -> body
 
 let tuple l = Exp.tuple l
@@ -279,6 +308,50 @@ let look_out vars output = List.fold_left ( fun (l,vars) f ->
       u.e :: l, vars |> M.add (varname @@ C.repr_name f) u
   ) ([], vars) output
 
+let result_part ok bad =
+  polyvariant_type ~order:Eq @@ List.map mkconstr ok,
+  polyvariant_type ~order:Eq @@ List.map mkconstr bad
+
+
+let return_type types outputs return =
+  let output_typ = function
+    | Ty.Simple(_, Ptr Option Ptr ty ) -> Ty.Ptr ty
+    | Ty.Simple(_, (Option Ptr ty |Const Option Ptr ty | Ptr ty)) -> ty
+    | Ty.Array_f { array = (_, Ty.Option ty) ; index = _ } ->
+      ty
+    | Ty.Array_f { array = (_,ty) ; _ } -> ty
+    | Simple(_, Option ty) -> ty
+    | Simple(_, (Array _ as ty) ) -> ty
+    | Simple(_, (Name _ as ty)) -> ty
+    | ty -> Format.eprintf "Impossible type for output argument: %a@."
+              Ty.pp_field ty;
+      exit 2 in
+  let mkty ty = Ast__type.mk ~strip_option:true ~regular_struct:true types
+      (output_typ ty) in
+  match return with
+  | Ty.Result {ok;bad}  ->
+    let ok, bad = result_part ok bad in
+    let ty =
+      match outputs with
+      | [] -> [%type: unit]
+      | [a] -> mkty a
+      | l -> H.Typ.tuple (List.map mkty l) in
+    [%type: ([%t ok] * [%t ty], [%t bad]) Pervasives.result ]
+  | a when Inspect.is_void a->
+    begin match outputs with
+      | [] -> [%type: unit]
+      | [a] -> mkty a
+      | l -> H.Typ.tuple (List.map mkty l)
+    end
+  | _ ->
+    let return = match return with Option ty -> ty | ty -> ty in
+    let return = Ast__type.mk ~regular_struct:true types return
+                 <?:> "Direct return type" in
+    begin match outputs with
+      | [] -> return
+      | l -> H.Typ.tuple ( return :: List.map mkty l)
+    end
+
 let make_native types (fn:Ty.fn)=
   reset_uid ();
   let rargs = regularize_fields types fn.args in
@@ -292,11 +365,13 @@ let make_native types (fn:Ty.fn)=
   let all = Inspect.to_fields fn.args in
   let fun', vars = Ast__structured.mkfun input' in
   let _, vars = look_out vars output in
+  item [
   (fun x -> [%stri let [%p pat var fn.name] = [%e x] ]) @@
   fun' @@
   fold (input_expand vars) input' @@
   fold (allocate_field types input' vars) output @@
-  let apply = apply_regular types (ex var fn.name) vars all in
+  let apply = apply_regular ~attrs:[info "make_native"]
+      types (ex var fn.name) vars all in
   let res = unique "res" in
   let result =
     let outs = List.map (to_output types vars) output in
@@ -311,8 +386,11 @@ let make_native types (fn:Ty.fn)=
     ]
   else
     [%expr [%e apply]; [%e secondary result] ]
+]
+    [val' fn.name @@ Ast__type.fn types ~regular_struct:true ~with_label:true
+       fn.name input' (return_type types (Inspect.to_fields output) tyret)]
 
 let make types = function
   | B.Regular -> make_regular types
   | Native -> make_native types
-  | Raw -> make_simple
+  | Raw -> make_simple types

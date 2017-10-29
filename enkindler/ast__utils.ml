@@ -72,14 +72,24 @@ let type' ?(recflag=tyrec) ty =
 let decltype ?recflag ?manifest ?kind name =
   type' ?recflag [H.Type.mk ?kind ?manifest @@ nloc name]
 
-let module_gen name me =
+let module' name me =
   let name = nloc @@ modname name in
   item
   H.( Str.module_ @@ Mb.mk name @@ str me )
   H.(Sig.module_ @@ Md.mk name @@ sg me )
 
-let module' name dual = module_gen name @@
-  item (H.Mod.structure @@ str dual) (H.Mty.signature @@ sg dual)
+let structure dual =
+  item (H.Mod.structure @@ str dual)
+    (H.Mty.signature @@ sg dual)
+
+let modtype name =
+  let s = H.(Mty.ident @@ nlid @@ modname name ) in
+  item s s
+
+let functor' name mty result =
+  item
+    H.( Mod.functor_ (nloc name) (Some mty) @@ str result )
+    H.( Mty.functor_ (nloc name) (Some mty) @@ sg result )
 
 let (~:) x = L.simple [x]
 let include' me = Ast_helper.(Str.include_ @@ Incl.mk me)
@@ -88,25 +98,32 @@ module Me = struct
 end
 
 let make_genf ?(suffix="") name f =
-  module_gen name @@ item
-    H.Mod.( apply (ident @@ nloc @@ lid f/("Make" ^ suffix)) @@ structure [])
-    (H.Mty.ident (nloc @@ lid f/("S"^suffix)))
+  module' name @@  item
+    H.Mod.(apply (ident @@ nloc @@ lid f/("Make" ^ suffix)) @@ structure [])
+    H.Mty.(ident (nloc @@ lid f/("S"^suffix)))
 
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name
 
-let polyvariant_type ~closed constrs =
+
+type order = Eq | Lesser | Greater
+let polyvariant_type ~order constrs =
   let ty c =
     P.Rtag (c,[],true,[]) in
-  let tyn c = c in
-  if not closed then
-    H.Typ.variant [] Asttypes.Open (Some (List.map tyn constrs))
-  else
-    H.Typ.variant (List.map ty constrs) Asttypes.Closed None
+  match order with
+  | Eq -> H.Typ.variant (List.map ty constrs) Asttypes.Closed None
+  | Greater -> H.Typ.variant (List.map ty constrs) Asttypes.Open None
+  | Lesser -> H.Typ.variant (List.map ty constrs) Asttypes.Closed (Some[])
 
 
 let polyvariant name constrs =
-  let typ = polyvariant_type ~closed:true constrs in
+  let typ = polyvariant_type ~order:Eq constrs in
   type' [H.Type.mk ~manifest:typ name]
 
 let open' name e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) e
+
+let info msg =
+  nloc "olivine.info",
+  Parsetree.PStr [H.Str.eval @@ H.Exp.constant @@ Parsetree.Pconst_string(msg,None)]
+let  (<?>) (exp:Parsetree.expression) msg = { exp with pexp_attributes = [info msg] }
+let (<?:>) ty msg = { ty with Parsetree.ptyp_attributes = [info msg] }

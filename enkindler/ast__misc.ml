@@ -19,7 +19,7 @@ let alias builtins (name,origin) =
       let constraint' = H.Type.mk ~manifest:(typ ~par:origin ~:"t") (nloc "x") in
       H.Mty.(with_ (ident @@ nlid "alias") [P.Pwith_typesubst constraint'] ) in
     let t = typ ~par:name ~:"t" in
-    ( module_gen name @@
+    ( module' name @@
       item
         H.Mod.(apply (ident (nlid "Alias"))
                  (ident @@ nlid @@ modname origin))
@@ -49,5 +49,14 @@ module Const = struct
         [%expr Unsigned.UInt.of_string [%e string @@ Unsigned.UInt.to_string n] ]
       | Complement num_expr -> [%expr lnot [%e expr num_expr] ]
       | Minus (a,b) -> [%expr [%e expr a] - [%e expr b] ] in
-    [%stri let [%p pat var name] = [%e expr const] ]
+    let rec ty = function
+      | B.Arith.Float _ -> [%type: float]
+      | Int _ -> [%type: int ]
+      | UInt64 _ -> [%type: Unsigned.ullong ]
+      | UInt _ -> [%type: Unsigned.uint ]
+      | Complement n -> ty n
+      | Minus(a,_) -> ty a in
+    item
+      [[%stri let [%p pat var name] = [%e expr const] ]]
+      [val' name @@ ty const]
 end

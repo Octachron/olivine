@@ -58,12 +58,12 @@ let to_int t ty constrs =
   item [%stri let to_int = [%e f] ]
     (val' ~:"to_int" [%type: [%t t] -> int])
 
-let of_int ty constrs =
+let of_int t ty constrs =
   let c = construct ty in
   let app n d = H.Exp.case (int.p d) (c.e n) in
   let cases = [Exp.case (Pat.any ()) [%expr assert false]] in
   let f = conv ~cases app ty constrs in
-  let sigi = val' ~:"of_int" [%type: int -> t] in
+  let sigi = val' ~:"of_int" [%type: int -> [%t t] ] in
   let stri = [%stri let of_int = [%e f] ] in
   item stri sigi
 
@@ -134,13 +134,13 @@ let make impl (name,constrs) =
   let pre = if is_result then "raw_" else "" in
   let ty = impl, name in
   let opn = if is_result then [%type: [< t]] else [%type: t] in
+  let cl = if is_result then [%type: [> t]] else [%type:t] in
   let str =
     def ty constrs
     ^:: to_int opn ty constrs
-    ^:: of_int ty constrs
+    ^:: of_int cl ty constrs
     ^:: pp opn pre ty constrs
     ^:: (if is_result then pp_result ^:: view_result ^:: view_result_opt ^:: nil
          else view ^:: view_opt ^:: nil ) in
-  let m =
-    module' name str in
+  let m = module' name @@ structure str in
   m ^:: C.views ~f name @* extern_type name

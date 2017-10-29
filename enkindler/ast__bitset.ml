@@ -71,8 +71,8 @@ let make_extended (bitname, fields) =
     { name with postfix = List.filter (fun x -> x <> "flags") name.postfix }
   in
   let values = values core_name fields in
-  module' name (
-    item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
+    (module' name @@ structure @@
+     item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
 ^:: values
 @* pp core_name fields ^:: nil
 )

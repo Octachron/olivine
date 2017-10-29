@@ -22,12 +22,14 @@ let expand = function
 let make types (tyname, (fn:Ty.fn)) =
   let ty = pty tyname and tyo = pty L.(tyname//"opt")in
   match List.map snd @@ Ty.flatten_fn_fields fn.args with
-  | [] -> item
+  | [] ->
+    let typ =  [%type: unit Ctypes.ptr] in
+    decltype ~manifest:typ (typestr fn.name)
+    ^:: item
             [[%stri let [%p ty] = ptr void]]
-            [val' tyname [%type: unit Ctypes.ptr Ctypes.typ]]
+            [val' tyname [%type: [%t typ] Ctypes.typ] ]
   | args ->
-    let t = Ast__type.fn ~mono:true types fn.name (Inspect.to_fields fn.args)
-        (Ast__type.mk ~mono:true types fn.return) in
+    let t = Ast__type.fn2 ~decay_array:All ~mono:true types fn in
 
     decltype ~manifest:t (typestr fn.name)
     ^:: item

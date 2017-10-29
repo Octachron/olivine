@@ -1,7 +1,11 @@
 module L = Name_study
 type path = L.name list
 module I = Ast__item
-  module U = Ast__utils
+module U = Ast__utils
+module H = Ast_helper
+
+
+
 type ast_item = (Parsetree.structure, Parsetree.signature) I.item
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
@@ -28,7 +32,7 @@ module M = Map.Make(String)
 type module' = {
   name : L.name;
   path: path;
-  args: string list;
+  args: (string * Parsetree.module_type) list;
   sig': item list
 }
 
@@ -365,12 +369,13 @@ let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
   match ext.metadata.type' with
   | None -> l
   | Some t ->
-    let args = [Format.asprintf "X:%s" t] in
+    let s = I.str (U.modtype @@ L.make dict t) in
+    let args = ["X", s] in
     let preambule =
       I.item
         [U.include' @@ U.Me.apply ("Foreign_"^t) "X"]
         []
-in
+    in
     let items = S.of_list
       @@ List.filter (fun name -> not @@ sys_specific @@ L.make dict name)
       @@ ext.commands (*@ ext.types*) in
@@ -384,7 +389,14 @@ in
         )
       end;*)
     let core, rest = take_module core m.sig' in
-    Module { m with sig' = core.sig' @ rest } :: l
+    let subresult, rest = take_module subresult rest in
+    Module { m with sig' =
+                      core.sig'
+                      @ Ast (I.item [%str open Raw] [])
+                      :: rest
+                      @ Ast (I.item [%str open Subresult][])
+                      :: [Module subresult]
+           } :: l
 
 let generate_extensions dict registry extensions =
   let exts = List.fold_left (classify_extension dict) M.empty extensions in

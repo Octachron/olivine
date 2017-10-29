@@ -54,7 +54,7 @@ let sfield types (name,t) =
   (* Note: we could try to simplify further field names,
      but they happen to be quite short in practice *)
   let str = varname name and conv = Ast__type.converter false t in
-  let ty = Ast__type.mk ~raw_type:true ~decay_array:true types t in
+  let ty = Ast__type.mk ~raw_type:true ~decay_array:Dyn_array types t in
   item
     [%stri let [%p pat var name] = field t [%e string str] [%e conv] ]
     (val' name [%type: ([%t ty] , t) Ctypes.field])
@@ -162,7 +162,7 @@ let type_field types typename = function
   | Array_f { array = _, ty; index = _, ity }
     when Inspect.is_option ity && not (Inspect.is_option ty) ->
     [%type: [%t Ast__type.mk types ty] option ]
-  | Array_f { array = _, ty; _ } -> Ast__type.mk types ty
+  | Array_f { array = _, ty; _ } -> Ast__type.mk types  ty
   | Record_extension _ -> typ L.(typename//"ext")
 
 let getter typename types fields field =
@@ -176,7 +176,6 @@ let getter typename types fields field =
           [%str let [%p pat var out] = fun [%p u.p] -> [%e x] ]
           [val' out [%type: t -> [%t ty]] ]
       ) in
-  (**)
   def begin match field with
     | Ty.Array_f {index=i,ty; array = a, tya} as f when Inspect.is_option_f f ->
       let index = int_of_ty (ex ident' "n") (C.unwrap_opt_ty ty) in
@@ -364,7 +363,7 @@ let keep_alive exprs owner body =
 let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
   let seal = hidden [%stri let () = Ctypes.seal t] in
   match kind with
-  | Union -> module' inner (imap (sfield types) fields) ^:: seal
+  | Union -> module' inner (structure @@ imap (sfield types) fields) ^:: seal
   | Record ->
     let lens f = getter typename types fields f in
     let exts= match Inspect.record_extension fields with
@@ -372,7 +371,7 @@ let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
       | None -> nil in
     exts
     @*  module' inner
-      (List.fold_right (fun x l -> field types x @* l) fields nil)
+      (structure @@ List.fold_right (fun x l -> field types x @* l) fields nil)
     ^:: seal @* (fold_map lens fields) @* pp types fields ^:: nil
 
 let kind_cstr (type a) (kind: a kind) typ = match kind with
@@ -428,7 +427,7 @@ let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     | Union -> imap (union types) fields
     | Record -> construct types name fields ^:: nil in
   module' name
-    (def types (name,kind) name fields @* array ^:: records)
+    (structure @@ def types (name,kind) name fields @* array ^:: records)
   ^:: item
     [%stri let [%p pat var name] = [%e ident @@ qn name "t"]]
     (val' name @@ [%type: [%t typ ~par:name ~:"t"] Ctypes.typ])
