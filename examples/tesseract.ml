@@ -1,7 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
 module Vkc = Vk.Core
-module Vkw = Vk__sdl
 
 ;; Random.self_init ()
 module Dim = struct let value = 4 end
@@ -78,7 +77,7 @@ module Sdl = struct
 
   let w =
     Sdl.create_window "Vulkan + SDL test" ~w:width ~h:heigth
-      Sdl.Window.(allow_highdpi) <?> "Window creation"
+      Sdl.Window.(allow_highdpi + vulkan) <?> "Window creation"
 
   let () = Sdl.show_window w
   let e = Sdl.Event.create ()
@@ -212,7 +211,15 @@ module Device = struct
   ;; Format.printf "@]@."
 
   let surface_khr =
-    Vkw.create_surface instance Sdl.w () <?> "Obtaining surface"
+    Vkt.Surface_khr.unsafe_from_int64
+    @@ Tsdl.Sdl.Vulkan.unsafe_uint64_of_surface
+    @@ match
+      Tsdl.Sdl.Vulkan.create_surface Sdl.w
+      @@ Tsdl.Sdl.Vulkan.unsafe_instance_of_ptr
+      @@ Vkt.Instance.to_ptr instance
+    with
+    | None -> exit 2
+    | Some s -> s
 
   let capabilities =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
@@ -418,10 +425,11 @@ module Depth = struct
     let barrier = Vkt.Image_memory_barrier.make
         ~old_layout:Vkt.Image_layout.Undefined
         ~new_layout:Vkt.Image_layout.Depth_stencil_attachment_optimal
-        ~dst_access_mask
+        (*        ~dst_access_mask *)
         ~src_queue_family_index:0 ~dst_queue_family_index:0
         ~image ~subresource_range ()
     in
+    (* Different stages support only subset of src and dst masks *)
     let stage = Vkt.Pipeline_stage_flags.top_of_pipe  in
     Vkc.cmd_pipeline_barrier
       ~command_buffer:b ~src_stage_mask:stage ~dst_stage_mask:stage
@@ -624,17 +632,12 @@ let border_index atlas (_x,_y, k as pos ) =
         done;
       done;
     done
-  ;  for k = 0 to nface -1 do
-      for x = 1 to xs - 2 do
-        data'.(index(x,x,k))<- 1.
-      done;
-    done
 
     let operator dt data data' = diffop dt data data'; diffop dt data' data
 
 
-   let dt = 0.25
-   let niter = int_of_float @@ 100. /. dt
+   let dt = 0.001
+   let niter = int_of_float @@ 0.1 /. dt
    let iter () = operator dt data data'
    let () =
      for _i = 0 to niter do
@@ -695,8 +698,8 @@ module Texture = struct
     let barrier =
       Vkt.Image_memory_barrier.array [
         Vkt.Image_memory_barrier.make
-          ~src_access_mask:src_mask
-          ~dst_access_mask:dst_mask
+          (*         ~src_access_mask:src_mask*)
+          (* ~dst_access_mask:dst_mask *)
           ~old_layout
           ~new_layout
           ~src_queue_family_index:qf_ignored
@@ -1318,7 +1321,7 @@ module Render = struct
     p, state
 
 end
-let vec = Vec.(zero `vec, zero `vec)
+let vec: Vec.vec * Vec.vec = Vec.(zero `vec, zero `vec)
 ;; Render.(debug_draw(); debug_draw ())
  ; Sdl.(event_loop Render.draw (let z = 0., 0. in vec, (z,z,z,z))  e)
 ;; debug "End"

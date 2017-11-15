@@ -20,3 +20,7 @@ let rev s = { structure = List.rev s.structure;
 let fold_map f x =
   rev
  @@ List.fold_left (fun acc x -> f x @* acc ) nil x
+
+let map_both f x = item (f @@ str x) (f @@ sg x)
+
+let fmap f x = item (str f @@ str x) (sg f @@ sg x)

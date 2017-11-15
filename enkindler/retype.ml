@@ -170,6 +170,11 @@ module Typexpr(X:name) = struct
 
   type type_decl = name * typexpr
 
+  let field_to_type  = function
+    | Array_f { array=n, ty; _ } -> ty
+    | Simple(n,ty) -> ty
+    | Record_extension _ -> failwith "Not implemented: typ for record_extension"
+
   let flatten_fields l =
     let f acc = function
       | Simple f -> f :: acc
@@ -217,7 +222,7 @@ module Typexpr(X:name) = struct
     | Ptr (Name _ |Ptr _ as ty) -> fp ppf "ptr %a" pp ty
     | Ptr ty -> fp ppf "ptr (%a)" pp ty
     | Option (Name _ as ty) -> fp ppf "option %a" pp ty
-    | Option (Ptr ty) -> fp ppf "ptr_opt %a" pp ty
+    | Option (Ptr ty) -> fp ppf "option ptr (%a)" pp ty
     | Option ty -> fp ppf "option (%a)" pp ty
     | Array(None, ty) -> fp ppf "array (%a)" pp ty
     | Array(Some cexp, ty) -> fp ppf "array[%a](%a)"

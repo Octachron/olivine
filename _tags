@@ -7,9 +7,9 @@ true: short_paths
 true: strict_formats
 true: thread
 <bin> or <spec>: -traverse
-<enkindler/*>: package(xmlm), package(fmt), package(ctypes), package(ppx_tools.metaquot)
+<enkindler/*>: package(xmlm), package(fmt), package(ctypes)
 <enkindler/libgen.native>: package(compiler-libs.common), package(ppx_tools.metaquot)
-<enkinder/libgen.ml>: package(ppx_tools.metaquot)
+<enkindler/*>: package(ppx_tools.metaquot)
 <enkindler/cshard/*>: package(ctypes)
 <enkindler/ast*.ml>: package(ppx_tools.metaquot), package(compiler-libs.common)
 <enkindler/printers.ml>: package(compiler-libs.common)
@@ -22,5 +22,5 @@ true: thread
 <sdl/*>: package(tsdl), package(ctypes.foreign)
 <lib/*> or <lib_aux/*>: package(ctypes.foreign), thread
 <examples/*>: package(ctypes.foreign), package(tsdl)
-"vk.cma": package(ctypes.foreign), thread
+"vk.cmxa": package(ctypes.foreign), thread
 "libsdlvulkan.so": precious
