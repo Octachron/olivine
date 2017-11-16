@@ -372,7 +372,10 @@ let make_native types (fn:Ty.fn)=
   fold (allocate_field types input' vars) output @@
   let apply = apply_regular ~attrs:[info "make_native"]
       types (ex var fn.name) vars all in
-  let res = unique "res" in
+  let res =
+    if Inspect.is_void tyret then
+      Ast__utils.any
+    else unique "res" in
   let result =
     let outs = List.map (to_output types vars) output in
     [%expr let [%p res.p] = [%e apply] in [%e join tyret res.e outs] ] in

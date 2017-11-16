@@ -45,6 +45,7 @@ let typ ?par name =
 
 let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
 
+let any = { p = [%pat? _ ]; e = [%expr ()] }
 let typexp n = [%expr [%e typename n]]
 let tyvar n = ident @@ typename n
 let var n = let s = varname n in
