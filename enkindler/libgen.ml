@@ -73,10 +73,13 @@ let preambule =
   I.item
   [%str
     open Ctypes
-    let libvulkan = Dl.dlopen ~filename:"libvulkan.so" ~flags:Dl.[RTLD_NOW]
+    let libvulkan = Dl.dlopen ~filename:"libvulkan.so"
+    ~flags:Dl.[RTLD_NOW]
     let foreign name = Foreign.foreign ~from:libvulkan name
     module Printer = Format
-    module Option = struct type 'a t = 'a option = None | Some of 'a end
+    module Option = struct
+      type 'a t = 'a option = None | Some of 'a
+    end
   ]
 [%sig:
   open Ctypes

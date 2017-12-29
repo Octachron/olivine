@@ -1,7 +1,6 @@
 module Aliases= struct
   module L = Name_study
   module B = Lib_builder
-  module Ty = Lib_builder.Ty
   module H = Ast_helper
   module Exp = H.Exp
   module P = Parsetree
@@ -13,12 +12,13 @@ open Ast__utils
 
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
-let alias builtins (name,origin) =
+let alias {B.builtins;_} (name,origin) =
   if not @@ B.Name_set.mem name builtins then
     let sign =
-      let constraint' = H.Type.mk ~manifest:(typ ~par:origin ~:"t") (nloc "x") in
+      let constraint' =
+        H.Type.mk ~manifest:(typ ~par:[origin] ~:"t") (nloc "x") in
       H.Mty.(with_ (ident @@ nlid "alias") [P.Pwith_typesubst constraint'] ) in
-    let t = typ ~par:name ~:"t" in
+    let t = typ ~par:[name] ~:"t" in
     ( module' name @@
       item
         H.Mod.(apply (ident (nlid "Alias"))
@@ -37,6 +37,7 @@ let alias builtins (name,origin) =
     nil
 
 let float_const f = Exp.constant (H.Const.float @@ string_of_float f)
+
 module Const = struct
   let make (name,const) =
     let rec expr =

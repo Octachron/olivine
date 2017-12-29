@@ -59,7 +59,7 @@ let resume bitname name =
     let v = Pat.var (nloc b) and e = ident (qn name n) in
     item [%stri let [%p v] = [%e e ]]
       (val' ~:b [%type: [%t ty] Ctypes.typ ]) in
-  let ty = typ ~par:name ~:"index" in
+  let ty = typ ~par:[name] ~:"index" in
   C.extern_type name ^:: C.views name
   @* index_view bitname ty "index_view"
   ^:: index_view (bitname^"_opt") [%type: [%t ty] option] "index_view_opt"

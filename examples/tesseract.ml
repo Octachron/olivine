@@ -1,5 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
+module Vkh = Vk__helpers
 module Vkc = Vk.Core
 
 ;; Random.self_init ()
@@ -192,7 +193,8 @@ module Device = struct
     Vkc.get_physical_device_queue_family_properties phy
 
   ;; debug "Queue properties: %a"
-    Vkt.(pp_array Queue_family_properties.pp) queue_family_properties
+    (Vkh.Pp.array Vkt.Queue_family_properties.pp)
+    queue_family_properties
 
   let queue_family = 0
   let priorities = A.of_list Ctypes.float [ 1.]
@@ -231,7 +233,8 @@ module Device = struct
     Surface.get_physical_device_surface_formats_khr phy surface_khr
     <?> "supported surface formats"
 
-  ;; debug "%a" Vkt.(pp_array Surface_format_khr.pp) supported_formats
+  ;; debug "%a" (Vkh.Pp.array Vkt.Surface_format_khr.pp)
+    supported_formats
 
   let present_modes =
     Surface.get_physical_device_surface_present_modes_khr phy surface_khr
@@ -425,7 +428,7 @@ module Depth = struct
     let barrier = Vkt.Image_memory_barrier.make
         ~old_layout:Vkt.Image_layout.Undefined
         ~new_layout:Vkt.Image_layout.Depth_stencil_attachment_optimal
-        (*        ~dst_access_mask *)
+        (*~dst_access_mask*)
         ~src_queue_family_index:0 ~dst_queue_family_index:0
         ~image ~subresource_range ()
     in

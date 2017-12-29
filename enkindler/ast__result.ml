@@ -3,17 +3,21 @@ module Aliases= struct
   module L = Name_study
   module B = Lib_builder
   module T = Lib_builder.T
+  module I = Ast__inspect
 end
 open Aliases
 open Ast__item
 open Ast__utils
 
-  let expr (ok,errors) =
-    tyvar @@ Subresult.composite_nominal ok errors
+
+let modname ctx = L.simple [I.vk_prefix ctx "subresult"]
+
+  let expr ctx (ok,errors) =
+    tyvar ~par:[modname ctx] @@ Subresult.composite_nominal ok errors
 
   module M = B.Result.Map
 
-  let find name m =
+  let find name {B.results=m; _ } =
     try M.find name m with
     | Not_found ->
       Fmt.(pf stderr) "Either.find: not found %a\n%!"
@@ -50,8 +54,10 @@ let typ ok error =
       let v, ok_name, error_name = let open Subresult in
         (composite_nominal ok error), side_name ok, side_name error in
       let conv name = open' name [%expr of_int, to_int] in
-      item [%stri let [%p pat var v] =
-               Vk__result.view ~ok:[%e conv ok_name] ~error:[%e conv error_name]
-      ]
+      item
+        [%stri let [%p pat var v] =
+                 Vk__result.view ~ok:[%e conv ok_name]
+                   ~error:[%e conv error_name]
+        ]
         (val' v @@ typ ok error)
       ^:: nil

@@ -27,7 +27,7 @@ let (!@) x = [%expr !@[%e x]]
 let views ?(f=fun x ->x) name =
   let n = var name and no = L.(name//"opt") in
   let e = open' name [%expr view, view_opt ] in
-  let t = typ ~par:name ~:"t" in
+  let t = typ ~par:[name] ~:"t" in
   item
   [[%stri let [%p n.p], [%p pat var no] = [%e e]]]
   [ val' name [%type: [%t f t] Ctypes.typ]; val' no [%type: [%t f t] option Ctypes.typ]]

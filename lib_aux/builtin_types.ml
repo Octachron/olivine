@@ -18,6 +18,7 @@ let uint_32_t = Ctypes.view ~read:(U32.to_int) ~write:(U32.of_int)
     Ctypes.uint32_t
 
 type void = unit
+let void = Ctypes.void
 type int_32_t = int
 type bool_32 = bool
 
@@ -66,6 +67,7 @@ module Size_t = struct
   let ctype = Ctypes.size_t
 end
 type size_t = Size_t.t
+let size_t = Size_t.ctype
 let size_t_opt = integer_opt (module Size_t)
 
 module Uint_32_t = struct
@@ -109,9 +111,6 @@ module Uint_64_t = struct
   let ctype = Ctypes.uint64_t
 end
 
-let unwrap = function
-  | Some x -> x
-  | None -> raise (Invalid_argument "unwrap None")
 
 
 module type aliased = sig
@@ -144,60 +143,10 @@ module Alias(X:aliased): alias with type x := X.t = struct
   let pp ppf x = Format.fprintf ppf "%s" (X.to_string x)
 end
 
-let nullptr typ = Ctypes.(coerce (ptr void) (ptr typ) null)
-
-let may f = function
-  | None -> None
-  | Some x -> Some(f x)
-
-let maybe f = match f with
-  | Some f -> may f
-  | None -> fun _ -> None
-
-let pp_opt pp ppf = function
-  | None -> Format.fprintf ppf "None"
-  | Some x -> Format.fprintf ppf "Some(%a)" pp x
-
-let pp_array pp ppf a =
-  let get n = Ctypes.CArray.get a n in
-  let n = Ctypes.CArray.length a in
-  Format.fprintf ppf "@[<hov 2>⟦";
-  if n > 0 then begin
-    pp ppf (get 0);
-    for i = 1 to (n-1) do
-      Format.fprintf ppf "@ ;%a" pp (get i)
-    done;
-    Format.fprintf ppf "⟧@]"
-  end
-
-let pp_ptr pp ppf x =
-  Format.fprintf ppf "*%a" pp (Ctypes.(!@) x)
-
-let pp_string ppf =
-  Format.fprintf ppf "%s"
-
-let pp_addr ppf v =
-  Format.fprintf ppf "%s" @@ Nativeint.to_string
-  @@ Ctypes.raw_address_of_ptr v
-
-let pp_abstract ppf _ = Format.fprintf ppf "⟨abstr⟩"
-
 module Float = struct
   let pp = Format.pp_print_float
 end
 
 module Void = struct
-  let pp = pp_abstract
+  let pp = Vk__helpers.Pp.abstract
 end
-
-let array_opt n t =
-  let read = may (fun x -> Ctypes.CArray.from_ptr x n) in
-  let write = may Ctypes.CArray.start in
-  Ctypes.view read write (Ctypes.ptr_opt t)
-
-let convert_string n s =
-  let a = Ctypes.CArray.make Ctypes.char n ~initial:' ' in
-  for i = 0 to min n (String.length s) -1 do
-    Ctypes.CArray.set a i s.[i]
-  done;
-  a

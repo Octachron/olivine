@@ -9,6 +9,9 @@ end
 open Aliases
 open Ast__item
 
+
+let type_module = L.simple ["types"]
+
 type ('a,'b) dual = {p:'a ; e:'b}
 
 let nloc = Location.mknoloc
@@ -19,9 +22,24 @@ let val' name ty  = H.Sig.value @@ H.Val.mk (nloc @@ typestr name) ty
 
 let lid s =  Longident.Lident s
 let nlid x = nloc(lid x)
-let typename n = lid (typestr n)
+
+
+let modname = Fmt.strf "%a" L.pp_module
+
+let qualify l name =
+  let open Longident in
+  List.fold_left (fun gen elt x -> Ldot(gen elt,x) )
+    (fun s -> Lident s)
+    (List.map modname l)
+    name
 
 let varname n = Fmt.strf "%a" L.pp_var n
+let typename n = lid(typestr n)
+
+let varpath ?(par=[]) n = qualify par @@ varname n
+let typepath ?(par=[]) n = qualify par @@ typestr n
+
+
 let ident x = Exp.ident (nloc x)
 
 let pvar s = Pat.var (nloc s)
@@ -29,17 +47,19 @@ let ident' x = { p= pvar x; e = ident (lid x) }
 
 let mkconstr x = Fmt.strf "%a" L.pp_constr x
 
-let modname = Fmt.strf "%a" L.pp_module
 
 let (/) x s = Longident.( Ldot(x,s) )
 
 let qn module' x =
   (lid @@modname module') / x
 
+let (%) f g x = f (g x)
+
+
 let typ ?par name =
   let lid =
     match par with
-    | Some  m -> lid (modname m) / typestr name
+    | Some m -> qualify m (typestr name)
     | None -> typename name in
   H.Typ.constr (nloc @@ lid ) []
 
@@ -47,8 +67,9 @@ let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
 
 let any = { p = [%pat? _ ]; e = [%expr ()] }
 let typexp n = [%expr [%e typename n]]
-let tyvar n = ident @@ typename n
-let var n = let s = varname n in
+let tyvar ?(par=[]) n = ident @@ qualify par (typestr n)
+let var n =
+  let s = varname n in
   { p = Pat.var (nloc s);
     e= Exp.ident (nlid @@ s) }
 
@@ -126,5 +147,9 @@ let open' name e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) e
 let info msg =
   nloc "olivine.info",
   Parsetree.PStr [H.Str.eval @@ H.Exp.constant @@ Parsetree.Pconst_string(msg,None)]
-let  (<?>) (exp:Parsetree.expression) msg = { exp with pexp_attributes = [info msg] }
+
+let  (<?>) (exp:Parsetree.expression) msg =
+  Format.kasprintf
+    (fun msg -> { exp with pexp_attributes = [info msg] }
+    ) msg
 let (<?:>) ty msg = { ty with Parsetree.ptyp_attributes = [info msg] }

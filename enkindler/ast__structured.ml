@@ -15,6 +15,31 @@ open Ast__utils
 
 let unique, reset_uid = C.id_maker ()
 
+let of_int = L.simple ["of"; "int"]
+let to_int = L.simple ["to"; "int"]
+
+let rec ty_of_int ctx ty x =
+  match ty with
+  | Ty.Option t -> [%expr Option.Some [%e ty_of_int ctx t x]]
+  | Name t ->
+    [%expr
+      [%e ident@@Inspect.prefix ~root:t varpath ~par:[t] ctx of_int]
+        [%e x]
+    ]
+  | _ -> x <?> "Ty_of_int failure?"
+
+let rec int_of_ty ctx var = function
+  | Ty.Ptr t -> int_of_ty ctx [%expr Ctypes.(!@) [%e var]] t
+  | Option t -> int_of_ty ctx [%expr Vk__helpers.unwrap [%e var]] t
+  | Name t when L.to_path t = ["uint32";"t"] -> var
+  | Name t ->
+    [%expr
+      [%e ident@@Inspect.prefix ~root:t varpath ~par:[t] ctx to_int]
+        [%e var]
+    ]
+  | _ -> raise @@ Invalid_argument "Invalid Structured.int_of_ty ty"
+
+
 let mkfun fields =
   let label f name =
     if Inspect.is_option_f f then
@@ -53,7 +78,8 @@ type 'field kind =
 let sfield types (name,t) =
   (* Note: we could try to simplify further field names,
      but they happen to be quite short in practice *)
-  let str = varname name and conv = Ast__type.converter false t in
+  let str = varname name and
+  conv = Ast__type.converter types false t in
   let ty = Ast__type.mk ~raw_type:true ~decay_array:Dyn_array types t in
   item
     [%stri let [%p pat var name] = field t [%e string str] [%e conv] ]
@@ -68,7 +94,14 @@ let unsafe_make_i = item
     [%stri let unsafe_make () = Ctypes.make t ]
     (val' ~:"unsafe_make" [%type: unit -> t ])
 
-let unsafe_make n = [%expr [%e ident ( lid (modname n) /  "unsafe_make") ] () ]
+
+let pretyp ctx n x =
+  let q =
+  if Inspect.in_types ctx then [n] else [L.simple ["Vk__types"];n] in
+  ident @@ qualify q x
+
+let unsafe_make ctx n =
+  [%expr [%e pretyp ctx n "unsafe_make"] () ]
 
 let field types =
   let sfield = sfield types in
@@ -85,33 +118,31 @@ let get_field r f = r #. [%expr [%e fname f]]
 let get_field' r = get_field r % varname
 let mk_array n x = [%expr Ctypes.CArray.from_ptr [%e x] [%e n]]
 
-let rec get_path f = function
+let rec get_path ctx f = function
   | [] -> raise @@ Invalid_argument "Printers.pp_path: empty path"
   | [None,_, a] -> f a
   | (Some (direct, ty),_, a) :: q ->
-    (if direct then get_path f q else [%expr Ctypes.(!@) [%e get_path f q]])
-    #% (ident (lid  (modname ty) / (varname a)))
+    (if direct then get_path ctx f q else
+       [%expr Ctypes.(!@) [%e get_path ctx f q]])
+    #% (pretyp ctx ty (varname a) )
   | (None, _, _) :: _ -> raise @@
     Invalid_argument "Printers.pp_path: partially type type path"
 
-let rec int_of_ty var = function
-  | Ty.Ptr t -> int_of_ty [%expr Ctypes.(!@) [%e var]] t
-  | Option t -> int_of_ty [%expr unwrap [%e var]] t
-  | Name t when L.to_path t = ["uint32";"t"] -> var
-  | Name t -> [%expr [%e ident @@ qn t "to_int"][%e var] ]
-  | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
+
+
+let imay f x = [%expr Vk__helpers.may [%e f] [%e x] ]
 
 let rec oint_of_ty var = function
   | Ty.Ptr t -> oint_of_ty [%expr Ctypes.(!@) [%e var]] t
   | Option t ->
     let v = unique "i" in
-    [%expr may (fun [%p v.p] ->[%e oint_of_ty v.e t]) [%e var]]
+    imay [%expr fun [%p v.p] ->[%e oint_of_ty v.e t]] var
   | Name t when L.to_path t = ["uint32";"t"] -> var
   | Name t -> [%expr [%e ident @@ qn (C.module_name t) "to_int"][%e var] ]
   | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
 
-let int_of_path ?(conv=true) get_field pty =
-  let p = get_path get_field pty in
+let int_of_path ?(conv=true) ctx get_field pty =
+  let p = get_path ctx get_field pty in
   if conv then
     oint_of_ty p (Inspect.last_type pty)
   else p
@@ -126,15 +157,16 @@ let tuple =
      )
   }
 
-let array_index ?(conv=true) get_field types fields = function
+let array_index ?(conv=true) ctx get_field fields = function
   | Ty.Lit n -> int.e n
-  | Path p -> int_of_path ~conv get_field (Inspect.type_path types fields p)
+  | Path p -> int_of_path ctx ~conv get_field
+                (Inspect.type_path ctx fields p)
   | Math_expr m ->
     let vars = T.vars [] m in
     let v = tuple.e @@
       List.map
-        (fun p -> let pty = Inspect.type_path types fields [p] in
-          int_of_path ~conv get_field pty)
+        (fun p -> let pty = Inspect.type_path ctx fields [p] in
+          int_of_path ~conv ctx get_field pty)
         vars in
     let n = tuple.p @@ (List.map (fun x -> pat var x) vars) in
     [%expr let [%p n] = [%e v] in [%e Ast__math.expr m] ]
@@ -178,7 +210,8 @@ let getter typename types fields field =
       ) in
   def begin match field with
     | Ty.Array_f {index=i,ty; array = a, tya} as f when Inspect.is_option_f f ->
-      let index = int_of_ty (ex ident' "n") (C.unwrap_opt_ty ty) in
+      let index =
+        int_of_ty types (ex ident' "n") (C.unwrap_opt_ty ty) in
       let count = [i , Ast__type.mk types ty, get_field' i] in
       count
       @ main
@@ -191,10 +224,10 @@ let getter typename types fields field =
         ]
     | Array_f {array= x, tya; index = n, ty } ->
       let count = [n , Ast__type.mk types ty, get_field' n ] in
-      let mk = mk_array (int_of_ty (ex var n) ty) in
+      let mk = mk_array (int_of_ty types (ex var n) ty) in
       let xv = var x in
       let body = if Inspect.is_option tya then
-          [%expr may (fun x -> [%e mk [%expr x]]) vx.d]
+          imay [%expr fun x -> [%e mk [%expr x]] ] xv.e
         else mk xv.e in
       count @ main
         [%expr let [%p (var n).p] = [%e get_field' n]
@@ -211,7 +244,7 @@ let getter typename types fields field =
           [%e (var s).e] ]
     | Simple(n, (Option Array(Some (Path _ | Math_expr _ as p), inty)
                 | Array(Some (Path _ | Math_expr _ as p),inty) as t)) ->
-      let index = array_index get_field' types fields p in
+      let index = array_index types get_field' fields p in
       let a =
         if Inspect.is_char inty then
           [%expr Ctypes.string_from_ptr (Ctypes.CArray.start a) i]
@@ -223,11 +256,13 @@ let getter typename types fields field =
             Inspect.final_option types fields p
           | _ -> false in
         if opt && aopt then
-          [%expr maybe (may (fun i a -> [%e a]) i) a]
+          [%expr Vk__helpers.maybe
+              [%e imay [%expr fun i a -> [%e a]] [%expr i] ]
+              a]
         else if opt then
-          [%expr may (fun i -> [%e a]) i ]
+          imay [%expr fun i -> [%e a]] [%expr i]
         else if aopt then
-          [%expr may (fun a -> [%e a]) a ]
+          imay  [%expr fun a -> [%e a]] [%expr a]
         else a in
       main [%expr let a = [%e get_field' n]
         and i = [%e index] in [%e body] ]
@@ -235,23 +270,24 @@ let getter typename types fields field =
   end
 
 
-let rec ty_of_int ty x =
-  match ty with
-  | Ty.Option t -> [%expr Option.Some [%e ty_of_int t x]]
-  | Name t -> [%expr [%e ident @@ qn t "of_int"] [%e x] ]
-  | _ -> x
+
+
+
 let array_len x = [%expr Ctypes.CArray.length [%e x] ]
 
-let nullptr = function
+let nullptr types = function
   | Ty.Option _ -> [%expr None]
-  | t -> C.coerce C.(ptr void) (Ast__type.converter true t) [%expr Ctypes.null]
-(*   | ty -> not_implemented "Null array not implemented for %a@." Ty.pp ty *)
+  | t ->
+    C.coerce C.(ptr void) (Ast__type.converter types true t)
+      [%expr Ctypes.null]
 
-
+let convert_string n s =
+  [%expr Vk__helpers.convert_string [%e n] [%e s] ]
 
 let set types typ r field value =
   let name = varname % fst and ty = snd in
-  let array_len (_, ty as _index) = ty_of_int ty (array_len value.e) in
+  let array_len (_, ty as _index) =
+    ty_of_int types ty (array_len value.e) in
   let optzero f = if Inspect.is_option (ty f) then [%expr None] else [%expr 0] in
   let setf f x = setf r f x in
   match field with
@@ -260,22 +296,23 @@ let set types typ r field value =
   | Ty.Simple(f, (Option (Const Ptr Name t | Ptr Name t)
                  | Const Option(Const Ptr Name t | Ptr Name t))) when
       Inspect.is_record types t ->
-    setf (varname f) [%expr may Ctypes.addr [%e value.e]]
+    setf (varname f) (imay [%expr Ctypes.addr] value.e)
   | Ty.Simple(f, Array(Some (Lit n), t)) when Inspect.is_char t ->
-    setf (varname f) [%expr convert_string [%e int.e n] [%e value.e]]
+    setf (varname f)
+      (convert_string (int.e n) value.e)
   | Ty.Simple(f, Array(Some (Const n), t)) when Inspect.is_char t ->
-    setf (varname f) [%expr convert_string [%e ex var n] [%e value.e]]
+    setf (varname f) (convert_string (ex var n) value.e)
   | Ty.Simple(f, Array(Some (Path _| Math_expr _), _)) ->
     setf (varname f) (start value.e)
   | Ty.Simple(f, Option Array(Some (Path _|Math_expr _), _)) ->
-    setf (varname f) [%expr may Ctypes.CArray.start [%e value.e] ]
+    setf (varname f) (imay [%expr Ctypes.CArray.start] value.e)
   | Ty.Simple (f,_ty) ->
     setf (varname f) value.e
   | Ty.Array_f { index; array } as t when Inspect.is_option_f t ->
     [%expr match [%e value.e] with
       | Option.None ->
         [%e setf (name index) (optzero index)];
-        [%e setf  (name array) (nullptr @@ ty array)]
+        [%e setf  (name array) (nullptr types @@ ty array)]
       | Option.Some [%p value.p] ->
         [%e setf (name index) (array_len index) ];
         [%e setf (name array) (C.wrap_opt (ty array) @@ start value.e)]
@@ -296,7 +333,7 @@ let set types typ r field value =
 let rec printer types t =
   let printer = printer types in
   let pp module' = ident @@ (qn module') "pp" in
-  let abstract = [%expr pp_abstract] in
+  let abstract = [%expr Vk__helpers.Pp.abstract] in
   match t with
   | Ty.Name t ->
     begin match B.find_type t types with
@@ -304,13 +341,14 @@ let rec printer types t =
       | Some (Ty.FunPtr _ |Union _ ) -> abstract
       | Some Ty.Bitfields _ -> pp (Ast__bitset.set_name t)
       | _ -> pp t end
-  | Array(_, Name t) when L.to_path t = ["char"] ->[%expr pp_string]
-  | Array(_,t) -> [%expr pp_array [%e printer t]]
-  | Option t -> [%expr pp_opt [%e printer t]]
+  | Array(_, Name t) when L.to_path t = ["char"] ->
+    [%expr Vk__helpers.Pp.string]
+  | Array(_,t) -> [%expr Vk__helpers.Pp.array [%e printer t]]
+  | Option t -> [%expr Vk__helpers.Pp.opt [%e printer t]]
   | Const t -> printer t
-  | Ptr t when Inspect.is_void t -> [%expr pp_addr]
-  | Ptr t -> [%expr pp_ptr [%e printer t]]
-  | String -> [%expr pp_string]
+  | Ptr t when Inspect.is_void t -> [%expr Vk__helpers.Pp.addr]
+  | Ptr t -> [%expr Vk__helpers.Pp.ptr [%e printer t]]
+  | String -> [%expr Vk__helpers.Pp.string]
   | ty -> Fmt.epr "Not implemented: %a@." Ty.pp ty;
     raise @@ Invalid_argument "Printer not implemented"
 
@@ -430,6 +468,6 @@ let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     (structure @@ def types (name,kind) name fields @* array ^:: records)
   ^:: item
     [%stri let [%p pat var name] = [%e ident @@ qn name "t"]]
-    (val' name @@ [%type: [%t typ ~par:name ~:"t"] Ctypes.typ])
+    (val' name @@ [%type: [%t typ ~par:[name] ~:"t"] Ctypes.typ])
   ^::  C.extern_type name
   ^:: nil

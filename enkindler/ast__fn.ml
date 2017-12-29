@@ -19,7 +19,7 @@ open Ast__utils
 let unique, reset_uid = C.id_maker ()
 
 let addr_f t =
-  [%expr [%e ident(qn t "addr")] ]
+  [%expr [%e ident(qualify [ ~:"Vk__types";t] "addr")] ]
 
 let make_f t exp =
   [%expr [%e ident(qn t "unsafe_make")] [%e exp] ]
@@ -27,28 +27,34 @@ let make_f t exp =
 let ($) f x = [%expr [%e f] [%e x]]
 
 let regularize_type types = function
-  | Ty.Ptr (Name t as n) | Const Ptr (Name t as n) when Inspect.is_record types t ->
+  | Ty.Ptr (Name t as n) | Const Ptr (Name t as n)
+    when Inspect.is_record types t ->
     n
   | ty -> ty
 
+let may f x = [%expr Vk__helpers.may [%e f] [%e x] ]
 
 let regularize types ty exp= match ty with
   | Ty.Ptr Name t | Const Ptr Name t when Inspect.is_record types t ->
     addr_f t $ exp <?> "Regularized pointer to struct"
-  | Option Ptr Name t| Const Option Ptr Name t when Inspect.is_record types t ->
-    [%expr may [%e addr_f t] [%e exp]]  <?> "Regularized optional pointer to struct"
-  | (Ptr Option Name t|Const Ptr Option Name t) when Inspect.is_record types t ->
-    [%expr may [%e addr_f t] [%e exp]]  <?> "Regularized pointer to optional struct"
-  | Option Ptr Name _ -> [%expr may [%e C.addr exp] ]
-  | ty ->  exp <?> Fmt.strf "No regularization: %a" Ty.pp ty
+  | Option Ptr Name t| Const Option Ptr Name t
+    when Inspect.is_record types t -> may (addr_f t) exp
+    <?> "Regularized optional pointer to struct"
+  | (Ptr Option Name t|Const Ptr Option Name t)
+    when Inspect.is_record types t -> may (addr_f t) exp
+    <?> "Regularized pointer to optional struct"
+  (*  | Option Ptr Name _ -> may (C.addr exp)*)
+  | ty ->  (exp <?> "No regularization: %a") Ty.pp ty
 
 
 let regularize_fields types fields =
   let reg f =
     match f.Ty.field with
-    | Simple(n, (Ptr Name t | Const Ptr Name t)) when Inspect.is_record types t ->
+    | Simple(n, (Ptr Name t | Const Ptr Name t))
+      when Inspect.is_record types t ->
       { f with field = Simple(n, Name t) }
-    | Simple(n, Option Ptr Name t) when Inspect.is_record types t ->
+    | Simple(n, Option Ptr Name t)
+      when Inspect.is_record types t ->
       { f with field = Simple(n, Option (Name t)) }
     | _ -> f
   in
@@ -62,13 +68,14 @@ let annotate fmt =
 let arg_types (fn:Ty.fn) =
   Ast__funptr.expand @@ List.map snd @@ Ty.flatten_fn_fields fn.args
 
-let foreign fn =
+let foreign types fn =
   let args = arg_types fn in
-  [%expr foreign [%e string fn.original_name] [%e Ast__funptr.mkty args fn.return]]
+  [%expr foreign [%e string fn.original_name] [%e
+      Ast__funptr.mkty types args fn.return]]
 
 let make_simple types (f:Ty.fn) =
   item
-    [[%stri let [%p (var f.name).p] = [%e foreign f] ]]
+    [[%stri let [%p (var f.name).p] = [%e foreign types f] ]]
     [val' f.name @@ Ast__type.fn ~decay_array:All types
        f.name (List.map (fun ty -> Ty.Simple ty) @@ Ty.flatten_fn_fields f.args)
        (Ast__type.mk ~raw_type:true ~decay_array:All types f.return)]
@@ -83,7 +90,8 @@ let apply_gen ?attrs get name vars args =
   let args = List.rev @@ List.fold_left add_arg [] args in
   Exp.apply ?attrs name args
 
-let apply = apply_gen (fun vars (f,_ty) -> ex (M.find @@ varname f) vars)
+let apply = apply_gen
+    (fun vars (f,_ty) -> ex (M.find @@ varname f) vars)
 
 
 let get_r types vars (f,ty) =
@@ -104,7 +112,7 @@ let make_regular types fn =
   let f = unique "f" in
   let def body =
     [%stri let [%p pat var fn.name] =
-             let [%p f.p] = [%e foreign fn] in
+             let [%p f.p] = [%e foreign types fn] in
              [%e body] ] in
   item
     [ def begin
@@ -151,15 +159,20 @@ let allocate ty value = [%expr Ctypes.allocate [%e ty] [%e value]]
 
 (* Allocate composite fields *)
 let allocate_field types fields vars f body  =
+  let pre = Inspect.prefix (fun ?(par=[]) x ->
+      ident (qualify par @@ varname x)) types in
   let get f = M.find (varname f) vars in
   match f.Ty.field with
   | Simple(f, Array(Some p , Name elt)) ->
     let array = get f in
     let size =  get @@ C.index_name f in
-    let n = Ast__structured.array_index ~conv:false (ex get) types fields p in
+    let n =
+      Ast__structured.array_index ~conv:false types (ex get)
+        fields p in
     [%expr let [%p size.p] = [%e n ] in
       let [%p array.p ] =
-        Ctypes.allocate_n [%e (var elt).e ] [%e size.e ] in
+        (Ctypes.allocate_n[@olivine.info "allocate_field Simple"])
+          [%e pre elt] [%e size.e ] in
       [%e body]
     ]
   | Simple(f, Option _ ) ->
@@ -167,19 +180,25 @@ let allocate_field types fields vars f body  =
     [%expr let [%p f.p ] = None in [%e body] ]
   | Simple(f, Name t) when Inspect.is_record types t ->
     let f = get f in
-    [%expr let [%p f.p ] = [%e Ast__structured.unsafe_make t] in [%e body] ]
+    [%expr let [%p f.p ] =
+             [%e Ast__structured.unsafe_make types  t] in [%e body] ]
   | Simple (f,t) ->
     begin let f = get f in
       match ptr_to_name t with
       | None -> body
       | Some (ty,_) ->
         let alloc = C.wrap_opt t @@ allocate_n
-            (Ast__type.converter true ty) [%expr 1] in
+            (Ast__type.converter types true ty) [%expr 1] in
         [%expr let [%p f.p] = [%e alloc] in [%e body] ]
     end
   | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
     let a = get a and i = get i in
-    [%expr let [%p i.p] = Ctypes.allocate [%e ex var L.(t//"opt")] None in
+    let name = Inspect.prefix
+        (fun ?(par=[]) x -> qualify par @@ varname L.(x//"opt"))
+        types t in
+    [%expr let [%p i.p] = Ctypes.allocate
+               [%e ident name]
+               None in
       let [%p a.p] = Option.None in [%e body]
     ]
   | Array_f { array=a, elt; index=i, size } ->
@@ -188,9 +207,11 @@ let allocate_field types fields vars f body  =
       | None, _ | _, None -> body
       | Some (e,_), Some(s,_) ->
         let alloc_size = C.wrap_opt size @@ allocate_n
-            (Ast__type.converter ~degraded:true s) [%expr 1]
-        and alloc_elt = nullptr_typ (Ast__type.converter ~degraded:true e) in
-        [%expr let [%p a.p] = [%e alloc_elt] and [%p i.p] = [%e alloc_size] in
+            (Ast__type.converter types ~degraded:true s) [%expr 1]
+        and alloc_elt = nullptr_typ
+            (Ast__type.converter types ~degraded:true e) in
+        [%expr let [%p a.p] = [%e alloc_elt]
+          and [%p i.p] = [%e alloc_size] in
           body
         ]
     end
@@ -200,13 +221,14 @@ let allocate_field types fields vars f body  =
    first the index parameter is allocated,
    then the function is applied and fills the actual value of the
    index parameter, which enable us to allocate the output array *)
-let secondary_allocate_field vars f body = match f.Ty.field with
+let secondary_allocate_field types vars f body = match f.Ty.field with
   | Array_f { array = a, tya; index = i, it  } ->
     let a = M.find (varname a) vars and i = M.find (varname i) vars in
-    let size = Ast__structured.int_of_ty i.e it in
+    let size = Ast__structured.int_of_ty types i.e it in
     begin match ptr_to_name tya with
       | Some (Option elt, _ ) ->
-        let alloc = allocate_n (Ast__type.converter ~degraded:true elt) size in
+        let alloc = allocate_n
+            (Ast__type.converter types ~degraded:true elt) size in
         [%expr let [%p a.p] = [%e C.wrap_opt tya @@ alloc] in [%e body] ]
       | Some _ | None -> assert false end
   | _ -> body
@@ -219,12 +241,12 @@ let extract_opt input output nullptr map body =
   ]
 
 let len' x = [%expr Ctypes.CArray.length [%e x] ]
-let len ty x = Ast__structured.ty_of_int ty @@ len' x
+let len types ty x = Ast__structured.ty_of_int types ty @@ len' x
 
 let start = Ast__structured.start
-let extract_array input (ty,index) array body =
+let extract_array ctx input (ty,index) array body =
   [%expr
-    let [%p index] = [%e len ty input] in
+    let [%p index] = [%e len ctx ty input] in
     let [%p array] = [%e start input] in
     [%e body]
   ]
@@ -234,16 +256,16 @@ let (<*>) x y =
 
 let nullptr = Ast__structured.nullptr
 
-let input_expand vars f body = match f with
+let input_expand types vars f body = match f with
   | Ty.Array_f { array= (a, tya ) ; index = (i, ty )  } as f ->
     let a = M.find (varname a) vars and i = M.find (varname i) vars in
     if Inspect.is_option_f f then
       let extract_array input =
-        [%expr [%e len ty input], [%e start input]] in
+        [%expr [%e len types ty input], [%e start input]] in
       extract_opt a.e ( i <*> a )
-        (nullptr tya) extract_array body
+        (nullptr types tya) extract_array body
     else
-      extract_array a.e (ty,i.p) a.p body
+      extract_array types a.e (ty,i.p) a.p body
   | Simple(f, Array(Some Path _, ty)) ->
     let f = M.find (varname f) vars in
     if Inspect.is_option ty then
@@ -259,6 +281,8 @@ let input_expand vars f body = match f with
   | _ -> body
 
 let tuple l = Exp.tuple l
+let unwrap x = [%expr Vk__helpers.unwrap [%e x] ]
+
 
 let ty_of_int = Ast__structured.ty_of_int
 let int_of_ty = Ast__structured.int_of_ty
@@ -267,14 +291,14 @@ let to_output types vars f =
   let get x = ex (M.find @@ varname x) vars in
   match f.Ty.field with
   | Ty.Array_f { array = (n, Ty.Option _) ; index = i , it } ->
-    from_ptr [%expr unwrap [%e get n]] (int_of_ty (get i) it)
+    from_ptr (unwrap @@ get n) (int_of_ty types (get i) it)
   | Ty.Array_f { array = (n,_) ; _ } -> get n
   | Simple(f, Array(Some(Path _), Name _ )) ->
     from_ptr (get f)
       (ex (M.find @@ varname @@ C.index_name f) vars)
   | Simple(n, Name t)  when Inspect.is_record types t ->  get n
   | Simple(n, Ptr Option _) ->
-    [%expr unwrap (Ctypes.(!@) [%e get n]) ]
+    unwrap [%expr (Ctypes.(!@) [%e get n]) ]
   | Simple(n, _) -> [%expr Ctypes.(!@) [%e get n] ]
   | Record_extension _ ->
     C.not_implemented "Record extension used as a function argument"
@@ -352,6 +376,9 @@ let return_type types outputs return =
       | l -> H.Typ.tuple ( return :: List.map mkty l)
     end
 
+let raw ctx = if Inspect.in_extension ctx then
+    ~:"Raw" else ~:"Vk__raw"
+
 let make_native types (fn:Ty.fn)=
   reset_uid ();
   let rargs = regularize_fields types fn.args in
@@ -359,7 +386,8 @@ let make_native types (fn:Ty.fn)=
   let input, output =
     List.partition (fun r -> r.Ty.dir = In || r.dir = In_Out) rargs in
   let apply_twice = List.exists
-      (function { Ty.field = Array_f _ ; _ } -> true | _ -> false) output in
+      (function { Ty.field = Array_f _ ; _ } -> true | _ -> false)
+      output in
   let tyret = fn.return in
   let input' = Inspect.to_fields input in
   let all = Inspect.to_fields fn.args in
@@ -368,10 +396,19 @@ let make_native types (fn:Ty.fn)=
   item [
   (fun x -> [%stri let [%p pat var fn.name] = [%e x] ]) @@
   fun' @@
-  fold (input_expand vars) input' @@
+  fold (input_expand types vars) input' @@
   fold (allocate_field types input' vars) output @@
-  let apply = apply_regular ~attrs:[info "make_native"]
-      types (ex var fn.name) vars all in
+
+  let apply =
+    (apply_regular ~attrs:[info "make_native"]
+      types (ident @@ qualify [raw types] @@ varname fn.name)
+      vars all
+      <?>
+      "Ast__fn.apply: context:[%a]/%a in extension %B" )
+      (Fmt.list L.full_pp) (types.B.current)
+      L.pp_module (raw types)
+      (Inspect.in_extension types)
+  in
   let res =
     if Inspect.is_void tyret then
       Ast__utils.any
@@ -379,7 +416,7 @@ let make_native types (fn:Ty.fn)=
   let result =
     let outs = List.map (to_output types vars) output in
     [%expr let [%p res.p] = [%e apply] in [%e join tyret res.e outs] ] in
-  let secondary = fold (secondary_allocate_field vars) output in
+  let secondary = fold (secondary_allocate_field types vars) output in
   if not apply_twice then
     result
   else if Inspect.is_result fn.return then

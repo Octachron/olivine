@@ -1,8 +1,6 @@
 module B = Lib_builder
-module T = B.T
 module Ty = B.Ty
 module L = Name_study
-module Arith = B.Arith
 module I = Ast__item
 module U = Ast__utils
 
@@ -35,20 +33,15 @@ let print side f ppf x =
   | Sig -> I.(sg f ppf @@ sg x)
 
 
-type context =
-  { builtins: B.Name_set.t;
-    results: int Ast__result.M.t;
-    types: B.item list
-  }
 
-let type_to_ast {builtins;results;types} (name,ty) =
+let type_to_ast ctx (name,ty) =
   match ty with
   | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> I.nil
   | Result {ok;bad} ->
-    Ast__result.make results (name,ok,bad)
-  | Name t -> Ast__misc.alias builtins (name,t)
-  | FunPtr fn -> Ast__funptr.make types (name,fn)
-  | Union fields -> Ast__structured.make types Union (name,fields)
+    Ast__result.make ctx (name,ok,bad)
+  | Name t -> Ast__misc.alias ctx (name,t)
+  | FunPtr fn -> Ast__funptr.make ctx (name,fn)
+  | Union fields -> Ast__structured.make ctx Union (name,fields)
   | Bitset { field_type = Some _; _ } -> I.nil
   | Bitset { field_type = None; _ } -> Ast__bitset.make (name,None)
   | Bitfields {fields;values} ->
@@ -63,7 +56,7 @@ let type_to_ast {builtins;results;types} (name,ty) =
       end
     else I.nil
   | Record r ->
-    Ast__structured.make types Record (name,r.fields)
+    Ast__structured.make ctx Record (name,r.fields)
   | Record_extensions _ -> (* FIXME *)
     assert false
 
@@ -77,25 +70,26 @@ let pp_open ppf m =
 let space ppf () = Fmt.pf ppf "@;"
 *)
 
-let rec item_to_ast (lib:B.lib) item =
+let rec item_to_ast current (lib:B.lib) item =
   let types = match B.find_module B.types lib.content.sig' with
     | Some m -> m.sig'
     | None -> raise (Invalid_argument "Printers.pp_item: Missing type module") in
-  let ctx = { builtins = lib.builtins; results = lib.result; types } in
+  let ctx = B.context ~builtins:lib.builtins
+      ~results:lib.result current types in
   I.rev @@ match item with
   | B.Type (name,t) ->
     type_to_ast ctx (name,t)
   | Const (name,c) -> Ast__misc.Const.make (name,c)
-  | Fn f -> Ast__fn.make types f.implementation f.fn
+  | Fn f -> Ast__fn.make ctx f.implementation f.fn
   | Ast s -> s
-  | Module m -> module_to_ast lib m
-and module_to_ast lib (m:B.module') =
+  | Module m -> module_to_ast current lib m
+and module_to_ast path lib (m:B.module') =
   let s x = [x] in
   I.fmap (item s s)
   @@ U.module' m.name
   @@ List.fold_left (fun sig' (name,mty) -> U.functor' name mty sig' )
   (U.structure
-   @@ I.fold_map (item_to_ast lib) m.sig')
+   @@ I.fold_map (item_to_ast (m.name::path) lib) m.sig')
   m.args
 
 let atlas ppf modules =
@@ -128,8 +122,10 @@ let lib (lib:B.lib) =
       begin
         let filename = Fmt.strf "vk__%a" L.pp_var m.name in
         let ppfs = open_files filename in
-        let ast = I.( lib.preambule @*
-                      I.fold_map (item_to_ast lib) m.sig') in
+        let ast =
+          I.( lib.preambule @*
+              I.fold_map (item_to_ast [m.name] lib) m.sig')
+        in
         print Str pps (str ppfs) ast;
         print Sig pps (sg ppfs) ast;
         Format.pp_flush_formatter (str ppfs);

@@ -2,9 +2,6 @@ module L = Name_study
 type path = L.name list
 module I = Ast__item
 module U = Ast__utils
-module H = Ast_helper
-
-
 
 type ast_item = (Parsetree.structure, Parsetree.signature) I.item
 module Deps = Set.Make(struct type t = path let compare = compare end)
@@ -18,7 +15,9 @@ module Full_name = struct
   let pp ppf x = L.pp_var ppf x
 end
 module Ty = Retype.Typexpr(Full_name)
-module Name_set = Set.Make(struct type t = L.name let compare = compare end)
+module LOrd = struct type t = L.name let compare = compare end
+module Name_set = Set.Make(LOrd)
+module Name_map = Map.Make(LOrd)
 
 type 'a with_deps = { x:'a; deps: Deps.t }
 
@@ -76,15 +75,35 @@ type lib = {
   builtins: Name_set.t
 }
 
+type context = {
+  types: type' Name_map.t;
+  current: L.name list;
+  builtins: Name_set.t;
+  results: int Result.Map.t;
+}
+
+type kind = Typedef | Builtin | Result | Prim
+
+
 let make ?(args=[]) ?(sig'=[]) path name =
   { name; path; sig'; args }
 
 
-let rec find_type name = function
-  | [] -> None
-  | Type(n,t) :: _ when n = name -> Some t
-  | _ :: q -> find_type name q
+let find_type name {types; _ } =
+  Name_map.find_opt name types
 
+let context
+    ?(builtins=Name_set.empty)
+    ?(results=Result.Map.empty) current items =
+  { current; builtins; results;
+    types =
+      List.fold_left
+        (fun map -> function
+           | Type (n,ty) -> Name_map.add n ty map
+           | _  -> map
+        )
+        Name_map.empty items
+  }
 
 let rec find_module name = function
   | [] -> None
@@ -103,7 +122,8 @@ let item_name = function
 let update_assoc key default f items =
   let rec search l =
   function
-  | Module m :: q when m.name = key -> Some ( List.rev_append l @@ Module(f m) :: q )
+  | Module m :: q when m.name = key ->
+    Some ( List.rev_append l @@ Module(f m) :: q )
   | a :: q -> search (a :: l) q
   | [] -> None in
   match search [] items with
@@ -129,7 +149,10 @@ let add path item module' =
     | w :: q ->
       { module' with
         sig' =
-          update_assoc w (make prefix w) (add (w::prefix) q) module'.sig'
+          update_assoc w
+            (make prefix w)
+            (add (w::prefix) q)
+            module'.sig'
       } in
   add [] path module'
 
@@ -355,10 +378,9 @@ let opens x = I.imap open' x
 let ast x = Ast x
 
 let core_submodules =
-  let raw_open = ["const"; "types"; "subresult"] in
   List.map (fun m -> Module m)
-    [make ~sig':[ast @@ opens @@ raw_open @ ["raw"]] [vk] core;
-     make ~sig':[ast @@ opens raw_open] [vk] raw;
+    [make [vk] core;
+     make [vk] raw;
      make [vk] subresult]
 
 
@@ -390,6 +412,7 @@ let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
       end;*)
     let core, rest = take_module core m.sig' in
     let subresult, rest = take_module subresult rest in
+    if core.sig' = [] then Module { m with sig' = core.sig' } :: l else
     Module { m with sig' =
                       core.sig'
                       @ Ast (I.item [%str open Raw] [])
@@ -418,7 +441,9 @@ let filter_extension dict registry name0 =
   | Const _ -> true
 
 let builtins dict =
-  Name_set.of_list @@ List.map (L.make dict) ["vkBool32"]
+  Name_set.of_list @@ List.map (L.make dict)
+    ["vkBool32";"uint_32_t"; "void"; "int_32_t"; "uint_64_t";
+    "int_64_t"; "size_t"]
 
 (*
 let find_submodule name lib =

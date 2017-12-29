@@ -4,7 +4,13 @@ module Aliases= struct
   module Ty = Lib_builder.Ty
 end
 open Aliases
+module U=Ast__utils
 
+let in_types ctx = [U.type_module] = ctx.B.current
+
+let in_extension ctx =
+  let t x = ctx.B.current = [L.simple x] in
+  not @@ (t ["core"] || t ["raw"])
 
 let is_result_name x = L.to_path x = ["result"]
 let is_option_f = function
@@ -22,6 +28,47 @@ let is_char = function
   | Ty.Name t -> L.to_path t = ["char"]
   | _ -> false
 
+
+let is_result = function
+  | B.Ty.Result _ -> true
+  | _ -> false
+
+
+let typeclass name (ctx:B.context) =
+  let rec root name = match name.L.postfix with
+    | "opt" :: postfix -> root { name with postfix }
+    | _ -> name in
+  let name = root name in
+  if B.Result.Map.mem name ctx.results then B.Result else
+    match B.find_type name ctx,
+          B.Name_set.mem name ctx.builtins
+    with
+    | Some _, _ -> B.Typedef
+    | None, true -> B.Builtin
+    | None, false -> B.Prim
+
+
+let vk_prefix ctx name =
+  if in_extension ctx then
+    name
+  else
+    "Vk__" ^ name
+
+let prefix ?root tyvar ?(par=[]) ctx name =
+  let rootname = match root with
+    | None -> name
+    | Some x -> x in
+  match typeclass rootname ctx with
+  | B.Typedef when not (in_types ctx) ->
+    tyvar ?par:(Some(L.simple ["Vk__types"]::par)) name
+  | B.Builtin ->
+    tyvar
+      ?par:(Some(L.simple ["Builtin_types"] :: par)) name
+  | B.Result ->
+    tyvar
+      ?par:(Some(L.simple [vk_prefix ctx "subresult"]::par)) name
+  | B.Prim | Typedef ->
+     tyvar ?par:(Some par) name
 
 let is_ptr_option = function
   | Ty.Ptr Option _ -> true
@@ -53,8 +100,15 @@ let rec find_field_type name = function
   | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
   | _ :: q -> find_field_type name q
 
-let find_record tn types =
-  match B.find_type tn types with
+let typeclass name ctx =
+  match B.find_type name ctx, B.Name_set.mem name ctx.builtins
+  with
+  | Some t, _ -> if is_result t then B.Result else B.Typedef
+  | None, true -> B.Builtin
+  | None, false -> B.Prim
+
+let find_record tn ctx =
+  match B.find_type tn ctx with
   | Some Ty.Record{ fields; _ } -> fields
   | Some ty ->
     Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
@@ -68,7 +122,7 @@ let is_record types tn =
   | _ -> false
 
 let type_path types fields p =
-  let rec type_path (types) acc (ty, fields) = function
+  let rec type_path types acc (ty, fields) = function
     | [] -> acc
     | a :: q ->
       match find_field_type a fields with
@@ -78,7 +132,8 @@ let type_path types fields p =
           | _ :: _ ->
             let direct = match tyo with Name _ -> true | _ -> false in
             let fields = find_record tn types in
-            type_path types ((ty,tyo,a) :: acc) (Some (direct,tn),fields) q
+            type_path types ((ty,tyo,a) :: acc)
+              (Some (direct,tn),fields) q
         end
       | Some ty ->
         (None,ty,a) :: acc
