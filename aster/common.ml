@@ -21,7 +21,7 @@ let ptr x = [%expr Ctypes.ptr [%e x] ]
 let ptr_opt x = [%expr Ctypes.ptr_opt [%e x] ]
 let void = [%expr Ctypes.void]
 let addr x = [%expr Ctypes.addr [%e x] ]
-let (!@) x = [%expr !@[%e x]]
+let (!@) x = [%expr Ctypes.(!@) [%e x]]
 
 let views ?(f=fun x ->x) name =
   let n = var name and no = L.(name//"opt") in
