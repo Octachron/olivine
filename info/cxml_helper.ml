@@ -1,4 +1,4 @@
-open Parser
+open Cxml_parser
 
 module Pp = struct
   let fp ppf = Format.fprintf ppf
@@ -85,6 +85,6 @@ let pp ppf = let open Pp in
  | UNION -> keyword ppf "UNION"
 
 let rec pp_lex ppf lex =
-  match Lexer.start lex with
+  match Cxml_lexer.start lex with
   | EOF -> ()
   | t -> Pp.fp ppf "%a " pp t; pp_lex ppf lex

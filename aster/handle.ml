@@ -1,6 +1,6 @@
-open Ast__item
-open Ast__utils
-open Ast__common
+open Item
+open Utils
+open Common
 
 let make ~dispatchable name =
     if dispatchable then

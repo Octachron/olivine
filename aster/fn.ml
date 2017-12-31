@@ -1,18 +1,17 @@
 
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
-  module Ty = Lib_builder.Ty
+  module L = Info.Linguistic
+  module B = Lib
+  module Ty = B.Ty
   module H = Ast_helper
   module Exp = H.Exp
   module P = Parsetree
-  module Inspect = Ast__inspect
-  module C = Ast__common
-  module M = Enkindler_common.StringMap
+  module C = Common
+  module M = Info.Common.StringMap
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 (*   let debug fmt = Fmt.epr ( "Debug:"^^ fmt ^^ "@.%!") *)
 
@@ -66,19 +65,19 @@ let annotate fmt =
     fmt
 
 let arg_types (fn:Ty.fn) =
-  Ast__funptr.expand @@ List.map snd @@ Ty.flatten_fn_fields fn.args
+  Funptr.expand @@ List.map snd @@ Ty.flatten_fn_fields fn.args
 
 let foreign types fn =
   let args = arg_types fn in
   [%expr foreign [%e string fn.original_name] [%e
-      Ast__funptr.mkty types args fn.return]]
+      Funptr.mkty types args fn.return]]
 
 let make_simple types (f:Ty.fn) =
   item
     [[%stri let [%p (var f.name).p] = [%e foreign types f] ]]
-    [val' f.name @@ Ast__type.fn ~decay_array:All types
+    [val' f.name @@ Type.fn ~decay_array:All types
        f.name (List.map (fun ty -> Ty.Simple ty) @@ Ty.flatten_fn_fields f.args)
-       (Ast__type.mk ~raw_type:true ~decay_array:All types f.return)]
+       (Type.mk ~raw_type:true ~decay_array:All types f.return)]
 
 let apply_gen ?attrs get name vars args =
   let get f = Asttypes.Nolabel, get vars f in
@@ -120,20 +119,20 @@ let make_regular types fn =
           fe @@ apply_regular types f.e vars args
         end
     ]
-    [val' fn.name @@ Ast__type.fn types
+    [val' fn.name @@ Type.fn types
        ~regular_struct:true
        fn.name (List.map (fun ty -> Ty.Simple ty) @@ Ty.flatten_fields args)
-       (Ast__type.mk types ~regular_struct:true fn.return)
+       (Type.mk types ~regular_struct:true fn.return)
     ]
 
 let make_labelled types m fn =
   let args = Inspect.to_fields fn.Ty.args in
-  let k, vars = Ast__structured.mkfun args in
+  let k, vars = Structured.mkfun args in
   item
     [%stri let make =
              [%e k @@ apply (ident @@ qn m @@ varname fn.name) vars args]
     ]
-    [val' fn.name @@ Ast__type.fn2 types ~regular_struct:true ~with_label:true fn]
+    [val' fn.name @@ Type.fn2 types ~regular_struct:true ~with_label:true fn]
 
 
 module Option = struct
@@ -167,7 +166,7 @@ let allocate_field types fields vars f body  =
     let array = get f in
     let size =  get @@ C.index_name f in
     let n =
-      Ast__structured.array_index ~conv:false types (ex get)
+      Structured.array_index ~conv:false types (ex get)
         fields p in
     [%expr let [%p size.p] = [%e n ] in
       let [%p array.p ] =
@@ -181,14 +180,14 @@ let allocate_field types fields vars f body  =
   | Simple(f, Name t) when Inspect.is_record types t ->
     let f = get f in
     [%expr let [%p f.p ] =
-             [%e Ast__structured.unsafe_make types  t] in [%e body] ]
+             [%e Structured.unsafe_make types  t] in [%e body] ]
   | Simple (f,t) ->
     begin let f = get f in
       match ptr_to_name t with
       | None -> body
       | Some (ty,_) ->
         let alloc = C.wrap_opt t @@ allocate_n
-            (Ast__type.converter types true ty) [%expr 1] in
+            (Type.converter types true ty) [%expr 1] in
         [%expr let [%p f.p] = [%e alloc] in [%e body] ]
     end
   | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
@@ -207,9 +206,9 @@ let allocate_field types fields vars f body  =
       | None, _ | _, None -> body
       | Some (e,_), Some(s,_) ->
         let alloc_size = C.wrap_opt size @@ allocate_n
-            (Ast__type.converter types ~degraded:true s) [%expr 1]
+            (Type.converter types ~degraded:true s) [%expr 1]
         and alloc_elt = nullptr_typ
-            (Ast__type.converter types ~degraded:true e) in
+            (Type.converter types ~degraded:true e) in
         [%expr let [%p a.p] = [%e alloc_elt]
           and [%p i.p] = [%e alloc_size] in
           body
@@ -224,11 +223,11 @@ let allocate_field types fields vars f body  =
 let secondary_allocate_field types vars f body = match f.Ty.field with
   | Array_f { array = a, tya; index = i, it  } ->
     let a = M.find (varname a) vars and i = M.find (varname i) vars in
-    let size = Ast__structured.int_of_ty types i.e it in
+    let size = Structured.int_of_ty types i.e it in
     begin match ptr_to_name tya with
       | Some (Option elt, _ ) ->
         let alloc = allocate_n
-            (Ast__type.converter types ~degraded:true elt) size in
+            (Type.converter types ~degraded:true elt) size in
         [%expr let [%p a.p] = [%e C.wrap_opt tya @@ alloc] in [%e body] ]
       | Some _ | None -> assert false end
   | _ -> body
@@ -241,9 +240,9 @@ let extract_opt input output nullptr map body =
   ]
 
 let len' x = [%expr Ctypes.CArray.length [%e x] ]
-let len types ty x = Ast__structured.ty_of_int types ty @@ len' x
+let len types ty x = Structured.ty_of_int types ty @@ len' x
 
-let start = Ast__structured.start
+let start = Structured.start
 let extract_array ctx input (ty,index) array body =
   [%expr
     let [%p index] = [%e len ctx ty input] in
@@ -254,7 +253,7 @@ let extract_array ctx input (ty,index) array body =
 let (<*>) x y =
   { p = [%pat? [%p x.p], [%p y.p] ]; e = [%expr [%e x.e], [%e y.e] ] }
 
-let nullptr = Ast__structured.nullptr
+let nullptr = Structured.nullptr
 
 let input_expand types vars f body = match f with
   | Ty.Array_f { array= (a, tya ) ; index = (i, ty )  } as f ->
@@ -284,8 +283,8 @@ let tuple l = Exp.tuple l
 let unwrap x = [%expr Vk__helpers.unwrap [%e x] ]
 
 
-let ty_of_int = Ast__structured.ty_of_int
-let int_of_ty = Ast__structured.int_of_ty
+let ty_of_int = Structured.ty_of_int
+let int_of_ty = Structured.int_of_ty
 let from_ptr x y = [%expr Ctypes.CArray.from_ptr [%e x] [%e y] ]
 let to_output types vars f =
   let get x = ex (M.find @@ varname x) vars in
@@ -333,8 +332,8 @@ let look_out vars output = List.fold_left ( fun (l,vars) f ->
   ) ([], vars) output
 
 let result_part ok bad =
-  polyvariant_type ~order:Eq @@ List.map mkconstr ok,
-  polyvariant_type ~order:Eq @@ List.map mkconstr bad
+  polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) ok,
+  polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) bad
 
 
 let return_type types outputs return =
@@ -350,7 +349,7 @@ let return_type types outputs return =
     | ty -> Format.eprintf "Impossible type for output argument: %a@."
               Ty.pp_field ty;
       exit 2 in
-  let mkty ty = Ast__type.mk ~strip_option:true ~regular_struct:true types
+  let mkty ty = Type.mk ~strip_option:true ~regular_struct:true types
       (output_typ ty) in
   match return with
   | Ty.Result {ok;bad}  ->
@@ -369,7 +368,7 @@ let return_type types outputs return =
     end
   | _ ->
     let return = match return with Option ty -> ty | ty -> ty in
-    let return = Ast__type.mk ~regular_struct:true types return
+    let return = Type.mk ~regular_struct:true types return
                  <?:> "Direct return type" in
     begin match outputs with
       | [] -> return
@@ -391,7 +390,7 @@ let make_native types (fn:Ty.fn)=
   let tyret = fn.return in
   let input' = Inspect.to_fields input in
   let all = Inspect.to_fields fn.args in
-  let fun', vars = Ast__structured.mkfun input' in
+  let fun', vars = Structured.mkfun input' in
   let _, vars = look_out vars output in
   item [
   (fun x -> [%stri let [%p pat var fn.name] = [%e x] ]) @@
@@ -404,14 +403,14 @@ let make_native types (fn:Ty.fn)=
       types (ident @@ qualify [raw types] @@ varname fn.name)
       vars all
       <?>
-      "Ast__fn.apply: context:[%a]/%a in extension %B" )
+      "fn.apply: context:[%a]/%a in extension %B" )
       (Fmt.list L.full_pp) (types.B.current)
       L.pp_module (raw types)
       (Inspect.in_extension types)
   in
   let res =
     if Inspect.is_void tyret then
-      Ast__utils.any
+      Utils.any
     else unique "res" in
   let result =
     let outs = List.map (to_output types vars) output in
@@ -427,7 +426,7 @@ let make_native types (fn:Ty.fn)=
   else
     [%expr [%e apply]; [%e secondary result] ]
 ]
-    [val' fn.name @@ Ast__type.fn types ~regular_struct:true ~with_label:true
+    [val' fn.name @@ Type.fn types ~regular_struct:true ~with_label:true
        fn.name input' (return_type types (Inspect.to_fields output) tyret)]
 
 let make types = function

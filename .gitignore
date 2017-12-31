@@ -6,5 +6,5 @@ lib/*
 bin/*
 *.spv
 .*
-config/*
+econfig/*
 tmp/*

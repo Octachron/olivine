@@ -1,8 +1,8 @@
-module B = Lib_builder
+module B = Aster.Lib
 module Ty = B.Ty
-module L = Name_study
-module I = Ast__item
-module U = Ast__utils
+module L = Info.Linguistic
+module I = Aster.Item
+module U = Aster.Utils
 
 let is_bits name =
   match name.L.postfix with
@@ -38,25 +38,25 @@ let type_to_ast ctx (name,ty) =
   match ty with
   | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> I.nil
   | Result {ok;bad} ->
-    Ast__result.make ctx (name,ok,bad)
-  | Name t -> Ast__misc.alias ctx (name,t)
-  | FunPtr fn -> Ast__funptr.make ctx (name,fn)
-  | Union fields -> Ast__structured.make ctx Union (name,fields)
+    Aster.Result.make ctx (name,ok,bad)
+  | Name t -> Aster.Misc.alias ctx (name,t)
+  | FunPtr fn -> Aster.Funptr.make ctx (name,fn)
+  | Union fields -> Aster.Structured.make ctx Union (name,fields)
   | Bitset { field_type = Some _; _ } -> I.nil
-  | Bitset { field_type = None; _ } -> Ast__bitset.make (name,None)
+  | Bitset { field_type = None; _ } -> Aster.Bitset.make (name,None)
   | Bitfields {fields;values} ->
-    Ast__bitset.make_extended (name,(fields,values))
-  | Handle {dispatchable;_} ->  Ast__handle.make ~dispatchable name
+    Aster.Bitset.make_extended (name,(fields,values))
+  | Handle {dispatchable;_} ->  Aster.Handle.make ~dispatchable name
   | Enum constrs ->
     if not @@ is_bits name then
       begin
         let is_result = name.main = ["result"] in
-        let kind = if is_result then Ast__enum.Poly else Ast__enum.Std in
-        Ast__enum.make kind (name,constrs)
+        let kind = if is_result then Aster.Enum.Poly else Aster.Enum.Std in
+        Aster.Enum.make kind (name,constrs)
       end
     else I.nil
   | Record r ->
-    Ast__structured.make ctx Record (name,r.fields)
+    Aster.Structured.make ctx Record (name,r.fields)
   | Record_extensions _ -> (* FIXME *)
     assert false
 
@@ -79,8 +79,8 @@ let rec item_to_ast current (lib:B.lib) item =
   I.rev @@ match item with
   | B.Type (name,t) ->
     type_to_ast ctx (name,t)
-  | Const (name,c) -> Ast__misc.Const.make (name,c)
-  | Fn f -> Ast__fn.make ctx f.implementation f.fn
+  | Const (name,c) -> Aster.Misc.Const.make (name,c)
+  | Fn f -> Aster.Fn.make ctx f.implementation f.fn
   | Ast s -> s
   | Module m -> module_to_ast current lib m
 and module_to_ast path lib (m:B.module') =
@@ -128,8 +128,8 @@ let lib (lib:B.lib) =
         in
         print Str pps (str ppfs) ast;
         print Sig pps (sg ppfs) ast;
-        Format.pp_flush_formatter (str ppfs);
-        Format.pp_flush_formatter (sg ppfs);
+        Fmt.pf (str ppfs) "@.";
+        Fmt.pf (sg ppfs) "@.";
       end
     else Fmt.epr "Printing %a submodule@.%!" L.pp_var m.name
   in

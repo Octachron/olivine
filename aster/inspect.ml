@@ -1,10 +1,10 @@
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
-  module Ty = Lib_builder.Ty
+  module L = Info.Linguistic
+  module B = Lib
+  module Ty = B.Ty
 end
 open Aliases
-module U=Ast__utils
+module U=Utils
 
 let in_types ctx = [U.type_module] = ctx.B.current
 

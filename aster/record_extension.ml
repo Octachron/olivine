@@ -1,14 +1,14 @@
 module Aliases= struct
-  module L = Name_study
+  module L = Info.Linguistic
   module H = Ast_helper
   module Exp = H.Exp
   module Pat = H.Pat
   module P = Parsetree
-  module C = Ast__common
+  module C = Common
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 let stype = ident' "stype__generated"
 let pnext = ident' "pnext__generated"

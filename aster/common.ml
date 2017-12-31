@@ -1,11 +1,10 @@
 module Aliases = struct
-  module L = Name_study
+  module L = Info.Linguistic
   module H = Ast_helper
-  module Inspect = Ast__inspect
-  module Ty = Lib_builder.Ty
+  module Ty = Lib.Ty
 end open Aliases
-open Ast__utils
-open Ast__item
+open Utils
+open Item
 
 
 let not_implemented fmt =
@@ -42,7 +41,7 @@ let wrap_opt ty v =
   else
     v
 
-module M = Enkindler_common.StringMap
+module M = Info.Common.StringMap
 let id_maker () =
   let dict : int M.t ref = ref M.empty in
   let unique str =

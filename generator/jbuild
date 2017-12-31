@@ -1,0 +1,9 @@
+(jbuild_version 1)
+
+(executable (
+            (name libgen)
+            (public_name olivine)
+            (libraries (info aster))
+            (preprocess (pps (ppx_tools_versioned.metaquot_406)))
+            (flags (:standard -open Migrate_parsetree))
+) )

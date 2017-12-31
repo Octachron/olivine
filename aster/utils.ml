@@ -1,13 +1,13 @@
 
 module Aliases = struct
-  module L = Name_study
+  module L = Info.Linguistic
   module H = Ast_helper
   module Exp = H.Exp
   module Pat = H.Pat
   module P = Parsetree
 end
 open Aliases
-open Ast__item
+open Item
 
 
 let type_module = L.simple ["types"]
@@ -45,7 +45,8 @@ let ident x = Exp.ident (nloc x)
 let pvar s = Pat.var (nloc s)
 let ident' x = { p= pvar x; e = ident (lid x) }
 
-let mkconstr x = Fmt.strf "%a" L.pp_constr x
+let mkconstr x = (Fmt.strf "%a" L.pp_constr x)
+
 
 
 let (/) x s = Longident.( Ldot(x,s) )

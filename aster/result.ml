@@ -1,19 +1,19 @@
 
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
-  module T = Lib_builder.T
-  module I = Ast__inspect
+  module L = Info.Linguistic
+  module B = Lib
+  module T = B.T
+  module I = Inspect
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 
 let modname ctx = L.simple [I.vk_prefix ctx "subresult"]
 
   let expr ctx (ok,errors) =
-    tyvar ~par:[modname ctx] @@ Subresult.composite_nominal ok errors
+    tyvar ~par:[modname ctx] @@ Info.Subresult.composite_nominal ok errors
 
   module M = B.Result.Map
 
@@ -28,11 +28,11 @@ let modname ctx = L.simple [I.vk_prefix ctx "subresult"]
       raise Not_found
 
 let def name lbls = decltype name
-    ~manifest:(polyvariant_type ~order:Eq @@ List.map mkconstr lbls)
+    ~manifest:(polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) lbls)
 
 
 let side_type ~order x =
-  polyvariant_type ~order @@ List.map mkconstr x
+  polyvariant_type ~order @@ List.map (nloc % mkconstr) x
 
 let typ ok error =
   [%type:
@@ -44,14 +44,14 @@ let typ ok error =
     let constrs =
       List.map (fun name -> name, T.Abs (find name m)) lbls in
     module' name @@ structure @@
-    Ast__enum.( of_int (side_type ~order:Greater lbls) (Poly,name) constrs ^::
+    Enum.( of_int (side_type ~order:Greater lbls) (Poly,name) constrs ^::
            to_int (side_type ~order:Lesser lbls) (Poly,name) constrs ^:: nil
          )
 
   let make m (name,ok,error) = match ok, error with
     | [], x | x, [] -> (view m name x) ^:: nil
     | _ ->
-      let v, ok_name, error_name = let open Subresult in
+      let v, ok_name, error_name = let open Info.Subresult in
         (composite_nominal ok error), side_name ok, side_name error in
       let conv name = open' name [%expr of_int, to_int] in
       item

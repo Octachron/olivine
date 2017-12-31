@@ -1,5 +1,5 @@
 exception Type_error of string
-module N = Enkindler_common.StringMap
+module N = Common.StringMap
 module M = Xml.Map
 module T = Retype
 module Ty = Retype.Ty

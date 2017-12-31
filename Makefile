@@ -1,5 +1,6 @@
 CC=ocamlbuild
 CCO=$(CC) -use-ocamlfind -use-menhir
+DUNE=jbuilder build
 SPIR=glslangValidator -V
 
 
@@ -11,16 +12,20 @@ bin/triangle: vk.cmxa shaders/triangle/vert.spv shaders/triangle/frag.spv
 bin/tesseract: vk.cmxa shaders/tesseract/vert.spv shaders/tesseract/frag.spv
 	$(CCO) examples/$(notdir $@).native && mv $(notdir $@).native $@
 
-bin/infolivine:  _tags enkindler/*
-	$(CCO) $(notdir $@).native && mv $(notdir $@).native $@
+bin/infolivine:  info/*
+	$(DUNE) info/infolivine.exe && $(CCO) \
+	&& mv _build/default/info/$(notdir $@.exe) $@
 
-bin/libgen:  _tags enkindler/*
-	$(CCO) $(notdir $@).native && mv $(notdir $@).native $@
+bin/libgen:  generator/*
+	$(DUNE) generator/libgen.exe && $(CCO) \
+	&& mv _build/default/generator/$(notdir $@.exe) $@
 
-lib/vk.ml: _tags bin/libgen enkindler/*
+
+lib/vk.ml: bin/libgen spec/vk.xml
 	./bin/libgen spec/vk.xml lib
 
-vk.cmxa: _tags spec/vk.xml enkindler/*.ml lib_aux/* lib/vk.ml bin/libsdlvulkan.so
+vk.cmxa: _tags spec/vk.xml info/*.ml aster/*.ml generator/*.ml\
+	lib_aux/* lib/vk.ml
 	$(CCO) $@
 
 term: enkindler.cma

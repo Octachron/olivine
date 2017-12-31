@@ -1,21 +1,22 @@
-module Dict = Name_study.Dict
-module R = Name_study.M
-module S = Enkindler_common.StringSet
-module I = Ast__item
+module L = Info.Linguistic
+module Dict = L.Dict
+module R = L.M
+module S = Info.Common.StringSet
+module I = Aster.Item
 
 let read filename =
   let spec = open_in filename in
   let source = Xmlm.(make_input @@ `Channel spec) in
-  Typed.typecheck @@ Xml.normalize @@ snd @@ Xml.tree source
+  Info.Typed.typecheck @@ Info.Xml.normalize @@ snd @@ Info.Xml.tree source
 
 
 let add_word name dict =
-  let open Name_study in
+  let open L in
   { dict with words = Dict.add name dict.words }
 
 
 let add role name dict =
-  let open Name_study in
+  let open L in
   { dict with
     words = Dict.add name dict.words;
     roles = R.add (String.lowercase_ascii name) role dict.roles;
@@ -24,25 +25,25 @@ let add role name dict =
 let add_ext x exts =
   S.add (String.lowercase_ascii x) exts
 
-let vendor_tag (dict,out) (x:Typed.short_tag)=
+let vendor_tag (dict,out) (x:Info.Typed.short_tag)=
   ( add Extension x.name dict,
     add_ext x.name out)
 
 let empty =
-  let open Name_study in
+  let open L in
   { words = Dict.empty; roles = R.empty;
     context = { mu with prefix = ["vk"]} }
 
 let add_post x dict =
-  Name_study.{ dict with roles = R.add x Postfix dict.roles }
+  L.{ dict with roles = R.add x Postfix dict.roles }
 
 let add_pre x dict =
-  Name_study.{ dict with roles = R.add x Prefix dict.roles }
+  L.{ dict with roles = R.add x Prefix dict.roles }
 
 
 let make_dict spec =
   let dict, exts =
-    List.fold_left vendor_tag (empty,S.empty) spec.Typed.tags in
+    List.fold_left vendor_tag (empty,S.empty) spec.Info.Typed.tags in
   dict
   |> add Main "RandR"
   |> add Main "RR"
@@ -90,5 +91,5 @@ let () =
   let info = read Sys.argv.(1) in
   let dict, _exts = make_dict info in
   let root = Sys.argv.(2) in
-  let lib = Lib_builder.generate root preambule dict info in
-  Printers.lib lib
+  let lib = Aster.Lib.generate root preambule dict info in
+  Printer.lib lib

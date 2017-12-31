@@ -1,17 +1,17 @@
 
 module Aliases= struct
-  module L = Name_study
-  module Ty = Lib_builder.Ty
-  module C = Ast__common
+  module L = Info.Linguistic
+  module Ty = Lib.Ty
+  module C = Common
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 let mkty ctx args ret =
-  let ret  = Ast__type.converter ctx true ret in
+  let ret  = Type.converter ctx true ret in
   C.listr (fun l r -> [%expr[%e l] @-> [%e r] ])
-    (Ast__type.converter ctx ~degraded:true)
+    (Type.converter ctx ~degraded:true)
     args
     [%expr returning [%e ret]]
 
@@ -29,7 +29,7 @@ let make ctx (tyname, (fn:Ty.fn)) =
             [[%stri let [%p ty] = ptr void]]
             [val' tyname [%type: [%t typ] Ctypes.typ] ]
   | args ->
-    let t = Ast__type.fn2 ~decay_array:All ~mono:true ctx fn in
+    let t = Type.fn2 ~decay_array:All ~mono:true ctx fn in
 
     decltype ~manifest:t (typestr fn.name)
     ^:: item

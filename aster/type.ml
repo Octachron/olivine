@@ -1,13 +1,12 @@
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
-  module Ty = Lib_builder.Ty
+  module L = Info.Linguistic
+  module B = Lib
+  module Ty = B.Ty
   module H = Ast_helper
-  module Inspect = Ast__inspect
-  module C = Ast__common
+  module C = Common
 end
 open Aliases
-open Ast__utils
+open Utils
 
 
 let typ ?par = Inspect.prefix typ ?par
@@ -41,7 +40,7 @@ let rec converter types ~degraded x =
   | Handle _  ->
     failwith "Anonymous type"
   | Result {ok;bad} ->
-    Ast__result.expr types (ok,bad)
+    Result.expr types (ok,bad)
   | Record_extensions _ -> [%expr ptr void]
   (* ^FIXME^?: better typing? *)
   | FunPtr _ ->
@@ -73,7 +72,7 @@ let rec mk
     begin match B.find_type n types with
       | None -> t
       | Some Ty.Bitfields _ ->
-        let par = pre @ [Ast__bitset.set_name n] in
+        let par = pre @ [Bitset.set_name n] in
         typ ~par ~:"index"
       | Some Bitset _ ->
         if mono then
@@ -102,8 +101,8 @@ let rec mk
   | Array (_, ty) ->
     [%type: [%t mk ty] Ctypes.CArray.t ]
   | Result {ok;bad} ->
-    let ok = polyvariant_type ~order:Eq @@ List.map mkconstr ok in
-    let bad = polyvariant_type ~order:Eq @@ List.map mkconstr bad in
+    let ok = polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) ok in
+    let bad = polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) bad in
     [%type: ([%t ok], [%t  bad]) Pervasives.result ]
   | Record_extensions _ -> [%type: unit Ctypes.ptr ]
   (* ^FIXME^?: better typing? *)
@@ -135,7 +134,7 @@ let fn types
       label n f , mkty ty
     | Record_extension _ ->
       label ~:"ext" f ,
-      typ types (Ast__record_extension.name fname)
+      typ types (Record_extension.name fname)
   in
   let ret =
     if List.exists Inspect.is_option_f fields && with_label then
@@ -150,4 +149,4 @@ let fn types
 let fn2 types ?(decay_array=None) ?(regular_struct=false) ?(mono=true)
     ?(with_label=false) (f:Ty.fn) =
   fn types  ~decay_array ~regular_struct ~mono ~with_label f.name
-    (Ast__inspect.to_fields f.args) (mk types f.return)
+    (Inspect.to_fields f.args) (mk types f.return)

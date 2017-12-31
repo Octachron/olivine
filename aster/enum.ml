@@ -1,20 +1,19 @@
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
-  module Ty = Lib_builder.Ty
-  module T = Lib_builder.T
+  module L = Info.Linguistic
+  module B = Lib
+  module Ty = B.Ty
+  module T = B.T
 
 
   module H = Ast_helper
   module Exp = H.Exp
   module Pat = H.Pat
   module P = Parsetree
-  module Inspect = Ast__inspect
-  module C = Ast__common
+  module C = Common
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 type implementation = Std | Poly
 
@@ -30,7 +29,7 @@ let def_std name constrs =
 
 let def_poly name constrs =
   let constr c = constr (Poly,name) c in
-  polyvariant (nloc "t") @@ List.map constr constrs
+  polyvariant (nloc "t") @@ List.map (fun x -> nloc (constr x)) constrs
 
 let def (impl,name) = match impl with
   | Std -> def_std name

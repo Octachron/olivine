@@ -1,7 +1,7 @@
 let fp = Format.fprintf
 let stdout = Format.std_formatter
 
-module N = Enkindler_common.StringMap
+module N = Common.StringMap
 
 let read filename =
   let spec = open_in filename in

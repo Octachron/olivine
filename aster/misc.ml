@@ -1,14 +1,14 @@
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
+  module L = Info.Linguistic
+  module B = Lib
   module H = Ast_helper
   module Exp = H.Exp
   module P = Parsetree
-  module C = Ast__common
+  module C = Common
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
@@ -17,7 +17,8 @@ let alias {B.builtins;_} (name,origin) =
     let sign =
       let constraint' =
         H.Type.mk ~manifest:(typ ~par:[origin] ~:"t") (nloc "x") in
-      H.Mty.(with_ (ident @@ nlid "alias") [P.Pwith_typesubst constraint'] ) in
+      H.Mty.(with_ (ident @@ nlid "alias")
+               [P.Pwith_typesubst (nloc (Longident.Lident "x"), constraint')] ) in
     let t = typ ~par:[name] ~:"t" in
     ( module' name @@
       item

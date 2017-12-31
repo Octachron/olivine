@@ -1,0 +1,23 @@
+name: "olivine"
+version:"0.1"
+opam-version: "1.2"
+maintainer: "octa@polychoron.fr"
+authors: "octa@polychoron.fr"
+dev-repo: "git+https://github.com/Octachron/olivine"
+homepage: "https://github.com/Octachron/olivine"
+bug-reports: "https://github.com/Octachron/olivine/issues"
+
+build:[
+ ["jbuilder" "build" "-p" name "-j" jobs]
+]
+
+
+depends: [
+  "jbuilder" {build}
+  "ppx-tools-versioned"
+  "ocaml-migrate-parsetree"
+  "xmlm"
+  "fmt"
+  "menhir" {build}
+  "ctypes-foreign"
+  ]

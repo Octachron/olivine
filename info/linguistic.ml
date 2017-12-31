@@ -160,7 +160,7 @@ let rec clean = function
   | p -> p
 
 
-module M = Enkindler_common.StringMap
+module M = Common.StringMap
 type dict = { words:Dict.t; roles: role M.t; context:name }
 
 let compose x y = { prefix = x.prefix @ y.prefix;
@@ -330,27 +330,25 @@ let pp_type ppf p =
 
 let pp_var ppf = pp_type ppf
 
-module N = Enkindler_common.StringMap
-
 type nametree =
   | Obj of Typed.entity
-  | Node of (int * nametree N.t)
+  | Node of (int * nametree M.t)
 
 let locate dict name obj nametree =
   let path = path dict name in
   let rec locate nametree = function
     | [] -> assert false
-    | [a] -> N.add a (Obj obj) nametree
+    | [a] -> M.add a (Obj obj) nametree
     | a :: (_ :: _  as q) ->
         let subtree =
-          match N.find a nametree with
+          match M.find a nametree with
           | sm -> sm
-          | exception Not_found -> Node(0, N.empty) in
+          | exception Not_found -> Node(0, M.empty) in
         let n, sm =
           match subtree with
-          | Obj _ -> 0, N.empty
+          | Obj _ -> 0, M.empty
           | Node (n, sm)  -> n, sm in
-            N.add a (Node(n + 1, locate sm q)) nametree
+            M.add a (Node(n + 1, locate sm q)) nametree
   in
   locate nametree path
 
@@ -360,15 +358,15 @@ let cardinal = function
   | Node (n, _ ) -> n
 
 let nametree dict x =
-  let m = N.fold (locate dict) x N.empty in
-  let c = N.fold (fun _ c s -> s + cardinal c ) m 0 in
+  let m = M.fold (locate dict) x M.empty in
+  let c = M.fold (fun _ c s -> s + cardinal c ) m 0 in
   Node(c,m)
 
 
 let rec pp_nametree ppf = function
   | Obj _ -> ()
   | Node (_,m) ->
-    let bs = List.filter (fun (_n,m) -> cardinal m > 5 ) (N.bindings m)
+    let bs = List.filter (fun (_n,m) -> cardinal m > 5 ) (M.bindings m)
     in
     Fmt.pf ppf "@[<v 2>%a@]"
       (Retype.Ty.pp_list (Retype.Ty.const "@;") pp_branch) bs
@@ -378,11 +376,11 @@ and pp_branch ppf (name, m) =
 
 let count_names dict e =
   let add_name m n =
-    let count = try 1 + N.find n m with Not_found -> 1 in
-    N.add n count m in
+    let count = try 1 + M.find n m with Not_found -> 1 in
+    M.add n count m in
   let add_names k _ m =
     List.fold_left add_name m (path dict k) in
-  N.fold add_names e N.empty
+  M.fold add_names e M.empty
 
 let (//) x s = { x with postfix = s :: x.postfix }
 let (++) s x = { x with prefix = s :: x.prefix }

@@ -1,17 +1,16 @@
 module Aliases= struct
-  module L = Name_study
-  module B = Lib_builder
-  module Ty = Lib_builder.Ty
-  module T = Lib_builder.T
+  module L = Info.Linguistic
+  module B = Lib
+  module Ty = B.Ty
+  module T = B.T
   module H = Ast_helper
   module Exp = H.Exp
-  module Inspect = Ast__inspect
-  module C = Ast__common
-  module M = Enkindler_common.StringMap
+  module C = Common
+  module M = Info.Common.StringMap
 end
 open Aliases
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 let unique, reset_uid = C.id_maker ()
 
@@ -79,8 +78,8 @@ let sfield types (name,t) =
   (* Note: we could try to simplify further field names,
      but they happen to be quite short in practice *)
   let str = varname name and
-  conv = Ast__type.converter types false t in
-  let ty = Ast__type.mk ~raw_type:true ~decay_array:Dyn_array types t in
+  conv = Type.converter types false t in
+  let ty = Type.mk ~raw_type:true ~decay_array:Dyn_array types t in
   item
     [%stri let [%p pat var name] = field t [%e string str] [%e conv] ]
     (val' name [%type: ([%t ty] , t) Ctypes.field])
@@ -169,7 +168,7 @@ let array_index ?(conv=true) ctx get_field fields = function
           int_of_path ~conv ctx get_field pty)
         vars in
     let n = tuple.p @@ (List.map (fun x -> pat var x) vars) in
-    [%expr let [%p n] = [%e v] in [%e Ast__math.expr m] ]
+    [%expr let [%p n] = [%e v] in [%e Math.expr m] ]
   | _ -> assert false
 
 
@@ -187,14 +186,14 @@ let union types (n,ty) =
       let [%p r.p] = Ctypes.make t in
       [%e setf r.e (varname n) u.e ]; [%e r.e]
   ]
-    (val' n [%type: [%t Ast__type.mk types ty] -> t ])
+    (val' n [%type: [%t Type.mk types ty] -> t ])
 
 let type_field types typename = function
-  | Ty.Simple(_,ty) -> Ast__type.mk types ty
+  | Ty.Simple(_,ty) -> Type.mk types ty
   | Array_f { array = _, ty; index = _, ity }
     when Inspect.is_option ity && not (Inspect.is_option ty) ->
-    [%type: [%t Ast__type.mk types ty] option ]
-  | Array_f { array = _, ty; _ } -> Ast__type.mk types  ty
+    [%type: [%t Type.mk types ty] option ]
+  | Array_f { array = _, ty; _ } -> Type.mk types  ty
   | Record_extension _ -> typ L.(typename//"ext")
 
 let getter typename types fields field =
@@ -212,7 +211,7 @@ let getter typename types fields field =
     | Ty.Array_f {index=i,ty; array = a, tya} as f when Inspect.is_option_f f ->
       let index =
         int_of_ty types (ex ident' "n") (C.unwrap_opt_ty ty) in
-      let count = [i , Ast__type.mk types ty, get_field' i] in
+      let count = [i , Type.mk types ty, get_field' i] in
       count
       @ main
         [%expr match [%e get_field' i], [%e get_field' a] with
@@ -223,7 +222,7 @@ let getter typename types fields field =
           | _ -> Option.None
         ]
     | Array_f {array= x, tya; index = n, ty } ->
-      let count = [n , Ast__type.mk types ty, get_field' n ] in
+      let count = [n , Type.mk types ty, get_field' n ] in
       let mk = mk_array (int_of_ty types (ex var n) ty) in
       let xv = var x in
       let body = if Inspect.is_option tya then
@@ -234,7 +233,7 @@ let getter typename types fields field =
           and [%p xv.p] = [%e get_field' x] in [%e body] ]
     | Record_extension {exts;tag=tag,_ ;ptr= ptr, _ } ->
       main @@
-      Ast__record_extension.merge (typename, exts) (get_field' tag)
+      Record_extension.merge (typename, exts) (get_field' tag)
         (get_field' ptr)
     | Simple (n, Array(Some (Lit i), ty )) when Inspect.is_char ty ->
       main [%expr Ctypes.string_from_ptr [%e start @@ get_field' n]
@@ -278,7 +277,7 @@ let array_len x = [%expr Ctypes.CArray.length [%e x] ]
 let nullptr types = function
   | Ty.Option _ -> [%expr None]
   | t ->
-    C.coerce C.(ptr void) (Ast__type.converter types true t)
+    C.coerce C.(ptr void) (Type.converter types true t)
       [%expr Ctypes.null]
 
 let convert_string n s =
@@ -325,7 +324,7 @@ let set types typ r field value =
   | Ty.Record_extension { exts; _ } ->
     [%expr
       let type__gen, next__gen =
-        [%e Ast__record_extension.split (typ,exts) value.e ] in
+        [%e Record_extension.split (typ,exts) value.e ] in
       [%e setf "s_type" [%expr type__gen] ];
       [%e setf "next" [%expr next__gen] ]
     ]
@@ -339,7 +338,7 @@ let rec printer types t =
     begin match B.find_type t types with
       | exception Not_found -> pp t
       | Some (Ty.FunPtr _ |Union _ ) -> abstract
-      | Some Ty.Bitfields _ -> pp (Ast__bitset.set_name t)
+      | Some Ty.Bitfields _ -> pp (Bitset.set_name t)
       | _ -> pp t end
   | Array(_, Name t) when L.to_path t = ["char"] ->
     [%expr Vk__helpers.Pp.string]
@@ -405,7 +404,7 @@ let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
   | Record ->
     let lens f = getter typename types fields f in
     let exts= match Inspect.record_extension fields with
-      | Some exts -> Ast__record_extension.def (typename,exts)
+      | Some exts -> Record_extension.def (typename,exts)
       | None -> nil in
     exts
     @*  module' inner
@@ -458,7 +457,8 @@ let construct types tyname fields =
       [%e keep_alive @@ seq set fields res.e ]
     ] in
   item [%stri let make = [%e fn body]]
-    (val' ~:"make" @@ Ast__type.fn types ~regular_struct:true ~with_label:true tyname fields [%type: t])
+    (val' ~:"make" @@
+     Type.fn types ~regular_struct:true ~with_label:true tyname fields [%type: t])
 
 let make (type a) types (kind: a kind) (name, fields: _ * a list) =
   let records = match kind with

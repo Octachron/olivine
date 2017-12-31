@@ -1,11 +1,11 @@
 module Aliases = struct
-  module L = Name_study
-  module C = Ast__common
+  module L = Info.Linguistic
+  module C = Common
   module Pat = Ast_helper.Pat
 end open Aliases
 
-open Ast__item
-open Ast__utils
+open Item
+open Utils
 
 
 let bit_name name =

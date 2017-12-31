@@ -1,9 +1,9 @@
 
-module S = Enkindler_common.StringSet
-module L = Name_study
+module S = Common.StringSet
+module L = Linguistic
 
 let atoms_of_name name =
-    let open Name_study in
+    let open L in
        S.of_list
     @@ remove_prefix [ "error"]
     @@ remove_prefix [ "vk"]

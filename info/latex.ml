@@ -7,7 +7,7 @@ type t = item list
 let fp ppf = Format.fprintf ppf
 
 let rec pp_item ppf = function
-  | Macro(name,args) -> fp ppf "\%s{%a}" name pp args
+  | Macro(name,args) -> fp ppf "\\%s{%a}" name pp args
   | Word s -> fp ppf "%s" s
   | Group s -> fp ppf "{%a}" pp s
 and pp ppf = function

@@ -1,11 +1,11 @@
 module Aliases = struct
-  module T = Lib_builder.T
+  module T = Lib.T
   module H = Ast_helper
 end open Aliases
-open Ast__utils
-module M = Enkindler_common.StringMap
-let (%) = M.find
-  let rec expr: type a. (a, Name_study.name) T.math -> _ = function
+open Utils
+module M = Info.Common.StringMap
+(*let (%) = M.find*)
+  let rec expr: type a. (a, Info.Linguistic.name) T.math -> _ = function
     | T.Int n -> H.Exp.constant @@ H.Const.int n
     | T.Var v -> ex var v
     | T.Ceil T.Div(x,y) ->

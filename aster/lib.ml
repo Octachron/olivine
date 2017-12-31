@@ -1,12 +1,12 @@
-module L = Name_study
+module L = Info.Linguistic
 type path = L.name list
-module I = Ast__item
-module U = Ast__utils
+module I = Item
+module U = Utils
 
 type ast_item = (Parsetree.structure, Parsetree.signature) I.item
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
-module T = Retype
+module T = Info.Retype
 module Cty = T.Ty
 module Arith = T.Arith
 
@@ -14,7 +14,7 @@ module Full_name = struct
   type name = L.name
   let pp ppf x = L.pp_var ppf x
 end
-module Ty = Retype.Typexpr(Full_name)
+module Ty = Info.Retype.Typexpr(Full_name)
 module LOrd = struct type t = L.name let compare = compare end
 module Name_set = Set.Make(LOrd)
 module Name_map = Map.Make(LOrd)
@@ -50,13 +50,13 @@ let rec is_empty m =
   m.sig' = [] || List.for_all empty_submodule m.sig'
 
 let sys_specific =
-  let module S = Enkindler_common.StringSet in
+  let module S = Info.Common.StringSet in
   let all = S.of_list
       [ "xlib";  "xcb";  "wl"; "android"; "wayland"; "mir"; "win"; "win32" ] in
   let unsupported = S.diff all @@ S.of_list Econfig.supported_systems in
   let check x = S.mem x unsupported in
   fun name -> List.exists (List.exists check )
-    Name_study.[name.prefix;name.postfix;name.main]
+    L.[name.prefix;name.postfix;name.main]
 
 module Result = struct
   module Map = Map.Make(struct type t = Ty.name let compare = compare end)
@@ -159,7 +159,7 @@ let add path item module' =
 let add_l path item lib =
   { lib with content = add path item lib.content }
 
-module S = Enkindler_common.StringSet
+module S = Info.Common.StringSet
 
 let may f = function
   | None -> None
@@ -239,9 +239,9 @@ let rec dep_typ (dict,gen as g) (items,lib as build) =
   | Result _ as t ->
     begin match Rename.typ (L.make dict) t with
       | Ty.Result {ok;bad} as t ->
-        let name = Subresult.composite_nominal ok bad in
-        let okname = Subresult.side_name ok in
-        let badname = Subresult.side_name bad in
+        let name = Info.Subresult.composite_nominal ok bad in
+        let okname = Info.Subresult.side_name ok in
+        let badname = Info.Subresult.side_name bad in
         items,
         lib
         |> add [subresult] @@ Type (okname, Ty.Result {ok; bad=[]})
@@ -275,7 +275,7 @@ let refine_fn (fn:Ty.fn) =
     | [ {field = Ty.Simple (_,Ty.Array(Some(Path _), Name _ )); _ } as f] ->
       [{ f with dir = Out }]
     | a :: q -> a :: identify_out q in
-  match Name_study.to_path fn.name with
+  match L.to_path fn.name with
   | ("create" | "get" | "enumerate"|"allocate"|"acquire") :: _
   | "map" :: "memory" :: _
     ->
@@ -302,7 +302,7 @@ let deps gen build = function
 let result_info dict registry =
   match M.find "VkResult" registry with
   | exception Not_found -> assert false
-  | Typed.Type Cty.Enum constrs ->
+  | Info.Typed.Type Cty.Enum constrs ->
     Result.make @@ List.map Rename.(constr @@ elt dict) constrs
   | _ -> assert false
 
@@ -315,12 +315,12 @@ let rec generate_ideal dict registry (items, lib as build) p =
   if not @@ S.mem p items then build else
   let (items, lib as build ) = (S.remove p items, lib) in
   let name = L.make dict p in
-  let renamer = Name_study.make dict in
+  let renamer = L.make dict in
   match M.find p registry with
-  | Typed.Const c ->
+  | Info.Typed.Const c ->
     let lib = add [const] (Const (name,c)) lib in
     items,lib
-  | Typed.Fn fn ->
+  | Info.Typed.Fn fn ->
     let items, lib = dep_fn (dict, generate_ideal dict registry) fn build in
     let fn = refine_fn @@ Rename.fn renamer fn in
     let lib =
@@ -333,7 +333,7 @@ let rec generate_ideal dict registry (items, lib as build) p =
         |> add [core] (Fn {implementation=Native; fn})
         |> add [raw] (Fn {implementation=Raw; fn}) in
     items, lib
-  | Typed.Type typ ->
+  | Info.Typed.Type typ ->
     let items, lib = deps (dict,generate_ideal dict registry) build typ in
     let typ = Rename.typ renamer typ in
     let lib =
@@ -352,7 +352,7 @@ let rec normalize m =
   let sub = function Module m -> Module (normalize m) | x -> x in
   { m with sig' = List.rev_map sub m.sig' }
 
-let classify_extension dict m (ext:Typed.Extension.t) =
+let classify_extension dict m (ext:Info.Typed.Extension.t) =
   let path = L.to_path @@ L.make dict ext.metadata.name in
   match path with
   | [] -> assert false
@@ -371,7 +371,7 @@ let rec take_module name = function
 
 let open' s =
   let open Ast_helper in
-  let opn = Opn.mk @@ Ast__utils.nlid @@  " Vk__" ^ s ^ "\n" in
+  let opn = Opn.mk @@ Utils.nlid @@  " Vk__" ^ s ^ "\n" in
    I.item (Str.open_ opn) (Sig.open_ opn)
 
 let opens x = I.imap open' x
@@ -384,7 +384,7 @@ let core_submodules =
      make [vk] subresult]
 
 
-let generate_subextension dict registry branch l (ext:Typed.Extension.t) =
+let generate_subextension dict registry branch l (ext:Info.Typed.Extension.t) =
   let name = List.rev (L.make dict ext.metadata.name).postfix in
   let name = L.simple(L.remove_prefix [branch] name) in
   if sys_specific name then l else
@@ -435,7 +435,7 @@ let generate_extensions dict registry extensions =
 let filter_extension dict registry name0 =
   let name = L.make dict name0 in
   match M.find name0 registry with
-  | Typed.Type _ -> not @@ sys_specific name
+  | Info.Typed.Type _ -> not @@ sys_specific name
   | Fn _ ->
     not (L.is_extension dict name|| sys_specific name)
   | Const _ -> true
@@ -450,7 +450,7 @@ let find_submodule name lib =
   List.find (fun m -> m.name = name) lib.content.submodules
 *)
 
-let generate root preambule dict (spec:Typed.spec) =
+let generate root preambule dict (spec:Info.Typed.spec) =
   let registry = spec.entities in
   let submodules =
     let sig' = let open I in
