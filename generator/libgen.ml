@@ -70,6 +70,7 @@ let make_dict spec =
   |> add_pre "vk"
   , exts |> add_ext "KHX" |> add_ext "EXT"
 
+(*
 let preambule =
   I.item
   [%str
@@ -85,11 +86,11 @@ let preambule =
 [%sig:
   open Ctypes
   module Printer = Format
-]
+]*)
 
 let () =
   let info = read Sys.argv.(1) in
   let dict, _exts = make_dict info in
   let root = Sys.argv.(2) in
-  let lib = Aster.Lib.generate root preambule dict info in
+  let lib = Aster.Lib.generate root (I.item [] []) dict info in
   Printer.lib lib

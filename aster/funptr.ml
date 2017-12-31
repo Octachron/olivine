@@ -10,10 +10,11 @@ open Utils
 
 let mkty ctx args ret =
   let ret  = Type.converter ctx true ret in
-  C.listr (fun l r -> [%expr[%e l] @-> [%e r] ])
+  let fn = C.listr (fun l r -> [%expr[%e l] @-> [%e r] ])
     (Type.converter ctx ~degraded:true)
     args
-    [%expr returning [%e ret]]
+    [%expr returning [%e ret]] in
+  [%expr let open Ctypes in [%e fn] ]
 
 let expand = function
   | [] -> [Ty.Name (L.simple ["void"])]
@@ -26,7 +27,7 @@ let make ctx (tyname, (fn:Ty.fn)) =
     let typ =  [%type: unit Ctypes.ptr] in
     decltype ~manifest:typ (typestr fn.name)
     ^:: item
-            [[%stri let [%p ty] = ptr void]]
+            [[%stri let [%p ty] = Ctypes.(ptr void)]]
             [val' tyname [%type: [%t typ] Ctypes.typ] ]
   | args ->
     let t = Type.fn2 ~decay_array:All ~mono:true ctx fn in

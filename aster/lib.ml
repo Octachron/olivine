@@ -378,9 +378,16 @@ let opens x = I.imap open' x
 let ast x = Ast x
 
 let core_submodules =
+  let sig' = [ast @@
+    I.item
+      [%str let libvulkan = Dl.dlopen ~filename:"libvulkan.so"
+                ~flags:Dl.[RTLD_NOW]
+            let foreign name = Foreign.foreign ~from:libvulkan name]
+      []
+    ] in
   List.map (fun m -> Module m)
-    [make [vk] core;
-     make [vk] raw;
+    [make [vk] core ~sig';
+     make [vk] raw ~sig';
      make [vk] subresult]
 
 
@@ -391,11 +398,14 @@ let generate_subextension dict registry branch l (ext:Info.Typed.Extension.t) =
   match ext.metadata.type' with
   | None -> l
   | Some t ->
-    let s = I.str (U.modtype @@ L.make dict t) in
+    let vkext = "Vk__extension_sig" in
+    let s = I.str (U.modtype ~par:L.[simple [vkext]]
+                   @@ L.make dict t) in
     let args = ["X", s] in
     let preambule =
       I.item
-        [U.include' @@ U.Me.apply ("Foreign_"^t) "X"]
+        [U.include' @@ U.Me.apply
+           U.(nloc @@ Longident.Lident vkext / ("Foreign_"^t)) "X"]
         []
     in
     let items = S.of_list
@@ -415,19 +425,16 @@ let generate_subextension dict registry branch l (ext:Info.Typed.Extension.t) =
     if core.sig' = [] then Module { m with sig' = core.sig' } :: l else
     Module { m with sig' =
                       core.sig'
-                      @ Ast (I.item [%str open Raw] [])
-                      :: rest
-                      @ Ast (I.item [%str open Subresult][])
-                      :: [Module subresult]
+                      @ rest
+                      @ [Module subresult]
            } :: l
 
 let generate_extensions dict registry extensions =
   let exts = List.fold_left (classify_extension dict) M.empty extensions in
-  let preambule = opens [ "const"; "types"; "extension_sig"; "subresult"] in
   let gen_branch name exts acc =
     let submodules =
       List.fold_left (generate_subextension dict registry name) [] exts in
-    Module ( normalize @@ make ~sig':(submodules @ [ast preambule]) [vk]
+    Module ( normalize @@ make ~sig':submodules [vk]
              @@ L.simple [name])
     :: acc in
    M.fold gen_branch exts []
@@ -443,7 +450,7 @@ let filter_extension dict registry name0 =
 let builtins dict =
   Name_set.of_list @@ List.map (L.make dict)
     ["vkBool32";"uint_32_t"; "void"; "int_32_t"; "uint_64_t";
-    "int_64_t"; "size_t"]
+    "int_64_t"; "size_t"; "uint_8_t"]
 
 (*
 let find_submodule name lib =
@@ -455,7 +462,17 @@ let generate root preambule dict (spec:Info.Typed.spec) =
   let submodules =
     let sig' = let open I in
       [ ast @@
-        opens ["const"] @* item [[%stri include Builtin_types]]
+        opens ["const"]
+        @* item
+          [%str
+            module Std = struct
+              module Format = Format
+              type 'a t = 'a option = None | Some of 'a
+            end
+          ]
+          [%sig: module Std: sig module Format=Format end]
+        @*
+        item [%str include Builtin_types]
           [%sig: include (module type of Builtin_types) open Unsigned ]
       ] in
     core_submodules

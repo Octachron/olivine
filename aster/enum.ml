@@ -76,11 +76,11 @@ let pp opn pre ty constrs =
       Exp.case (cstr.p s) (string s) in
     Exp.match_ x.e (List.map case constrs) in
   item
-    [%stri let [%p pp] = fun ppf [%p x.p] -> Printer.pp_print_string ppf [%e m]]
-    (val' ~:(pre ^ "pp") [%type: Printer.formatter -> [%t opn] -> unit])
+    [%stri let [%p pp] = fun ppf [%p x.p] -> Std.Format.pp_print_string ppf [%e m]]
+    (val' ~:(pre ^ "pp") [%type: Std.Format.formatter -> [%t opn] -> unit])
 
 let view =
-  item [%stri let view = Ctypes.view ~write:to_int ~read:of_int int]
+  item [%stri let view = Ctypes.view ~write:to_int ~read:of_int Ctypes.int]
     (val' ~:"view" [%type: t Ctypes.typ])
 
 let view_result =
@@ -90,31 +90,31 @@ let view_result =
 
 let pp_result =
   item [%stri let pp = Vk__result.pp raw_pp]
-    (val' ~:"pp" [%type: Printer.formatter -> (t,t) result -> unit])
+    (val' ~:"pp" [%type: Std.Format.formatter -> (t,t) result -> unit])
 
 let view_opt =
   item
     [%stri let view_opt =
              let read x = if x = max_int then
-                 Option.None
-               else Option.Some(of_int x) in
-             let write = function Option.None -> max_int
-                                | Option.Some x -> to_int x in
-             Ctypes.view ~read ~write int
+                 Std.None
+               else Std.Some(of_int x) in
+             let write = function Std.None -> max_int
+                                | Std.Some x -> to_int x in
+             Ctypes.view ~read ~write Ctypes.int
     ]
     (val' ~:"view_opt" [%type: t option Ctypes.typ])
 
 let view_result_opt =
   item
     [%stri let view_opt =
-             let read x = if x = max_int then Option.None
-               else if x < 0 then Option.Some(Error(of_int x))
-               else Option.Some(Ok(of_int x))
+             let read x = if x = max_int then Std.None
+               else if x < 0 then Std.Some(Error(of_int x))
+               else Std.Some(Ok(of_int x))
              in
              let write = function
-               | Option.None -> max_int
-               | Option.Some (Error x| Ok x) -> to_int x in
-             Ctypes.view ~read ~write int
+               | Std.None -> max_int
+               | Std.Some (Error x| Ok x) -> to_int x in
+             Ctypes.view ~read ~write Ctypes.int
     ]
     (val' ~:"view_opt" [%type: (t,t) result option Ctypes.typ])
 

@@ -10,7 +10,9 @@ open Utils
 
 
 let typ ?par = Inspect.prefix typ ?par
-let tyvar ?par = Inspect.prefix tyvar ?par
+let tyvar ?par = Inspect.prefix ~prim:[L.simple ["Ctypes"]] tyvar ?par
+
+let const = ident % qualify L.[simple ["Vk__const"] ] % varname
 
 let rec converter types ~degraded x =
   let tyvar = tyvar types in
@@ -19,29 +21,29 @@ let rec converter types ~degraded x =
   | Ty.Const t -> make t
   | Name n -> tyvar n
   | Ptr Name n | Ptr Const Name n ->
-    [%expr ptr [%e tyvar n]]
-  | Ptr ty -> [%expr ptr [%e make ty] ]
+    [%expr Ctypes.ptr [%e tyvar n]]
+  | Ptr ty -> [%expr Ctypes.ptr [%e make ty] ]
   | Option Name n -> tyvar L.(n//"opt")
-  | Option (Ptr typ) -> [%expr ptr_opt [%e make typ] ]
+  | Option (Ptr typ) -> [%expr Ctypes.ptr_opt [%e make typ] ]
   | Option Array (Some Const n ,typ) when not degraded ->
     [%expr Vk__helpers.array_opt [%e (var n).e] [%e make typ] ]
   | Option Array (Some (Lit n) ,typ) when not degraded ->
     [%expr Vk__helpers.array_opt [%e int.e n ] [%e make typ ]]
-  | Option Array (_,t) -> [%expr ptr_opt [%e make t]]
-  | Option String -> [%expr string_opt]
+  | Option Array (_,t) -> [%expr Ctypes.ptr_opt [%e make t]]
+  | Option String -> [%expr Ctypes.string_opt]
   | Option t -> Fmt.epr "Not implemented: option %a@." Ty.pp t; exit 2
-  | String -> [%expr string]
+  | String -> [%expr Ctypes.string]
   | Array (Some Const n ,typ) when not degraded ->
-    [%expr array [%e tyvar n] [%e make typ]]
+    [%expr Ctypes.array [%e const n] [%e make typ]]
   | Array (Some (Lit n) ,typ) when not degraded ->
-    [%expr array [%e int.e n] [%e make typ]]
+    [%expr Ctypes.array [%e int.e n] [%e make typ]]
   | Array (_,typ) -> make (Ty.Ptr typ)
   | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
   | Handle _  ->
     failwith "Anonymous type"
   | Result {ok;bad} ->
     Result.expr types (ok,bad)
-  | Record_extensions _ -> [%expr ptr void]
+  | Record_extensions _ -> [%expr Ctypes.ptr Ctypes.void]
   (* ^FIXME^?: better typing? *)
   | FunPtr _ ->
     failwith "Not_implemented: funptr"

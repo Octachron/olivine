@@ -16,7 +16,7 @@ bin/infolivine:  info/*
 	$(DUNE) info/infolivine.exe && $(CCO) \
 	&& mv _build/default/info/$(notdir $@.exe) $@
 
-bin/libgen:  generator/*
+bin/libgen:  aster/*.ml generator/*.ml info/*.ml
 	$(DUNE) generator/libgen.exe && $(CCO) \
 	&& mv _build/default/generator/$(notdir $@.exe) $@
 
@@ -26,11 +26,6 @@ lib/vk.ml: bin/libgen spec/vk.xml
 
 vk.cmxa: _tags spec/vk.xml info/*.ml aster/*.ml generator/*.ml\
 	lib_aux/* lib/vk.ml
-	$(CCO) $@
-
-term: enkindler.cma
-
-enkindler.cma: _tags enkindler/*
 	$(CCO) $@
 
 shaders/%/frag.spv : shaders/%/base.frag
@@ -51,4 +46,4 @@ vkspec:
 	&& cd spec && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml"
 
 clean:
-	$(CC) -clean; rm lib/vk.ml
+	$(CC) -clean; rm lib/vk.ml; rm bin/*

@@ -19,7 +19,7 @@ let to_int = L.simple ["to"; "int"]
 
 let rec ty_of_int ctx ty x =
   match ty with
-  | Ty.Option t -> [%expr Option.Some [%e ty_of_int ctx t x]]
+  | Ty.Option t -> [%expr Some [%e ty_of_int ctx t x]]
   | Name t ->
     [%expr
       [%e ident@@Inspect.prefix ~root:t varpath ~par:[t] ctx of_int]
@@ -81,7 +81,7 @@ let sfield types (name,t) =
   conv = Type.converter types false t in
   let ty = Type.mk ~raw_type:true ~decay_array:Dyn_array types t in
   item
-    [%stri let [%p pat var name] = field t [%e string str] [%e conv] ]
+    [%stri let [%p pat var name] = Ctypes.field t [%e string str] [%e conv] ]
     (val' name [%type: ([%t ty] , t) Ctypes.field])
 
 let addr_i = item
@@ -215,11 +215,11 @@ let getter typename types fields field =
       count
       @ main
         [%expr match [%e get_field' i], [%e get_field' a] with
-          | [%p if Inspect.is_option ty then [%pat? Option.Some n] else [%pat? n]],
-            [%p if Inspect.is_option tya then [%pat? Option.Some a] else [%pat? a]]
+          | [%p if Inspect.is_option ty then [%pat? Some n] else [%pat? n]],
+            [%p if Inspect.is_option tya then [%pat? Some a] else [%pat? a]]
             ->
-            Option.Some [%e mk_array index [%expr a] ]
-          | _ -> Option.None
+            Some [%e mk_array index [%expr a] ]
+          | _ -> None
         ]
     | Array_f {array= x, tya; index = n, ty } ->
       let count = [n , Type.mk types ty, get_field' n ] in
@@ -309,10 +309,10 @@ let set types typ r field value =
     setf (varname f) value.e
   | Ty.Array_f { index; array } as t when Inspect.is_option_f t ->
     [%expr match [%e value.e] with
-      | Option.None ->
+      | None ->
         [%e setf (name index) (optzero index)];
         [%e setf  (name array) (nullptr types @@ ty array)]
-      | Option.Some [%p value.p] ->
+      | Some [%p value.p] ->
         [%e setf (name index) (array_len index) ];
         [%e setf (name array) (C.wrap_opt (ty array) @@ start value.e)]
     ]
@@ -360,7 +360,7 @@ let rec sseq sep map = function
 
 let pp types fields =
   let u = unique "x" in
-  let with_pf x = [%expr let pf ppf = Printer.fprintf ppf in [%e x]  ] in
+  let with_pf x = [%expr let pf ppf = Std.Format.fprintf ppf in [%e x]  ] in
   let pp_f (name,ty) =
     let fmt = string @@ varname name ^ "=%a" in
     [%expr pf ppf [%e fmt] [%e printer types ty]
@@ -368,9 +368,9 @@ let pp types fields =
   let def x =
     item
       [%stri let pp ppf = fun [%p u.p] ->
-          let pf ppf = Printer.fprintf ppf in
+          let pf ppf = Std.Format.fprintf ppf in
           pf ppf "@[{@ "; [%e with_pf x] ]
-      (val' ~:"pp"[%type: Printer.formatter -> t -> unit])
+      (val' ~:"pp"[%type: Std.Format.formatter -> t -> unit])
   in
   let pp_field (field:Ty.field) = match field with
     | Record_extension _ -> [%expr pf ppf "ext=⟨unsupported⟩"]
@@ -416,8 +416,8 @@ let kind_cstr (type a) (kind: a kind) typ = match kind with
   | Record -> [%type: [%t typ] Ctypes.structure]
 
 let ke (type a) (kind:a kind) = match kind with
-  | Union -> [%expr union]
-  | Record -> [%expr structure]
+  | Union -> [%expr Ctypes.union]
+  | Record -> [%expr Ctypes.structure]
 
 let def types (_,kind as tk) name fields =
   hidden [%stri type mark ]

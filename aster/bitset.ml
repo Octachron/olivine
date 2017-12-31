@@ -52,7 +52,7 @@ let pp set (fields,_) =
     [%expr [%e ex var name], [%e string (varname name)]] in
   let l = C.listr (fun x l -> [%expr [%e x] :: [%e l] ]) field fields [%expr []] in
   item [%stri let pp x = pp_tags [%e l] x]
-    [%sigi: val pp: Printer.formatter -> 'a set -> unit]
+    [%sigi: val pp: Std.Format.formatter -> 'a set -> unit]
 
 let resume bitname name =
   let index_view b ty n =

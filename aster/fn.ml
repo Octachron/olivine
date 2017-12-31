@@ -198,7 +198,7 @@ let allocate_field types fields vars f body  =
     [%expr let [%p i.p] = Ctypes.allocate
                [%e ident name]
                None in
-      let [%p a.p] = Option.None in [%e body]
+      let [%p a.p] = None in [%e body]
     ]
   | Array_f { array=a, elt; index=i, size } ->
     let a = get a and i = get i in
@@ -269,8 +269,8 @@ let input_expand types vars f body = match f with
     let f = M.find (varname f) vars in
     if Inspect.is_option ty then
       [%expr let [%p f.p] = match [%e f.e] with
-          | Option.Some [%p f.p] -> Option.Some [%e start f.e]
-          | Option.None -> Option.None in [%e body]
+          | Some [%p f.p] -> Some [%e start f.e]
+          | None -> None in [%e body]
       ]
     else
       [%expr let [%p f.p] =[%e start f.e] in [%e body] ]

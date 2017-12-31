@@ -54,21 +54,24 @@ let vk_prefix ctx name =
   else
     "Vk__" ^ name
 
-let prefix ?root tyvar ?(par=[]) ctx name =
+let prefix ?(prim=[]) ?root tyvar ?(par=[]) ctx name =
   let rootname = match root with
     | None -> name
     | Some x -> x in
   match typeclass rootname ctx with
   | B.Typedef when not (in_types ctx) ->
     tyvar ?par:(Some(L.simple ["Vk__types"]::par)) name
+  | Typedef ->
+     tyvar ?par:(Some par) name
   | B.Builtin ->
     tyvar
       ?par:(Some(L.simple ["Builtin_types"] :: par)) name
   | B.Result ->
     tyvar
       ?par:(Some(L.simple [vk_prefix ctx "subresult"]::par)) name
-  | B.Prim | Typedef ->
-     tyvar ?par:(Some par) name
+  | B.Prim ->
+    tyvar ?par:(Some(prim @ par)) name
+
 
 let is_ptr_option = function
   | Ty.Ptr Option _ -> true

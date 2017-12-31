@@ -19,7 +19,7 @@ let listr merge map l last =
 let coerce ~from ~to' value = [%expr Ctypes.coerce [%e from] [%e to'] [%e value]]
 let ptr x = [%expr Ctypes.ptr [%e x] ]
 let ptr_opt x = [%expr Ctypes.ptr_opt [%e x] ]
-let void = [%expr void]
+let void = [%expr Ctypes.void]
 let addr x = [%expr Ctypes.addr [%e x] ]
 let (!@) x = [%expr !@[%e x]]
 
@@ -37,7 +37,7 @@ let extern_type name =
 
 let wrap_opt ty v =
   if Inspect.is_option ty then
-    [%expr Option.Some [%e v]]
+    [%expr Some [%e v]]
   else
     v
 

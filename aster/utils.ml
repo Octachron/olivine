@@ -105,8 +105,8 @@ let structure dual =
   item (H.Mod.structure @@ str dual)
     (H.Mty.signature @@ sg dual)
 
-let modtype name =
-  let s = H.(Mty.ident @@ nlid @@ modname name ) in
+let modtype ?(par=[]) name =
+  let s = H.(Mty.ident @@ nloc @@ qualify par @@ modname name ) in
   item s s
 
 let functor' name mty result =
@@ -117,7 +117,7 @@ let functor' name mty result =
 let (~:) x = L.simple [x]
 let include' me = Ast_helper.(Str.include_ @@ Incl.mk me)
 module Me = struct
-  let apply f x = H.Mod.(apply (ident @@ nlid f) (ident @@ nlid x))
+  let apply f x = H.Mod.(apply (ident @@ f) (ident @@ nlid x))
 end
 
 let make_genf ?(suffix="") name f =
