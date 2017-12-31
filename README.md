@@ -10,10 +10,10 @@ Currently, the generated bindings covers all vulkan api except for the WSL
 extensions (i.e. the interface with the various windows systems) due to a lack
 of OCaml libraries covering the corresponding window systems.
 
-Interaction with windows system is delegated to graphical interface libraries.
-A possible option is to use the patched tsdl library available at
-https://github.com/Octachron/tsdl/tree/support_2.04-06 or wait for the
-integration of this patch into tsdl proper.
+Consequently, interaction with windows system is delegated to graphical
+interface libraries.
+Recent version of the SDL libary (≥ 2.06) and the tsdl bindings (≥0.9.6)
+comes with Vulkan suport.
 
 # Generated binding naming conventions :
 
