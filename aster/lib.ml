@@ -462,8 +462,7 @@ let generate root preambule dict (spec:Info.Typed.spec) =
   let submodules =
     let sig' = let open I in
       [ ast @@
-        opens ["const"]
-        @* item
+        item
           [%str
             module Std = struct
               module Format = Format

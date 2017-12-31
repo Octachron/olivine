@@ -196,6 +196,8 @@ let type_field types typename = function
   | Array_f { array = _, ty; _ } -> Type.mk types  ty
   | Record_extension _ -> typ L.(typename//"ext")
 
+let const x = varpath ~par:[L.simple["Vk__const"]] x
+
 let getter typename types fields field =
   reset_uid ();
   let u = unique "record" in
@@ -240,7 +242,7 @@ let getter typename types fields field =
           [%e int.e i] ]
     | Simple (n, Array(Some (Const s), ty)) when Inspect.is_char ty ->
       main[%expr Ctypes.string_from_ptr [%e start @@ get_field' n]
-          [%e (var s).e] ]
+          [%e ident (const s) ] ]
     | Simple(n, (Option Array(Some (Path _ | Math_expr _ as p), inty)
                 | Array(Some (Path _ | Math_expr _ as p),inty) as t)) ->
       let index = array_index types get_field' fields p in
@@ -283,6 +285,7 @@ let nullptr types = function
 let convert_string n s =
   [%expr Vk__helpers.convert_string [%e n] [%e s] ]
 
+
 let set types typ r field value =
   let name = varname % fst and ty = snd in
   let array_len (_, ty as _index) =
@@ -300,7 +303,7 @@ let set types typ r field value =
     setf (varname f)
       (convert_string (int.e n) value.e)
   | Ty.Simple(f, Array(Some (Const n), t)) when Inspect.is_char t ->
-    setf (varname f) (convert_string (ex var n) value.e)
+    setf (varname f) (convert_string (ident @@ const n) value.e)
   | Ty.Simple(f, Array(Some (Path _| Math_expr _), _)) ->
     setf (varname f) (start value.e)
   | Ty.Simple(f, Option Array(Some (Path _|Math_expr _), _)) ->
