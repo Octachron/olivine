@@ -73,7 +73,7 @@ let space ppf () = Fmt.pf ppf "@;"
 let rec item_to_ast current (lib:B.lib) item =
   let types = match B.find_module B.types lib.content.sig' with
     | Some m -> m.sig'
-    | None -> raise (Invalid_argument "Printers.pp_item: Missing type module") in
+    | None -> [] in
   let ctx = B.context ~builtins:lib.builtins
       ~results:lib.result current types in
   I.rev @@ match item with

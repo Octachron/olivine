@@ -68,7 +68,7 @@ let prefix ?(prim=[]) ?root tyvar ?(par=[]) ctx name =
       ?par:(Some(L.simple ["Builtin_types"] :: par)) name
   | B.Result ->
     tyvar
-      ?par:(Some(L.simple [vk_prefix ctx "subresult"]::par)) name
+      ?par:(Some(L.simple ["Vk__subresult"]::par)) name
   | B.Prim ->
     tyvar ?par:(Some(prim @ par)) name
 

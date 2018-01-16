@@ -10,22 +10,22 @@ open Item
 open Utils
 
 
-let modname ctx = L.simple [I.vk_prefix ctx "subresult"]
+let modname ctx = L.simple ["Vk__subresult"]
 
-  let expr ctx (ok,errors) =
-    tyvar ~par:[modname ctx] @@ Info.Subresult.composite_nominal ok errors
+let expr ctx (ok,errors) =
+  tyvar ~par:[modname ctx] @@ Info.Subresult.composite_nominal ok errors
 
-  module M = B.Result.Map
+module M = B.Result.Map
 
-  let find name {B.results=m; _ } =
-    try M.find name m with
-    | Not_found ->
-      Fmt.(pf stderr) "Either.find: not found %a\n%!"
-        L.pp_var name;
-      List.iter (fun (name,id) -> Fmt.(pf stderr) "%a:%d\n%!"
-                    L.pp_var name id)
-      @@ M.bindings m;
-      raise Not_found
+let find name {B.results=m; _ } =
+  try M.find name m with
+  | Not_found ->
+    Fmt.(pf stderr) "Either.find: not found %a\n%!"
+      L.pp_var name;
+    List.iter (fun (name,id) -> Fmt.(pf stderr) "%a:%d\n%!"
+                  L.pp_var name id)
+    @@ M.bindings m;
+    raise Not_found
 
 let def name lbls = decltype name
     ~manifest:(polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) lbls)

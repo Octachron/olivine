@@ -46,6 +46,7 @@ and sig' = item M.t
 let rec is_empty m =
   let empty_submodule  = function
     | Module m -> is_empty m
+    | Ast _  -> true
     | _ -> false in
   m.sig' = [] || List.for_all empty_submodule m.sig'
 
@@ -59,7 +60,10 @@ let sys_specific =
     L.[name.prefix;name.postfix;name.main]
 
 module Result = struct
-  module Map = Map.Make(struct type t = Ty.name let compare = compare end)
+  module Map = Map.Make(struct
+      type t = Ty.name
+      let compare = compare
+    end)
   let make constrs =
     List.fold_left
       (fun m (x,n) -> match n with
@@ -311,7 +315,8 @@ let core = L.simple["core"]
 let raw = L.simple["raw"]
 let types = L.simple["types"]
 
-let rec generate_ideal dict registry (items, lib as build) p =
+let rec generate_ideal core dict registry current
+    (items, lib as build) p =
   if not @@ S.mem p items then build else
   let (items, lib as build ) = (S.remove p items, lib) in
   let name = L.make dict p in
@@ -321,36 +326,51 @@ let rec generate_ideal dict registry (items, lib as build) p =
     let lib = add [const] (Const (name,c)) lib in
     items,lib
   | Info.Typed.Fn fn ->
-    let items, lib = dep_fn (dict, generate_ideal dict registry) fn build in
+    let items, lib =
+      dep_fn (dict, generate_ideal core dict registry current)
+        fn build in
     let fn = refine_fn @@ Rename.fn renamer fn in
     let lib =
       if Ty.is_simple fn then
         lib
-        |> add [core] (Fn { implementation=Regular; fn})
-        |> add [raw] (Fn {implementation=Raw; fn})
+        |> add ( core current ) (Fn { implementation=Regular; fn})
+        |> add (current @ [raw]) (Fn {implementation=Raw; fn})
       else
         lib
-        |> add [core] (Fn {implementation=Native; fn})
-        |> add [raw] (Fn {implementation=Raw; fn}) in
+        |> add ( core current ) (Fn {implementation=Native; fn})
+        |> add (current @ [raw]) (Fn {implementation=Raw; fn}) in
     items, lib
   | Info.Typed.Type typ ->
-    let items, lib = deps (dict,generate_ideal dict registry) build typ in
+    let items, lib =
+      deps (dict,generate_ideal core dict registry current) build
+        typ in
     let typ = Rename.typ renamer typ in
     let lib =
       lib |> add [types] (Type (name,typ)) in
     (items,lib)
 
-let rec generate_core dict registry (items, _ as build) =
+let rec generate_core core dict registry path (items, _ as build) =
   if items = S.empty then
     snd build
   else
     let p = S.choose items in
-    generate_core dict registry
-    @@ generate_ideal dict registry build p
+    generate_core core dict registry path
+    @@ generate_ideal core dict registry path build p
 
-let rec normalize m =
-  let sub = function Module m -> Module (normalize m) | x -> x in
-  { m with sig' = List.rev_map sub m.sig' }
+let rec normalize_sigs acc = function
+  | Module m :: q ->
+    let m = normalize m in
+    Format.eprintf "Normalizing %a@." L.full_pp m.name;
+    begin if is_empty m && m.args = [] then
+      normalize_sigs acc q
+    else
+      normalize_sigs (Module m :: acc) q
+  end
+  | a :: q ->
+    normalize_sigs (a::acc) q
+  | [] -> acc
+and normalize m =
+  { m with sig' = normalize_sigs [] m.sig' }
 
 let classify_extension dict m (ext:Info.Typed.Extension.t) =
   let path = L.to_path @@ L.make dict ext.metadata.name in
@@ -377,26 +397,31 @@ let open' s =
 let opens x = I.imap open' x
 let ast x = Ast x
 
-let core_submodules =
+let mkforeign prefix name =
   let sig' = [ast @@
-    I.item
-      [%str let libvulkan = Dl.dlopen ~filename:"libvulkan.so"
-                ~flags:Dl.[RTLD_NOW]
-            let foreign name = Foreign.foreign ~from:libvulkan name]
-      []
-    ] in
+   I.item
+     [%str let libvulkan = Dl.dlopen ~filename:"libvulkan.so"
+               ~flags:Dl.[RTLD_NOW]
+           let foreign name = Foreign.foreign ~from:libvulkan name]
+     []
+   ] in
+  make prefix name ~sig'
+
+
+let core_submodules prefix =
   List.map (fun m -> Module m)
-    [make [vk] core ~sig';
-     make [vk] raw ~sig';
-     make [vk] subresult]
+    [mkforeign prefix core;
+     mkforeign prefix raw;
+     make prefix subresult]
 
 
-let generate_subextension dict registry branch l (ext:Info.Typed.Extension.t) =
+let generate_subextension dict registry branch lib
+    (ext:Info.Typed.Extension.t) =
   let name = List.rev (L.make dict ext.metadata.name).postfix in
   let name = L.simple(L.remove_prefix [branch] name) in
-  if sys_specific name then l else
+  if sys_specific name then lib else
   match ext.metadata.type' with
-  | None -> l
+  | None -> lib
   | Some t ->
     let vkext = "Vk__extension_sig" in
     let s = I.str (U.modtype ~par:L.[simple [vkext]]
@@ -409,35 +434,29 @@ let generate_subextension dict registry branch l (ext:Info.Typed.Extension.t) =
         []
     in
     let items = S.of_list
-      @@ List.filter (fun name -> not @@ sys_specific @@ L.make dict name)
+      @@ List.filter (fun name -> not @@ sys_specific
+                       @@ L.make dict name)
       @@ ext.commands (*@ ext.types*) in
     let branch' = L.simple [branch] in
-    let ext_m = make ~args ~sig':(core_submodules @ [Ast preambule])
-        [vk; branch']  name in
-    let m = generate_core dict registry (items, ext_m) in
- (*   begin if List.length m.submodules > 3 then
-        ( List.iter (fun m -> Fmt.epr "Submodule:%s@." m.name) m.submodules;
-          assert false
-        )
-      end;*)
-    let core, rest = take_module core m.sig' in
-    let subresult, rest = take_module subresult rest in
-    if core.sig' = [] then Module { m with sig' = core.sig' } :: l else
-    Module { m with sig' =
-                      core.sig'
-                      @ rest
-                      @ [Module subresult]
-           } :: l
+    let ext_m =
+      make ~args ~sig':( Module (mkforeign [] raw) ::
+                        [Ast preambule])
+        []  name in
+    let lib = add [branch'] (Module ext_m) lib in
+    generate_core (fun x -> x) dict registry [branch';name]
+      (items, lib)
 
-let generate_extensions dict registry extensions =
-  let exts = List.fold_left (classify_extension dict) M.empty extensions in
-  let gen_branch name exts acc =
-    let submodules =
-      List.fold_left (generate_subextension dict registry name) [] exts in
+let generate_extensions dict registry extensions lib =
+  let exts =
+    List.fold_left (classify_extension dict) M.empty extensions in
+  let gen_branch name exts lib =
+    List.fold_left (generate_subextension dict registry name)
+      lib exts in
+(*    in
     Module ( normalize @@ make ~sig':submodules [vk]
              @@ L.simple [name])
-    :: acc in
-   M.fold gen_branch exts []
+      :: acc in*)
+   M.fold gen_branch exts lib
 
 let filter_extension dict registry name0 =
   let name = L.make dict name0 in
@@ -474,7 +493,7 @@ let generate root preambule dict (spec:Info.Typed.spec) =
         item [%str include Builtin_types]
           [%sig: include (module type of Builtin_types) open Unsigned ]
       ] in
-    core_submodules
+    core_submodules [vk]
     @ [ Module (make ~sig' [vk] types) ] in
   let items =
        S.of_list
@@ -482,11 +501,10 @@ let generate root preambule dict (spec:Info.Typed.spec) =
     @@ List.map fst
     @@ M.bindings registry in
   let content =
-    normalize @@ generate_core dict registry (items, make ~sig':submodules [] vk) in
-  let content =
-    { content with
-      sig' = content.sig'
-                   @ generate_extensions dict registry spec.extensions
-    } in
+    normalize
+    @@ generate_extensions dict registry spec.extensions
+    @@ generate_core
+      ( fun path -> path @ [core] )
+      dict registry [] (items, make ~sig':submodules [] vk) in
   { root; preambule; result = result_info dict registry; content;
     builtins = builtins dict}
