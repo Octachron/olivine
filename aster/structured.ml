@@ -17,14 +17,23 @@ let unique, reset_uid = C.id_maker ()
 let of_int = L.simple ["of"; "int"]
 let to_int = L.simple ["to"; "int"]
 
+let ($) f x = [%expr [%e f] [%e x] ]
+
+let tn = ident @@ lid  @@ "ctype"
+let tn0 = ident @@ lid  @@ "view"
+
+let normalize_ty_name ctx name = match ctx.B.?(name) with
+  | Some Bitfields _ -> Bitset.set_name name
+  | _ -> name
+
 let rec ty_of_int ctx ty x =
   match ty with
   | Ty.Option t -> [%expr Some [%e ty_of_int ctx t x]]
   | Name t ->
-    [%expr
-      [%e ident@@Inspect.prefix ~root:t varpath ~par:[t] ctx of_int]
-        [%e x]
-    ]
+    let f = ident @@
+      Inspect.prefix varpath ~name:of_int ctx
+      @@ normalize_ty_name ctx t in
+    f $ x <?> "ty_of_int"
   | _ -> x <?> "Ty_of_int failure?"
 
 let rec int_of_ty ctx var = function
@@ -32,10 +41,10 @@ let rec int_of_ty ctx var = function
   | Option t -> int_of_ty ctx [%expr Vk__helpers.unwrap [%e var]] t
   | Name t when L.to_path t = ["uint32";"t"] -> var
   | Name t ->
-    [%expr
-      [%e ident@@Inspect.prefix ~root:t varpath ~par:[t] ctx to_int]
-        [%e var]
-    ]
+    let f = ident
+      @@ Inspect.prefix varpath ~name:to_int ctx
+      @@ normalize_ty_name ctx t in
+    f $ var <?> "Structured int_of_ty"
   | _ -> raise @@ Invalid_argument "Invalid Structured.int_of_ty ty"
 
 
@@ -81,7 +90,7 @@ let sfield types (name,t) =
   conv = Type.converter types false t in
   let ty = Type.mk ~raw_type:true ~decay_array:Dyn_array types t in
   item
-    [%stri let [%p pat var name] = Ctypes.field t [%e string str] [%e conv] ]
+    [%stri let [%p pat var name] = Ctypes.field [%e tn] [%e string str] [%e conv] ]
     (val' name [%type: ([%t ty] , t) Ctypes.field])
 
 let addr_i = item
@@ -90,14 +99,15 @@ let addr_i = item
 
 
 let unsafe_make_i = item
-    [%stri let unsafe_make () = Ctypes.make t ]
+    [%stri let unsafe_make () = Ctypes.make [%e tn] ]
     (val' ~:"unsafe_make" [%type: unit -> t ])
 
 
+let tymod n = L.simple [Fmt.strf "Vk__Types__%a" L.pp_module n]
+
 let pretyp ctx n x =
-  let q =
-  if Inspect.in_types ctx then [n] else [L.simple ["Vk__types"];n] in
-  ident @@ qualify q x
+  let q = tymod n in
+  ident @@ qualify [q] x
 
 let unsafe_make ctx n =
   [%expr [%e pretyp ctx n "unsafe_make"] () ]
@@ -131,19 +141,17 @@ let rec get_path ctx f = function
 
 let imay f x = [%expr Vk__helpers.may [%e f] [%e x] ]
 
-let rec oint_of_ty var = function
-  | Ty.Ptr t -> oint_of_ty [%expr Ctypes.(!@) [%e var]] t
+let rec oint_of_ty ctx var = function
+  | Ty.Ptr t -> oint_of_ty ctx [%expr Ctypes.(!@) [%e var]] t
   | Option t ->
     let v = unique "i" in
-    imay [%expr fun [%p v.p] ->[%e oint_of_ty v.e t]] var
-  | Name t when L.to_path t = ["uint32";"t"] -> var
-  | Name t -> [%expr [%e ident @@ qn (C.module_name t) "to_int"][%e var] ]
-  | _ -> raise @@ Invalid_argument "Invalid Printers.Fn.to_int ty"
+    imay [%expr fun [%p v.p] ->[%e oint_of_ty ctx v.e t]] var
+  | ty -> int_of_ty ctx var ty
 
 let int_of_path ?(conv=true) ctx get_field pty =
   let p = get_path ctx get_field pty in
   if conv then
-    oint_of_ty p (Inspect.last_type pty)
+    oint_of_ty ctx p (Inspect.last_type pty)
   else p
 
 let tuple =
@@ -183,7 +191,7 @@ let union types (n,ty) =
   reset_uid ();
   let u = unique "x" and r = unique "res" in
   item [%stri let [%p pat var n] = fun [%p u.p] ->
-      let [%p r.p] = Ctypes.make t in
+      let [%p r.p] = Ctypes.make [%e tn] in
       [%e setf r.e (varname n) u.e ]; [%e r.e]
   ]
     (val' n [%type: [%t Type.mk types ty] -> t ])
@@ -196,7 +204,7 @@ let type_field types typename = function
   | Array_f { array = _, ty; _ } -> Type.mk types  ty
   | Record_extension _ -> typ L.(typename//"ext")
 
-let const x = varpath ~par:[L.simple["Vk__const"]] x
+let const x = varpath ~par:[L.simple["Vk__Const"]] x
 
 let getter typename types fields field =
   reset_uid ();
@@ -294,11 +302,11 @@ let set types typ r field value =
   let setf f x = setf r f x in
   match field with
   | Ty.Simple(f, (Ptr Name t | Const Ptr Name t)) when Inspect.is_record types t ->
-    setf (varname f) (C.addr value.e)
+    setf (varname f) (C.addrf types t $  value.e)
   | Ty.Simple(f, (Option (Const Ptr Name t | Ptr Name t)
                  | Const Option(Const Ptr Name t | Ptr Name t))) when
       Inspect.is_record types t ->
-    setf (varname f) (imay [%expr Ctypes.addr] value.e)
+    setf (varname f) (imay (C.addrf types t) value.e)
   | Ty.Simple(f, Array(Some (Lit n), t)) when Inspect.is_char t ->
     setf (varname f)
       (convert_string (int.e n) value.e)
@@ -334,7 +342,9 @@ let set types typ r field value =
 
 let rec printer types t =
   let printer = printer types in
-  let pp module' = ident @@ (qn module') "pp" in
+  let pp module' =
+    ident @@
+    Inspect.prefix varpath types ~name:(~:"pp") module' in
   let abstract = [%expr Vk__helpers.Pp.abstract] in
   match t with
   | Ty.Name t ->
@@ -363,7 +373,7 @@ let rec sseq sep map = function
 
 let pp types fields =
   let u = unique "x" in
-  let with_pf x = [%expr let pf ppf = Std.Format.fprintf ppf in [%e x]  ] in
+  let with_pf x = [%expr let pf ppf = Format.fprintf ppf in [%e x]  ] in
   let pp_f (name,ty) =
     let fmt = string @@ varname name ^ "=%a" in
     [%expr pf ppf [%e fmt] [%e printer types ty]
@@ -371,9 +381,9 @@ let pp types fields =
   let def x =
     item
       [%stri let pp ppf = fun [%p u.p] ->
-          let pf ppf = Std.Format.fprintf ppf in
+          let pf ppf = Format.fprintf ppf in
           pf ppf "@[{@ "; [%e with_pf x] ]
-      (val' ~:"pp"[%type: Std.Format.formatter -> t -> unit])
+      (val' ~:"pp"[%type: Format.formatter -> t -> unit])
   in
   let pp_field (field:Ty.field) = match field with
     | Record_extension _ -> [%expr pf ppf "ext=⟨unsupported⟩"]
@@ -401,7 +411,7 @@ let keep_alive exprs owner body =
 
 
 let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
-  let seal = hidden [%stri let () = Ctypes.seal t] in
+  let seal = hidden [%stri let () = Ctypes.seal [%e tn] ] in
   match kind with
   | Union -> module' inner (structure @@ imap (sfield types) fields) ^:: seal
   | Record ->
@@ -426,8 +436,12 @@ let def types (_,kind as tk) name fields =
   hidden [%stri type mark ]
   @* item [%stri type t = [%t kind_cstr kind [%type:mark] ] ] [%sigi: type t]
   ^:: item
-    [%stri let t: t Ctypes.typ = [%e ke kind] [%e string @@ typestr name] ]
-    (val' ~:"t" [%type: t Ctypes.typ])
+    [%stri let view: t Ctypes.typ =
+             [%e ke kind] [%e string @@ typestr name] ]
+    (val' ~:"view" [%type: t Ctypes.typ])
+ ^:: item
+    [%stri let ctype = view ]
+    (val' ~:"ctype" [%type: t Ctypes.typ])
   ^:: def_fields tk types fields
   @* addr_i
   ^:: unsafe_make_i ^:: nil
@@ -443,8 +457,8 @@ let array =
   let keep = keep_alive [array.e] input.e array.e in
   item
     [%stri let array = fun [%p input.p] ->
-        let [%p array.p] = Ctypes.CArray.of_list t [%e input.e] in
-        [%e keep]
+        let [%p array.p] = Ctypes.CArray.of_list [%e tn] [%e input.e]
+        in [%e keep]
     ]
     (val' ~:"array" [%type: t list -> t Ctypes.CArray.t ] )
 
@@ -456,21 +470,25 @@ let construct types tyname fields =
   let keep_alive =
     keep_alive (List.fold_left (keep_field_alive m) [] fields) res.e in
   let body =
-    [%expr let [%p res.p] = Ctypes.make t in
+    [%expr let [%p res.p] = Ctypes.make [%e tn] in
       [%e keep_alive @@ seq set fields res.e ]
     ] in
   item [%stri let make = [%e fn body]]
     (val' ~:"make" @@
      Type.fn types ~regular_struct:true ~with_label:true tyname fields [%type: t])
 
+let raw = L.(~:"Raw")
+
 let make (type a) types (kind: a kind) (name, fields: _ * a list) =
   let records = match kind with
     | Union -> imap (union types) fields
     | Record -> construct types name fields ^:: nil in
-  module' name
-    (structure @@ def types (name,kind) name fields @* array ^:: records)
-  ^:: item
-    [%stri let [%p pat var name] = [%e ident @@ qn name "t"]]
-    (val' name @@ [%type: [%t typ ~par:[name] ~:"t"] Ctypes.typ])
-  ^::  C.extern_type name
+  def types (name,kind) name fields
+  @* array ^:: records
+(*  ^:: item
+    [%stri let view = [%e ident @@ qn raw "t"]]
+    (val' L.(~:"view") @@
+     [%type: [%t typ ~par:[raw] ~:"t"] Ctypes.typ])
+  ^::  C.extern_type raw
   ^:: nil
+*)

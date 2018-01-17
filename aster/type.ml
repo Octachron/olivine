@@ -9,13 +9,21 @@ open Aliases
 open Utils
 
 
-let typ ?par = Inspect.prefix typ ?par
-let tyvar ?par = Inspect.prefix ~prim:[L.simple ["Ctypes"]] tyvar ?par
+let typ ?par ?name = Inspect.prefix typ ?par ?name
+let tyvar ?(post=[]) ?par types name =
+  let name, post = match types.B.?(name) with
+    | Some Bitfields _ ->
+      Bitset.set_name name, "index" :: "ctype" :: post
+    | _ -> name, "ctype" :: post in
+  Inspect.prefix
+    ~name:(L.simple post)
+    ~prim:[L.simple ["Ctypes"]] tyvar ?par
+    types name
 
-let const = ident % qualify L.[simple ["Vk__const"] ] % varname
+let const = ident % qualify L.[simple ["Vk__Const"] ] % varname
 
 let rec converter types ~degraded x =
-  let tyvar = tyvar types in
+  let tyvar ?post = tyvar ?post types in
   let make = converter types ~degraded in
   match x with
   | Ty.Const t -> make t
@@ -23,7 +31,7 @@ let rec converter types ~degraded x =
   | Ptr Name n | Ptr Const Name n ->
     [%expr Ctypes.ptr [%e tyvar n]]
   | Ptr ty -> [%expr Ctypes.ptr [%e make ty] ]
-  | Option Name n -> tyvar L.(n//"opt")
+  | Option Name n -> tyvar ~post:["opt"] n
   | Option (Ptr typ) -> [%expr Ctypes.ptr_opt [%e make typ] ]
   | Option Array (Some Const n ,typ) when not degraded ->
     [%expr Vk__helpers.array_opt [%e (var n).e] [%e make typ] ]
@@ -61,25 +69,20 @@ let rec mk
   let mk ?(regular_struct=false) ?(strip_option=false) =
     mk ~raw_type ~decay_array ~regular_struct ~mono ~strip_option
       types in
-  let typ ?par = typ ?par types in
+  let typ ?par ?name = typ ?par ?name types in
   match t with
   | Ty.Const t -> mk ~regular_struct ~strip_option t
   | Ptr Name n when regular_struct && Inspect.is_record types n ->
-    [%type: [%t typ n]]
+    typ n
   | Name n ->
-    let t = [%type: [%t typ n]] in
-    let pre =
-      if Inspect.in_types types then [] else
-      [L.simple ["Vk__types"]] in
+    let t = typ n in
     begin match B.find_type n types with
       | None -> t
       | Some Ty.Bitfields _ ->
-        let par = pre @ [Bitset.set_name n] in
-        typ ~par ~:"index"
+        let root = Bitset.set_name n in
+        typ ~name:(~:"index") root
+      | Some Bitset _ when mono -> typ n
       | Some Bitset _ ->
-        if mono then
-          typ ~par:(pre @ [n]) ~:"t"
-        else
           H.Typ.constr (nloc @@ lid (modname n)/"set") [[%type: 'a]]
       | Some _ -> t
     end
@@ -103,8 +106,10 @@ let rec mk
   | Array (_, ty) ->
     [%type: [%t mk ty] Ctypes.CArray.t ]
   | Result {ok;bad} ->
-    let ok = polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) ok in
-    let bad = polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) bad in
+    let ok =
+      polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) ok in
+    let bad =
+      polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) bad in
     [%type: ([%t ok], [%t  bad]) Pervasives.result ]
   | Record_extensions _ -> [%type: unit Ctypes.ptr ]
   (* ^FIXME^?: better typing? *)

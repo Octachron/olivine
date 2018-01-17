@@ -1,4 +1,4 @@
-true: warn(A-44-42-45-40-4-41-6-48-30@8)
+true: warn(A-44-42-45-40-4-41-6-48-30@8-49)
 true: no_alias_deps
 true: bin_annot
 true: strict_sequence

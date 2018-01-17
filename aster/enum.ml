@@ -22,18 +22,18 @@ let constr (_,name_0) (c, _) =
   let name = if name = L.mu then name_0 else name in
   Fmt.strf "%a" L.pp_constr name
 
-let def_std name constrs =
+let def_std tn name constrs =
   let constr c = let n = constr (Std,name) c in
     H.Type.constructor (nloc n) in
-  variant "t" @@ List.map constr constrs
+  variant tn @@ List.map constr constrs
 
-let def_poly name constrs =
+let def_poly tn name constrs =
   let constr c = constr (Poly,name) c in
-  polyvariant (nloc "t") @@ List.map (fun x -> nloc (constr x)) constrs
+  polyvariant (nloc tn) @@ List.map (fun x -> nloc (constr x)) constrs
 
-let def (impl,name) = match impl with
-  | Std -> def_std name
-  | Poly -> def_poly name
+let def tn (impl,name) = match impl with
+  | Std -> def_std tn name
+  | Poly -> def_poly tn name
 
 let case pair ty (_, p as c) =
   match p with
@@ -76,70 +76,84 @@ let pp opn pre ty constrs =
       Exp.case (cstr.p s) (string s) in
     Exp.match_ x.e (List.map case constrs) in
   item
-    [%stri let [%p pp] = fun ppf [%p x.p] -> Std.Format.pp_print_string ppf [%e m]]
-    (val' ~:(pre ^ "pp") [%type: Std.Format.formatter -> [%t opn] -> unit])
+    [%stri let [%p pp] = fun ppf [%p x.p] -> Format.pp_print_string ppf [%e m]]
+    (val' ~:(pre ^ "pp") [%type: Format.formatter -> [%t opn] -> unit])
+
+let vn = "ctype"
 
 let view =
-  item [%stri let view = Ctypes.view ~write:to_int ~read:of_int Ctypes.int]
-    (val' ~:"view" [%type: t Ctypes.typ])
+  item [%stri let ctype =
+                Ctypes.view ~write:to_int ~read:of_int Ctypes.int]
+    (val' ~:vn [%type: t Ctypes.typ])
 
 let view_result =
   item
-    [%stri let view = Vk__result.view  ~ok:(of_int,to_int) ~error:(of_int,to_int)]
-    (val' ~:"view" [%type: (t,t) result Ctypes.typ])
+    [%stri let ctype =
+             Vk__result.view
+               ~ok:(of_int,to_int)
+               ~error:(of_int,to_int)
+    ]
+    (val' ~:vn [%type: t Ctypes.typ])
 
 let pp_result =
   item [%stri let pp = Vk__result.pp raw_pp]
-    (val' ~:"pp" [%type: Std.Format.formatter -> (t,t) result -> unit])
+    (val' ~:"pp" [%type: Format.formatter -> t -> unit])
+
+let somenone =
+  item [%str
+    let none = None
+    let some x = Some x
+   ]
+  []
 
 let view_opt =
   item
-    [%stri let view_opt =
+    [%stri let ctype_opt =
              let read x = if x = max_int then
-                 Std.None
-               else Std.Some(of_int x) in
-             let write = function Std.None -> max_int
-                                | Std.Some x -> to_int x in
+                 none
+               else some(of_int x) in
+             let write: _ option -> _ = function None -> max_int
+                                | Some x -> to_int x in
              Ctypes.view ~read ~write Ctypes.int
     ]
-    (val' ~:"view_opt" [%type: t option Ctypes.typ])
+    (val' (L.simple [vn; "opt"]) [%type: t option Ctypes.typ])
 
 let view_result_opt =
   item
-    [%stri let view_opt =
-             let read x = if x = max_int then Std.None
-               else if x < 0 then Std.Some(Error(of_int x))
-               else Std.Some(Ok(of_int x))
+    [%stri let ctype_opt =
+             let read x = if x = max_int then none
+               else if x < 0 then some(Error(of_int x))
+               else some(Ok(of_int x))
              in
-             let write = function
-               | Std.None -> max_int
-               | Std.Some (Error x| Ok x) -> to_int x in
+             let write: _ option -> _ = function
+               | None -> max_int
+               | Some (Error x| Ok x) -> to_int x in
              Ctypes.view ~read ~write Ctypes.int
     ]
-    (val' ~:"view_opt" [%type: (t,t) result option Ctypes.typ])
+    (val' (L.simple [vn; "opt"]) [%type: t option Ctypes.typ])
 
 
-let extern_type name =
-  if Inspect.is_result_name name then
-    item [%str type nonrec result = (Result.t,Result.t) result ]
-      [%sig: type nonrec result = (Result.t,Result.t) result ]
-  else
-    C.extern_type name ^:: nil
+let extern_result =
+    item [%stri type t = (core,core) result ]
+      [%sigi: type t = (core,core) result ]
+(*
+      C.extern_type L.(~:"Raw") ^:: nil
+*)
 
 let make impl (name,constrs) =
   let is_result = Inspect.is_result_name name in
-  let f = if is_result then (fun t -> [%type: ([%t t],[%t t]) result])
-    else (fun t -> t) in
   let pre = if is_result then "raw_" else "" in
   let ty = impl, name in
-  let opn = if is_result then [%type: [< t]] else [%type: t] in
-  let cl = if is_result then [%type: [> t]] else [%type:t] in
-  let str =
-    def ty constrs
+  let opn = if is_result then [%type: [< core]] else [%type: t] in
+  let cl = if is_result then [%type: [> core]] else [%type:t] in
+  let tn = if is_result then "core" else "t" in
+    somenone
+    @* def tn ty constrs
     ^:: to_int opn ty constrs
     ^:: of_int cl ty constrs
     ^:: pp opn pre ty constrs
-    ^:: (if is_result then pp_result ^:: view_result ^:: view_result_opt ^:: nil
-         else view ^:: view_opt ^:: nil ) in
-  let m = module' name @@ structure str in
-  m ^:: C.views ~f name @* extern_type name
+    ^:: (if is_result then
+           extern_result ^:: pp_result ^:: view_result
+           ^:: view_result_opt ^:: nil
+         else view ^:: view_opt ^:: nil
+        )

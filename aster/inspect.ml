@@ -43,8 +43,8 @@ let typeclass name (ctx:B.context) =
     match B.find_type name ctx,
           B.Name_set.mem name ctx.builtins
     with
-    | Some _, _ -> B.Typedef
-    | None, true -> B.Builtin
+    | _ , true -> B.Builtin
+    | Some _, false -> B.Typedef
     | None, false -> B.Prim
 
 
@@ -54,23 +54,23 @@ let vk_prefix ctx name =
   else
     "Vk__" ^ name
 
-let prefix ?(prim=[]) ?root tyvar ?(par=[]) ctx name =
-  let rootname = match root with
-    | None -> name
-    | Some x -> x in
+let (~:) = L.(~:)
+let bty = ~: "Builtin_types"
+
+let prefix ?(prim=[]) ?(name= ~:"t") tyvar ?(par=[]) ctx rootname =
   match typeclass rootname ctx with
-  | B.Typedef when not (in_types ctx) ->
-    tyvar ?par:(Some(L.simple ["Vk__types"]::par)) name
-  | Typedef ->
-     tyvar ?par:(Some par) name
+  | B.Typedef ->
+    tyvar
+      ?par:(Some((U.tymod rootname)::par)) name
   | B.Builtin ->
     tyvar
-      ?par:(Some(L.simple ["Builtin_types"] :: par)) name
+      ?par:(Some(bty :: rootname :: par))
+      name
   | B.Result ->
     tyvar
-      ?par:(Some(L.simple ["Vk__subresult"]::par)) name
+      ?par:(Some(~:"Vk__Subresult"::par)) name
   | B.Prim ->
-    tyvar ?par:(Some(prim @ par)) name
+    tyvar ?par:(Some(prim @ par)) rootname
 
 
 let is_ptr_option = function

@@ -17,14 +17,7 @@ let bit_name name =
     | a :: q -> a :: bitname q in
   L.{ name with postfix = bitname name.postfix }
 
-let set_name name =
-  let rec rename = function
-    |  "bits" :: "flag" :: q ->
-      "flags" :: q
-    | [] ->
-      raise @@ Invalid_argument "empty bitset name []"
-    | a :: q -> a :: rename q in
-  L.{ name with postfix = rename name.postfix }
+let set_name = bitset_core_name
 
 let value_name set_name name =
   L.remove_context set_name name
@@ -52,24 +45,34 @@ let pp set (fields,_) =
     [%expr [%e ex var name], [%e string (varname name)]] in
   let l = C.listr (fun x l -> [%expr [%e x] :: [%e l] ]) field fields [%expr []] in
   item [%stri let pp x = pp_tags [%e l] x]
-    [%sigi: val pp: Std.Format.formatter -> 'a set -> unit]
+    [%sigi: val pp: Format.formatter -> 'a set -> unit]
 
 let resume bitname name =
+  let inner = ~:"Bitset" in
   let index_view b ty n =
     let v = Pat.var (nloc b) and e = ident (qn name n) in
     item [%stri let [%p v] = [%e e ]]
       (val' ~:b [%type: [%t ty] Ctypes.typ ]) in
   let ty = typ ~par:[name] ~:"index" in
-  C.extern_type name ^:: C.views name
-  @* index_view bitname ty "index_view"
-  ^:: index_view (bitname^"_opt") [%type: [%t ty] option] "index_view_opt"
+  C.extern_type inner ^:: C.views inner
+  @* index_view bitname ty "index_ctype"
+  ^:: index_view (bitname^"_opt") [%type: [%t ty] option]
+    "index_ctype_opt"
   ^:: nil
 
 let make_extended (bitname, fields) =
   let name = set_name bitname in
   let core_name = let open L in
-    { name with postfix = List.filter (fun x -> x <> "flags") name.postfix }
+    { name with postfix =
+                  List.filter (fun x -> x <> "flags") name.postfix }
   in
+  let values = values core_name fields in
+  item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
+  ^:: values
+  @* pp core_name fields ^:: nil
+
+
+  (*
   let values = values core_name fields in
     (module' name @@ structure @@
      item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
@@ -77,11 +80,10 @@ let make_extended (bitname, fields) =
 @* pp core_name fields ^:: nil
 )
 ^:: resume (varname bitname) name
-
+*)
 let make (name,opt) =
-  let bitname = bit_name name in
+  let _bitname = bit_name name in
   match opt with
   | Some _ -> nil
   | None ->
-    make_genf name "Bitset"
-    ^:: resume (varname bitname) name
+    item [%str include Bitset.Make()] [%sig: include Bitset.S ]

@@ -36,7 +36,7 @@ let constr =
   and e x var = Exp.construct (n x) (Some var) in
   {e; p}
 
-let flag x = (lid "Structure_type") /  mkconstr x
+let flag x = qn (Utils.tymod (~:"Structure_type")) (mkconstr x)
 let str = ident % flag
 let strp x = Pat.construct (nloc @@ flag x) None
 

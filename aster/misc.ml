@@ -12,28 +12,47 @@ open Utils
 
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
+
+let builtin = "Builtin_types"
+let builtin' = L.(~:builtin)
+
+let view = L.(~:"view")
 let alias {B.builtins;_} (name,origin) =
-  if not @@ B.Name_set.mem name builtins then
+  if not @@ B.Name_set.mem name builtins then begin
+    B.Name_set.iter (fun n ->
+        Format.eprintf "Builtin type: %a@." L.full_pp n)
+      builtins;
+    Format.eprintf "Alias %a@." L.full_pp name;
     let sign =
       let constraint' =
-        H.Type.mk ~manifest:(typ ~par:[origin] ~:"t") (nloc "x") in
-      H.Mty.(with_ (ident @@ nlid "alias")
-               [P.Pwith_typesubst (nloc (Longident.Lident "x"), constraint')] ) in
-    let t = typ ~par:[name] ~:"t" in
-    ( module' name @@
-      item
-        H.Mod.(apply (ident (nlid "Alias"))
-                 (ident @@ nlid @@ modname origin))
+        H.Type.mk ~manifest:(typ ~par:[~:builtin; origin] ~:"t")
+          (nloc "x") in
+      H.Sig.include_ @@ H.Incl.mk @@
+      H.Mty.(with_ (ident  @@ nloc @@
+                    Longident.( Ldot(Lident builtin,
+                                     "alias") ) )
+               [P.Pwith_typesubst (nloc (Longident.Lident "x"),
+                                   constraint')] ) in
+    let _t = typ ~par:[name] ~:"t" in
+    let str = include' @@
+      H.Mod.(apply
+               (ident @@ nloc @@ qualify [builtin'] "Alias")
+               (ident @@ nloc @@ modpath ~par:L.[~:builtin] origin)
+            ) in
+    item [str] [sign]
+(*
         sign
     )
     ^:: C.extern_type name
     ^:: item
-      [%stri let [%p pat var name] = [%e ident @@ qn name "ctype"] ]
-      (val' name [%type: [%t t] Ctypes.typ])
+      [%stri let view = [%e ident @@ qn name "ctype"] ]
+      (val' view [%type: [%t t] Ctypes.typ])
     ^:: item
-      [%stri let [%p pat var L.(name//"opt")] = integer_opt [%e packed name] ]
-      (val' L.(name//"opt") [%type: [%t t] option Ctypes.typ])
-    ^:: nil
+      [%stri let view_opt =
+               Builtin_types.integer_opt [%e packed name] ]
+      (val' L.(view//"opt") [%type: [%t t] option Ctypes.typ])
+    ^:: nil *)
+  end
   else
     nil
 

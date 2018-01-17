@@ -38,7 +38,7 @@ let typename n = lid(typestr n)
 
 let varpath ?(par=[]) n = qualify par @@ varname n
 let typepath ?(par=[]) n = qualify par @@ typestr n
-
+let modpath ?(par=[]) n = qualify par @@ modname n
 
 let ident x = Exp.ident (nloc x)
 
@@ -69,6 +69,18 @@ let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
 let any = { p = [%pat? _ ]; e = [%expr ()] }
 let typexp n = [%expr [%e typename n]]
 let tyvar ?(par=[]) n = ident @@ qualify par (typestr n)
+
+let vk = L.(~: "vk")
+let tym = L.(~: "types")
+
+let cat_path path =
+  L.(~:) @@
+  Fmt.strf "%a"
+    (Fmt.list ~sep:(fun ppf () -> Fmt.pf ppf "__") L.pp_module)
+    path
+
+let tymod n = cat_path [vk;tym;n]
+
 let var n =
   let s = varname n in
   { p = Pat.var (nloc s);
@@ -125,6 +137,18 @@ let make_genf ?(suffix="") name f =
     H.Mod.(apply (ident @@ nloc @@ lid f/("Make" ^ suffix)) @@ structure [])
     H.Mty.(ident (nloc @@ lid f/("S"^suffix)))
 
+let include_genf ?(suffix="") name f =
+  item
+    [include' @@
+     H.Mod.(apply (ident @@ nloc @@ lid f/("Make" ^ suffix))
+            @@ structure [])
+    ]
+    [
+      H.Sig.include_ @@ H.Incl.mk @@
+      H.Mty.(ident (nloc @@ lid f/("S"^suffix)))
+    ]
+
+
 let variant name constrs =
   decltype ~kind:(P.Ptype_variant constrs) name
 
@@ -154,3 +178,12 @@ let  (<?>) (exp:Parsetree.expression) msg =
     (fun msg -> { exp with pexp_attributes = [info msg] }
     ) msg
 let (<?:>) ty msg = { ty with Parsetree.ptyp_attributes = [info msg] }
+
+let bitset_core_name name =
+  let rec rename = function
+    |  "bits" :: "flag" :: q ->
+      "flags" :: q
+    | [] ->
+      raise @@ Invalid_argument "empty bitset name []"
+    | a :: q -> a :: rename q in
+  L.{ name with postfix = rename name.postfix }

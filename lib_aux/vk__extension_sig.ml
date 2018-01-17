@@ -1,6 +1,5 @@
-open Vk__types
-module type Device = sig val x: device end
-module type Instance = sig val x: instance end
+module type Device = sig val x: Vk__Types__Device.t end
+module type Instance = sig val x: Vk__Types__Instance.t end
 
 module type extension = sig
   val foreign: string -> ('a -> 'b) Ctypes.fn -> 'a -> 'b
@@ -11,7 +10,7 @@ module Foreign_device(X:Device): extension = struct
     let name = name in
     let open Ctypes in
     coerce (ptr void) (Foreign.funptr typ) @@
-    Vk__core.get_device_proc_addr X.x name
+    Vk__Core.get_device_proc_addr X.x name
 end
 
 module Foreign_instance(X:Instance): extension = struct
@@ -19,5 +18,5 @@ module Foreign_instance(X:Instance): extension = struct
     let name = name in
     let open Ctypes in
     coerce (ptr void) (Foreign.funptr typ) @@
-    Vk__core.get_instance_proc_addr (Some X.x) name
+    Vk__Core.get_instance_proc_addr (Some X.x) name
 end

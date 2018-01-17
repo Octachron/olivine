@@ -1,5 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
+module Bt = Builtin_types
 module Vkh = Vk__helpers
 module Vkc = Vk.Core
 
@@ -296,7 +297,7 @@ module Image = struct
     Device.capabilities#. current_extent
 
   let swap_chain_info =
-    let qfi = A.of_list Vkt.uint_32_t [0] in
+    let qfi = A.of_list Bt.uint_32_t [0] in
     Vkt.Swapchain_create_info_khr.make
       ~surface: surface_khr
       ~min_image_count: image_count
@@ -354,7 +355,7 @@ module Image = struct
     let create im =
       create_view device aspect format im
       <?> "Creating image view" in
-    A.map Vkt.image_view create images
+    A.map Vkt.Image_view.ctype create images
 
 end
 
@@ -851,8 +852,8 @@ module Uniform = struct
          constructors of a sum type:
          descriptor_type is the sum flag, and only on of  *)
       ~buffer_info
-      ~texel_buffer_view:(empty_array Vkt.buffer_view)
-      ~image_info:(empty_array Vkt.descriptor_image_info) ();
+      ~texel_buffer_view:(empty_array Vkt.Buffer_view.ctype)
+      ~image_info:(empty_array Vkt.Descriptor_image_info.ctype) ();
      Vkt.Write_descriptor_set.make
         ~dst_set:(A.get descriptor_sets 0) ~dst_binding:1 ~descriptor_count:1
         ~dst_array_element:0
@@ -860,8 +861,8 @@ module Uniform = struct
       (* TODO: the three fields belows corresponds to the
          constructors of a sum type:
          descriptor_type is the sum flag, and only on of  *)
-      ~buffer_info:(empty_array Vkt.descriptor_buffer_info)
-      ~texel_buffer_view:(empty_array Vkt.buffer_view)
+      ~buffer_info:(empty_array Vkt.Descriptor_buffer_info.ctype)
+      ~texel_buffer_view:(empty_array Vkt.Buffer_view.ctype)
       ~image_info ()
       ]
 
@@ -883,7 +884,7 @@ module Pipeline = struct
       ~stride:(Geom.stride * fsize)
       ~input_rate:Vkt.Vertex_input_rate.Vertex
 
-  let attributes = A.make Vkt.vertex_input_attribute_description 2
+  let attributes = A.make Vkt.Vertex_input_attribute_description.ctype 2
 
   let geom_attribute =
     Vkt.Vertex_input_attribute_description.make
@@ -1057,9 +1058,9 @@ module Pipeline = struct
       ()
 
   let render_pass_info =
-    let attachments = A.of_list Vkt.attachment_description
+    let attachments = A.of_list Vkt.Attachment_description.ctype
         [color_description; depth_description] in
-    let subpasses = A.of_list Vkt.subpass_description [subpass] in
+    let subpasses = A.of_list Vkt.Subpass_description.ctype [subpass] in
     Vkt.Render_pass_create_info.make
       ~attachments ~subpasses ~dependencies ()
 
@@ -1074,9 +1075,9 @@ module Pipeline = struct
 
     let shader_module_info s =
       let len = String.length s in
-      let c = A.make Vkt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
+      let c = A.make Bt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
       let c' =
-        A.from_ptr Ctypes.(coerce (ptr Vkt.uint_32_t) (ptr char) @@ A.start c) len in
+        A.from_ptr Ctypes.(coerce (ptr Bt.uint_32_t) (ptr char) @@ A.start c) len in
       String.iteri (fun n x -> A.set c' n x) s;
       Vkt.Shader_module_create_info.make
         ~code_size:(Unsigned.Size_t.of_int len)
@@ -1105,7 +1106,7 @@ module Pipeline = struct
 
 
   let pipeline_info =
-    let stages = A.of_list Vkt.pipeline_shader_stage_create_info
+    let stages = A.of_list Vkt.Pipeline_shader_stage_create_info.ctype
         Shaders.[ vert_stage; frag_stage ] in
     Vkt.Graphics_pipeline_create_info.make
       ~stages
@@ -1122,7 +1123,7 @@ module Pipeline = struct
       ~base_pipeline_index: 0
       ()
 
-  let pipeline_infos = A.of_list Vkt.graphics_pipeline_create_info
+  let pipeline_infos = A.of_list Vkt.Graphics_pipeline_create_info.ctype
       [pipeline_info]
 
   let pipelines =
@@ -1218,10 +1219,10 @@ module Cmd = struct
       ~clear_values
       ()
 
-  let render_pass_infos = A.map Vkt.render_pass_begin_info
+  let render_pass_infos = A.map Vkt.Render_pass_begin_info.ctype
       render_pass_info framebuffers
   let vertex_buffers = Vkt.Buffer.array [Geom.buffer]
-  let offsets = A.of_list Vkt.device_size Vkt.Device_size.[of_int 0]
+  let offsets = A.of_list Vkt.Device_size.ctype Vkt.Device_size.[of_int 0]
   let cmd b ifmb =
     Vkc.begin_command_buffer b cmd_begin_info <!> "Begin command buffer";
     Vkc.cmd_begin_render_pass b (A.get render_pass_infos ifmb)
@@ -1260,7 +1261,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    A.of_list view [color_attachment_output]
+    A.of_list ctype [color_attachment_output]
 
   let submit_info _index (* CHECK-ME *) =
     Vkt.Submit_info.array [
@@ -1271,9 +1272,9 @@ module Render = struct
       ~signal_semaphores: sign_sems ()
   ]
 
-  let swapchains = A.of_list Vkt.swapchain_khr [Image.swap_chain]
+  let swapchains = A.of_list Vkt.Swapchain_khr.ctype [Image.swap_chain]
 
-  let present_indices = A.of_list Vkt.uint_32_t [0]
+  let present_indices = A.of_list Bt.uint_32_t [0]
   (* Warning need to be alive as long as present_info can be used! *)
 
   let present_info =

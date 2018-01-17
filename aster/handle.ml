@@ -1,11 +1,12 @@
 open Item
 open Utils
 open Common
+open Info.Linguistic
+
+let inner = ~:"Inner"
 
 let make ~dispatchable name =
     if dispatchable then
-      make_genf name "Handle" ^:: extern_type name ^:: views name
+      include_genf inner "Handle"
     else
-      make_genf ~suffix:"_non_dispatchable" name "Handle"
-      ^:: extern_type name
-      ^:: views name
+      include_genf ~suffix:"_non_dispatchable" inner "Handle"

@@ -31,8 +31,7 @@ Vk
 ├———— Const for constants
 │
 ├———— Types for type definitions
-│       └ Each type definition defines its own submodule
-│
+│       └ Each type definition defines its own module
 │
 ├———— Core for functions
 │
@@ -43,8 +42,7 @@ Vk
 
 # Type mapping
 
-Each type definition is mapped to a submodule with a type t.
-Externally, this type `Type_name.t` is reexported as `type_name`
+Each type definition is mapped to a module `Vk.Types.Type_name` which defines a main type `t`.
 All type definitions comes with a pretty-printer definition and
 a variety of helper functions.
 
@@ -53,11 +51,10 @@ a variety of helper functions.
 C Enums are mapped either to
 
   * Polymorphic variant for the `VkResult` type
-  * Each subset of `VkStructureType` used as a record extension is mapped to an
-open sum type
+  * Each subset of `VkStructureType` used as a record extension is mapped to an open sum type
   * Regular variants otherwise
 
-Vulkan Enum names are prefixed with the type name, olivine removes these prefixes.
+Vulkan enum names are prefixed with the type name, olivine removes these prefixes.
 
 ## Handle
 
@@ -70,8 +67,9 @@ This type distinguish supports standard set operations and distinguish
 between singleton and non-singleton values through a phantom type parameter
 
 ## Unions
-  Unions are mapped to a Ctype union type.
-  A constructor is generated for each field of the union type
+
+Unions are mapped to a Ctype union type.
+A constructor is generated for each field of the union type
 
 ## Records
 

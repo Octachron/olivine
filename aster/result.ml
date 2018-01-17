@@ -10,7 +10,7 @@ open Item
 open Utils
 
 
-let modname ctx = L.simple ["Vk__subresult"]
+let modname ctx = L.simple ["Vk__Subresult"]
 
 let expr ctx (ok,errors) =
   tyvar ~par:[modname ctx] @@ Info.Subresult.composite_nominal ok errors
@@ -36,7 +36,8 @@ let side_type ~order x =
 
 let typ ok error =
   [%type:
-    ([%t side_type ~order:Eq ok], [%t side_type ~order:Eq error]) Pervasives.result
+    ([%t side_type ~order:Eq ok], [%t side_type ~order:Eq error])
+      Pervasives.result
       Ctypes.typ
   ]
 
@@ -44,8 +45,10 @@ let typ ok error =
     let constrs =
       List.map (fun name -> name, T.Abs (find name m)) lbls in
     module' name @@ structure @@
-    Enum.( of_int (side_type ~order:Greater lbls) (Poly,name) constrs ^::
-           to_int (side_type ~order:Lesser lbls) (Poly,name) constrs ^:: nil
+    Enum.( of_int (side_type ~order:Greater lbls) (Poly,name) constrs
+           ^:: to_int (side_type ~order:Lesser lbls) (Poly,name)
+             constrs
+           ^:: nil
          )
 
   let make m (name,ok,error) = match ok, error with

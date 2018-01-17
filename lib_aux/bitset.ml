@@ -28,10 +28,10 @@ module type S = sig
 
   val of_int: int -> 'a set
   val to_int: 'a set -> int
-  val view: t Ctypes.typ
-  val view_opt: t option Ctypes.typ
-  val index_view: index Ctypes.typ
-  val index_view_opt: index option Ctypes.typ
+  val ctype: t Ctypes.typ
+  val ctype_opt: t option Ctypes.typ
+  val index_ctype: index Ctypes.typ
+  val index_ctype_opt: index option Ctypes.typ
 
   val pp_tags: (index * string) list -> Format.formatter -> 'a set -> unit
   val pp: Format.formatter -> t -> unit
@@ -67,16 +67,16 @@ module Make(): S = struct
   let of_int n = n
   let to_int n = n
   let id x = x
-  let view = Ctypes.view id id Ctypes.int
+  let ctype = Ctypes.view id id Ctypes.int
 
-  let view_opt =
+  let ctype_opt =
     let read x = if x = 0 then None else Some x in
     let write = function None -> 0 | Some x -> x in
     Ctypes.view read write Ctypes.int
 
-  let index_view = Ctypes.view id id Ctypes.int
+  let index_ctype = Ctypes.view id id Ctypes.int
 
-  let index_view_opt =
+  let index_ctype_opt =
     let read x = if x = 0 then None else Some x in
     let write = function None -> 0 | Some x -> x in
     Ctypes.view read write Ctypes.int

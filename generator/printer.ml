@@ -32,7 +32,12 @@ let print side f ppf x =
   | Str -> I.(str f ppf @@ str x)
   | Sig -> I.(sg f ppf @@ sg x)
 
+module Atlas_set =
+  Set.Make(struct type t = L.name list let compare = compare end)
 
+let delim = Atlas_set.(
+    empty |> add L.[~:"vk"] |> add  L.[ ~:"vk"; ~:"types" ]
+  )
 
 let type_to_ast ctx (name,ty) =
   match ty with
@@ -51,7 +56,9 @@ let type_to_ast ctx (name,ty) =
     if not @@ is_bits name then
       begin
         let is_result = name.main = ["result"] in
-        let kind = if is_result then Aster.Enum.Poly else Aster.Enum.Std in
+        let kind =
+          if is_result then Aster.Enum.Poly
+          else Aster.Enum.Std in
         Aster.Enum.make kind (name,constrs)
       end
     else I.nil
@@ -60,15 +67,6 @@ let type_to_ast ctx (name,ty) =
   | Record_extensions _ -> (* FIXME *)
     assert false
 
-
-(*
-let pp_open ppf m =
-  if m.B.args = [] then
-    Fmt.pf ppf "open %a@." L.pp_module m.B.name
-
-
-let space ppf () = Fmt.pf ppf "@;"
-*)
 
 let rec item_to_ast current (lib:B.lib) item =
   let types = match B.find_module B.types lib.content.sig' with
@@ -92,45 +90,76 @@ and module_to_ast path lib (m:B.module') =
    @@ I.fold_map (item_to_ast (m.name::path) lib) m.sig')
   m.args
 
-let atlas ppf modules =
-  let pp_alias ppf (m:B.module') =
-    Fmt.pf ppf "module %a = Vk__%a@;"
-      L.pp_module m.name L.pp_var m.name
-  in
-  Fmt.pf ppf "@[<v>%a@]@." (Fmt.list pp_alias) modules
-
-let atlas ppfs modules =
-  atlas ppfs.I.structure modules;
-  atlas ppfs.I.signature modules
+let pp_concrete_name =
+  Fmt.list
+    ~sep:(fun ppf () -> Fmt.pf ppf "__" )
+    L.pp_module
 
 let rec submodules = function
   | B.Module m :: q -> m :: submodules q
   | _ :: q -> submodules q
   | [] -> []
 
+let atlas (close,ppfs) modules =
+  let rec pp_alias delim current ppfs (m:B.module') =
+    let path = current @ [m.name] in
+    if Atlas_set.mem path delim then
+      (
+        let submodules = submodules m.sig' in
+        Fmt.pf ppfs.I.structure "module %a = struct@ "
+          L.pp_module m.name;
+        Fmt.pf ppfs.I.signature "module %a: sig@ "
+          L.pp_module m.name;
+        List.iter (pp_alias delim path ppfs) submodules;
+        Fmt.pf ppfs.I.structure "end@,";
+        Fmt.pf ppfs.I.signature "end@,";
+      )
+    else (
+      Fmt.pf ppfs.I.structure "module %a = %a@,"
+        L.pp_module m.name pp_concrete_name path;
+      Fmt.pf ppfs.I.signature "module %a = %a@,"
+        L.pp_module m.name pp_concrete_name path
+    )
+
+  in
+  Fmt.pf ppfs.I.structure "@[<v>";
+  Fmt.pf ppfs.I.signature "@[<v>";
+  List.iter (pp_alias delim L.[~:"vk"] ppfs) modules;
+  Fmt.pf ppfs.I.structure "@]@.";
+  Fmt.pf ppfs.I.signature "@]@.";
+  close ()
+
 
 let lib (lib:B.lib) =
   let open_file target n =
-    Format.formatter_of_out_channel @@ open_out
-    @@ Fmt.strf "%s/%s%a" lib.root n pp_file_extension target
-  in
+    let f = open_out
+      @@ Fmt.strf "%s/%s%a" lib.root n pp_file_extension target in
+    (fun () -> close_out f), Format.formatter_of_out_channel f in
   let open_files n =
-    { I.structure = open_file Str n; signature = open_file Sig n } in
+    let cstr, structure = open_file Str n in
+    let csig, signature = open_file Sig n in
+    (fun () -> cstr(); csig ()), { I.structure ; signature} in
   atlas (open_files "vk") (submodules lib.content.sig');
-  let pp_sub (m:B.module') =
+  let rec pp_sub current (m:B.module') =
     if not (B.is_empty m) then
       begin
-        let filename = Fmt.strf "vk__%a" L.pp_var m.name in
-        let ppfs = open_files filename in
-        let ast =
-          I.( lib.preambule @*
-              I.fold_map (item_to_ast [m.name] lib) m.sig')
-        in
-        print Str pps (str ppfs) ast;
-        print Sig pps (sg ppfs) ast;
-        Fmt.pf (str ppfs) "@.";
-        Fmt.pf (sg ppfs) "@.";
+        let path = current @ [m.name] in
+        if Atlas_set.mem path delim then
+          List.iter (pp_sub path) (submodules m.sig')
+        else begin
+          let filename = Fmt.strf "%a" pp_concrete_name path in
+          let close, ppfs = open_files filename in
+          let ast =
+            I.( lib.preambule @*
+                I.fold_map (item_to_ast [m.name] lib) m.sig')
+          in
+          print Str pps (str ppfs) ast;
+          print Sig pps (sg ppfs) ast;
+          Fmt.pf (str ppfs) "@.";
+          Fmt.pf (sg ppfs) "@.";
+          close ();
+        end
       end
     else Fmt.epr "Printing %a submodule@.%!" L.pp_var m.name
   in
-  List.iter pp_sub @@ submodules lib.content.sig'
+  List.iter (pp_sub L.[~:"vk"]) @@ submodules lib.content.sig'

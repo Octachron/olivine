@@ -260,6 +260,7 @@ let from_path dict path =
 
 let mu = { main = []; prefix = []; postfix = [] }
 let simple path = { mu with main = path}
+let (~:) x = simple [x]
 
 let remove_prefix prefix name =
   let rec remove_prefix name prefix current =

@@ -1,5 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
+module Bt = Builtin_types
 module Vkc = Vk.Core
 
 module Utils = struct
@@ -187,7 +188,7 @@ module Device = struct
     let exts = A.of_list Ctypes.string ["VK_KHR_swapchain"] in
     let info =
       let queue_create_infos =
-        A.of_list Vkt.device_queue_create_info [queue_create_info] in
+        A.of_list Vkt.Device_queue_create_info.ctype [queue_create_info] in
       Vkt.Device_create_info.make
         ~queue_create_infos
         (*  ~pp_enabled_layer_names: layers *)
@@ -215,7 +216,7 @@ module Image = struct
     Device.capabilities |> current_extent
 
   let swap_chain_info =
-    let qfi = A.of_list Vkt.uint_32_t [0] in
+    let qfi = A.of_list Builtin_types.uint_32_t [0] in
     Vkt.Swapchain_create_info_khr.make
       ~surface: surface_khr
       ~min_image_count: image_count
@@ -270,7 +271,7 @@ module Image = struct
     let create im =
       Vkc.create_image_view device (image_view_info im) ()
       <?> "Creating image view" in
-    A.map Vkt.image_view create images
+    A.map Vkt.Image_view.ctype create images
 
 end
 
@@ -284,10 +285,10 @@ module Pipeline = struct
 
     let shader_module_info s =
       let len = String.length s in
-      let code = A.make Vkt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
+      let code = A.make Bt.uint_32_t (len / Ctypes.(sizeof uint32_t)) in
       let c' =
         A.from_ptr
-          Ctypes.(coerce (ptr Vkt.uint_32_t) (ptr char) @@ A.start code) len in
+          Ctypes.(coerce (ptr Bt.uint_32_t) (ptr char) @@ A.start code) len in
       String.iteri (fun n x -> A.set c' n x) s;
       Vkt.Shader_module_create_info.make
         ~code_size:(Unsigned.Size_t.of_int len)
@@ -334,8 +335,8 @@ module Pipeline = struct
       ~offset: (Vkt.Offset_2d.make ~x:0 ~y:0)
       ~extent:Image.extent
 
-  let viewports = A.of_list Vkt.viewport  [viewport]
-  let scissors = A.of_list Vkt.rect_2d [scissor]
+  let viewports = A.of_list Vkt.Viewport.ctype  [viewport]
+  let scissors = A.of_list Vkt.Rect_2d.ctype [scissor]
 
   let viewport_state =
     Vkt.Pipeline_viewport_state_create_info.make
@@ -380,7 +381,7 @@ module Pipeline = struct
 
   let blend_state_info =
     let attachments =
-      A.of_list Vkt.pipeline_color_blend_attachment_state [no_blend] in
+      A.of_list Vkt.Pipeline_color_blend_attachment_state.ctype [no_blend] in
     let consts = A.of_list Ctypes.float [ 0.; 0.; 0.; 0. ] in
     Vkt.Pipeline_color_blend_state_create_info.make
      ~logic_op_enable: false
@@ -415,15 +416,15 @@ module Pipeline = struct
       ~layout: Vkt.Image_layout.Color_attachment_optimal
 
   let subpass =
-    let color = A.of_list Vkt.attachment_reference [attachment] in
+    let color = A.of_list Vkt.Attachment_reference.ctype [attachment] in
     Vkt.Subpass_description.make
       ~pipeline_bind_point: Vkt.Pipeline_bind_point.Graphics
       ~color_attachments: color
       ()
 
   let render_pass_info =
-    let attachments = A.of_list Vkt.attachment_description [color_attachment] in
-    let subpasses = A.of_list Vkt.subpass_description [subpass] in
+    let attachments = A.of_list Vkt.Attachment_description.ctype [color_attachment] in
+    let subpasses = A.of_list Vkt.Subpass_description.ctype [subpass] in
     Vkt.Render_pass_create_info.make
       ~attachments ~subpasses ()
 
@@ -431,7 +432,7 @@ module Pipeline = struct
     Vkc.create_render_pass device render_pass_info () <?> "Creating render pass"
 
   let pipeline_info =
-    let stages = A.of_list Vkt.pipeline_shader_stage_create_info
+    let stages = A.of_list Vkt.Pipeline_shader_stage_create_info.ctype
         Shaders.[ vert_stage; frag_stage ] in
     Vkt.Graphics_pipeline_create_info.make
       ~stages
@@ -447,7 +448,7 @@ module Pipeline = struct
       ~base_pipeline_index: 0
       ()
 
-  let pipeline_infos = A.of_list Vkt.graphics_pipeline_create_info [pipeline_info]
+  let pipeline_infos = A.of_list Vkt.Graphics_pipeline_create_info.ctype [pipeline_info]
 
   let pipelines =
     Vkc.create_graphics_pipelines device pipeline_infos ()
@@ -460,7 +461,7 @@ end
 module Cmd = struct
 
   let framebuffer_info image =
-    let images = A.of_list Vkt.image_view [image] in
+    let images = A.of_list Vkt.Image_view.ctype [image] in
     Vkt.Framebuffer_create_info.make
       ~render_pass: Pipeline.simple_render_pass
       ~attachments: images
@@ -473,7 +474,7 @@ module Cmd = struct
     Vkc.create_framebuffer device (framebuffer_info index) ()
     <?> "Framebuffer creation"
 
-  let framebuffers = A.map Vkt.framebuffer framebuffer Image.views
+  let framebuffers = A.map Vkt.Framebuffer.ctype framebuffer Image.views
 
   let my_fmb = framebuffer
 
@@ -515,7 +516,7 @@ module Cmd = struct
     Vkt.Clear_value.color c
 
   let render_pass_info fmb =
-    let clear_values = A.of_list Vkt.clear_value [clear_values] in
+    let clear_values = A.of_list Vkt.Clear_value.ctype [clear_values] in
     Vkt.Render_pass_begin_info.make
       ~render_pass: Pipeline.simple_render_pass
       ~framebuffer: fmb
@@ -556,7 +557,7 @@ module Render = struct
 
 
   let wait_stage = let open Vkt.Pipeline_stage_flags in
-    A.of_list view [top_of_pipe]
+    A.of_list ctype [top_of_pipe]
 
   let submit_info _index (* CHECK-ME *) =
     Vkt.Submit_info.array [
@@ -569,7 +570,7 @@ module Render = struct
 
   let swapchains = Vkt.Swapchain_khr.array [Image.swap_chain]
 
-  let present_indices = A.of_list Vkt.uint_32_t [0]
+  let present_indices = A.of_list Bt.uint_32_t [0]
   (* Warning need to be alive as long as present_info can be used! *)
 
   let present_info =

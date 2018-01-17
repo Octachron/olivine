@@ -96,17 +96,19 @@ let make ?(args=[]) ?(sig'=[]) path name =
 let find_type name {types; _ } =
   Name_map.find_opt name types
 
+let (.?()) ctx name = find_type name ctx
+
 let context
     ?(builtins=Name_set.empty)
     ?(results=Result.Map.empty) current items =
-  { current; builtins; results;
-    types =
-      List.fold_left
+  let rec types m l = List.fold_left
         (fun map -> function
            | Type (n,ty) -> Name_map.add n ty map
-           | _  -> map
-        )
-        Name_map.empty items
+           | Module m  -> types map m.sig'
+           | _ -> map
+        ) m l in
+  { current; builtins; results;
+    types = types Name_map.empty items
   }
 
 let rec find_module name = function
@@ -315,6 +317,18 @@ let core = L.simple["core"]
 let raw = L.simple["raw"]
 let types = L.simple["types"]
 
+let typ_path name = [types; name]
+
+let raw_builtins =
+  [ "uint_32_t"; "void"; "int_32_t"; "uint_64_t";
+   "int_64_t"; "size_t"; "uint_8_t"; "float"; "int"]
+
+
+let builtins dict =
+  Name_set.of_list @@
+  L.simple ["bool";"32"] :: L.simple ["Bool"; "32"]
+  :: List.map (L.make dict) raw_builtins
+
 let rec generate_ideal core dict registry current
     (items, lib as build) p =
   if not @@ S.mem p items then build else
@@ -344,9 +358,16 @@ let rec generate_ideal core dict registry current
     let items, lib =
       deps (dict,generate_ideal core dict registry current) build
         typ in
-    let typ = Rename.typ renamer typ in
-    let lib =
-      lib |> add [types] (Type (name,typ)) in
+    let lib = match typ with
+      | Name n when List.mem n raw_builtins -> lib
+      | _ ->
+        let typ = Rename.typ renamer typ in
+        match typ with
+        | Bitfields _ as t -> let rname = U.bitset_core_name name in
+          lib |> add [types; rname] (Type (name,t))
+        | _ ->
+          lib |> add [types; name] (Type (name,typ))
+    in
     (items,lib)
 
 let rec generate_core core dict registry path (items, _ as build) =
@@ -360,7 +381,6 @@ let rec generate_core core dict registry path (items, _ as build) =
 let rec normalize_sigs acc = function
   | Module m :: q ->
     let m = normalize m in
-    Format.eprintf "Normalizing %a@." L.full_pp m.name;
     begin if is_empty m && m.args = [] then
       normalize_sigs acc q
     else
@@ -466,10 +486,7 @@ let filter_extension dict registry name0 =
     not (L.is_extension dict name|| sys_specific name)
   | Const _ -> true
 
-let builtins dict =
-  Name_set.of_list @@ List.map (L.make dict)
-    ["vkBool32";"uint_32_t"; "void"; "int_32_t"; "uint_64_t";
-    "int_64_t"; "size_t"; "uint_8_t"]
+
 
 (*
 let find_submodule name lib =

@@ -17,8 +17,7 @@ open Utils
 
 let unique, reset_uid = C.id_maker ()
 
-let addr_f t =
-  [%expr [%e ident(qualify [ ~:"Vk__types";t] "addr")] ]
+let addr_f ctx = C.addrf ctx
 
 let make_f t exp =
   [%expr [%e ident(qn t "unsafe_make")] [%e exp] ]
@@ -35,12 +34,12 @@ let may f x = [%expr Vk__helpers.may [%e f] [%e x] ]
 
 let regularize types ty exp= match ty with
   | Ty.Ptr Name t | Const Ptr Name t when Inspect.is_record types t ->
-    addr_f t $ exp <?> "Regularized pointer to struct"
+    addr_f types t $ exp <?> "Regularized pointer to struct"
   | Option Ptr Name t| Const Option Ptr Name t
-    when Inspect.is_record types t -> may (addr_f t) exp
+    when Inspect.is_record types t -> may (addr_f types t) exp
     <?> "Regularized optional pointer to struct"
   | (Ptr Option Name t|Const Ptr Option Name t)
-    when Inspect.is_record types t -> may (addr_f t) exp
+    when Inspect.is_record types t -> may (addr_f types t) exp
     <?> "Regularized pointer to optional struct"
   (*  | Option Ptr Name _ -> may (C.addr exp)*)
   | ty ->  (exp <?> "No regularization: %a") Ty.pp ty
@@ -192,9 +191,8 @@ let allocate_field types fields vars f body  =
     end
   | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
     let a = get a and i = get i in
-    let name = Inspect.prefix
-        (fun ?(par=[]) x -> qualify par @@ varname L.(x//"opt"))
-        types t in
+    let name = Inspect.prefix varpath types t
+        ~name:(L.simple ["ctype";"opt"]) in
     [%expr let [%p i.p] = Ctypes.allocate
                [%e ident name]
                None in
@@ -376,7 +374,7 @@ let return_type types outputs return =
     end
 
 let raw ctx = if Inspect.in_extension ctx then
-    ~:"Raw" else ~:"Vk__raw"
+    ~:"Raw" else ~:"Vk__Raw"
 
 let make_native types (fn:Ty.fn)=
   reset_uid ();

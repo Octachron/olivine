@@ -2,9 +2,9 @@
 module type core = sig
   type t
   val t: t Ctypes.typ
-  val view: t Ctypes.typ
+  val ctype: t Ctypes.typ
   val null: t
-  val view_opt: t option Ctypes.typ
+  val ctype_opt: t option Ctypes.typ
   val pp: Format.formatter -> t -> unit
   val array: t list -> t Ctypes.CArray.t
 end
@@ -26,9 +26,9 @@ struct
   type self
   type t = self Ctypes.structure Ctypes.ptr
   let t: t Ctypes.typ = Ctypes.ptr (Ctypes.structure "")
-  let view = t
+  let ctype = t
   let null = Ctypes.(coerce @@ ptr void) t Ctypes.null
-  let view_opt =
+  let ctype_opt =
     let read v = if v = null then None else Some v in
     let write = function
       | None -> null
@@ -53,9 +53,9 @@ struct
   type self
   type t = int64
   let t: t Ctypes.typ = Ctypes.int64_t
-  let view = t
+  let ctype = t
   let null = 0L
-  let view_opt =
+  let ctype_opt =
     let read v = if v = null then None else Some v in
     let write = function
       | None -> null

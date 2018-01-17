@@ -21,18 +21,22 @@ let ptr x = [%expr Ctypes.ptr [%e x] ]
 let ptr_opt x = [%expr Ctypes.ptr_opt [%e x] ]
 let void = [%expr Ctypes.void]
 let addr x = [%expr Ctypes.addr [%e x] ]
+
+let addrf ctx ty =
+  ident @@ Inspect.prefix varpath ~name:(~:"addr") ctx ty
+
 let (!@) x = [%expr Ctypes.(!@) [%e x]]
 
-let views ?(f=fun x ->x) name =
+let views ?(f=fun x ->x) ?(name=L.(~:"ctype")) inner =
   let n = var name and no = L.(name//"opt") in
-  let e = open' name [%expr view, view_opt ] in
-  let t = typ ~par:[name] ~:"t" in
+  let e = open' inner [%expr view, view_opt ] in
+  let t = typ ~par:[inner] ~:"t" in
   item
   [[%stri let [%p n.p], [%p pat var no] = [%e e]]]
   [ val' name [%type: [%t f t] Ctypes.typ]; val' no [%type: [%t f t] option Ctypes.typ]]
 
-let extern_type name =
-  decltype ~manifest:(H.Typ.constr (nloc @@ qn name "t")  [])
+let extern_type ?(name=L.(~:"t")) inner =
+  decltype ~manifest:(H.Typ.constr (nloc @@ qn inner "t")  [])
     (typestr name)
 
 let wrap_opt ty v =
