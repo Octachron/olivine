@@ -71,16 +71,6 @@ let make_extended (bitname, fields) =
   ^:: values
   @* pp core_name fields ^:: nil
 
-
-  (*
-  let values = values core_name fields in
-    (module' name @@ structure @@
-     item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
-^:: values
-@* pp core_name fields ^:: nil
-)
-^:: resume (varname bitname) name
-*)
 let make (name,opt) =
   let _bitname = bit_name name in
   match opt with

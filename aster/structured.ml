@@ -485,10 +485,3 @@ let make (type a) types (kind: a kind) (name, fields: _ * a list) =
     | Record -> construct types name fields ^:: nil in
   def types (name,kind) name fields
   @* array ^:: records
-(*  ^:: item
-    [%stri let view = [%e ident @@ qn raw "t"]]
-    (val' L.(~:"view") @@
-     [%type: [%t typ ~par:[raw] ~:"t"] Ctypes.typ])
-  ^::  C.extern_type raw
-  ^:: nil
-*)

@@ -136,9 +136,6 @@ let view_result_opt =
 let extern_result =
     item [%stri type t = (core,core) result ]
       [%sigi: type t = (core,core) result ]
-(*
-      C.extern_type L.(~:"Raw") ^:: nil
-*)
 
 let make impl (name,constrs) =
   let is_result = Inspect.is_result_name name in
