@@ -4,6 +4,6 @@
          (name aster)
          (libraries
           (compiler-libs.common econfig ocaml-migrate-parsetree info))
-         (preprocess (pps (ppx_tools_versioned.metaquot_406)))
-         (flags (:standard -open Migrate_parsetree))
+         (preprocess (pps (ppx_tools_versioned.metaquot_404)))
+         (flags (:standard -open Migrate_parsetree.Ast_404))
 ) )

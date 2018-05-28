@@ -31,8 +31,7 @@ let alias {B.builtins;_} (name,origin) =
       H.Mty.(with_ (ident  @@ nloc @@
                     Longident.( Ldot(Lident builtin,
                                      "alias") ) )
-               [P.Pwith_typesubst (nloc (Longident.Lident "x"),
-                                   constraint')] ) in
+               [P.Pwith_typesubst constraint'] ) in
     let _t = typ ~par:[name] ~:"t" in
     let str = include' @@
       H.Mod.(apply

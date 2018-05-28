@@ -7,11 +7,11 @@ module Aliases= struct
 end
 open Aliases
 open Utils
-
+let (#?) = B.(#?)
 
 let typ ?par ?name = Inspect.prefix typ ?par ?name
 let tyvar ?(post=[]) ?par types name =
-  let name, post = match types.B.?(name) with
+  let name, post = match types#?(name) with
     | Some Bitfields _ ->
       Bitset.set_name name, "index" :: "ctype" :: post
     | _ -> name, "ctype" :: post in
@@ -107,9 +107,9 @@ let rec mk
     [%type: [%t mk ty] Ctypes.CArray.t ]
   | Result {ok;bad} ->
     let ok =
-      polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) ok in
+      polyvariant_type ~order:Eq @@ List.map mkconstr ok in
     let bad =
-      polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) bad in
+      polyvariant_type ~order:Eq @@ List.map mkconstr bad in
     [%type: ([%t ok], [%t  bad]) Pervasives.result ]
   | Record_extensions _ -> [%type: unit Ctypes.ptr ]
   (* ^FIXME^?: better typing? *)

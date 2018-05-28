@@ -28,11 +28,11 @@ let find name {B.results=m; _ } =
     raise Not_found
 
 let def name lbls = decltype name
-    ~manifest:(polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) lbls)
+    ~manifest:(polyvariant_type ~order:Eq @@ List.map mkconstr lbls)
 
 
 let side_type ~order x =
-  polyvariant_type ~order @@ List.map (nloc % mkconstr) x
+  polyvariant_type ~order @@ List.map mkconstr x
 
 let typ ok error =
   [%type:

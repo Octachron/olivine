@@ -11,7 +11,15 @@ let is_bits name =
 
 let item, str, sg = I.(item,str,sg)
 
-let pps = item Pprintast.structure Pprintast.signature
+
+module C = struct
+  open Migrate_parsetree
+  module T = Convert(OCaml_404)(OCaml_current)
+end
+
+let pps =
+  item (fun ppf x -> Pprintast.structure ppf @@ C.T.copy_structure x)
+    (fun ppf x -> Pprintast.signature ppf @@ C.T.copy_signature x )
 let ppi = item (fun ppf x -> str pps ppf [x])
     (fun ppf x -> sg pps ppf [x])
 

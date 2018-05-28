@@ -1,4 +1,5 @@
 
+open Migrate_parsetree.Ast_404
 module Aliases= struct
   module L = Info.Linguistic
   module B = Lib
@@ -330,8 +331,8 @@ let look_out vars output = List.fold_left ( fun (l,vars) f ->
   ) ([], vars) output
 
 let result_part ok bad =
-  polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) ok,
-  polyvariant_type ~order:Eq @@ List.map (nloc % mkconstr) bad
+  polyvariant_type ~order:Eq @@ List.map mkconstr ok,
+  polyvariant_type ~order:Eq @@ List.map mkconstr bad
 
 
 let return_type types outputs return =

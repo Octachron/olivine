@@ -22,7 +22,8 @@ let ($) f x = [%expr [%e f] [%e x] ]
 let tn = ident @@ lid  @@ "ctype"
 let tn0 = ident @@ lid  @@ "view"
 
-let normalize_ty_name ctx name = match ctx.B.?(name) with
+let (#?) = B.(#?)
+let normalize_ty_name ctx name = match ctx#?(name) with
   | Some Bitfields _ -> Bitset.set_name name
   | _ -> name
 

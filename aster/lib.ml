@@ -96,7 +96,7 @@ let make ?(args=[]) ?(sig'=[]) path name =
 let find_type name {types; _ } =
   Name_map.find_opt name types
 
-let (.?()) ctx name = find_type name ctx
+let (#?) ctx name = find_type name ctx
 
 let context
     ?(builtins=Name_set.empty)

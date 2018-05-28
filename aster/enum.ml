@@ -29,7 +29,7 @@ let def_std tn name constrs =
 
 let def_poly tn name constrs =
   let constr c = constr (Poly,name) c in
-  polyvariant (nloc tn) @@ List.map (fun x -> nloc (constr x)) constrs
+  polyvariant (nloc tn) @@ List.map (fun x -> (constr x)) constrs
 
 let def tn (impl,name) = match impl with
   | Std -> def_std tn name
