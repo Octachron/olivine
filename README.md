@@ -15,6 +15,15 @@ interface libraries.
 Recent version of the SDL libary (≥ 2.06) and the tsdl bindings (≥0.9.6)
 comes with Vulkan suport.
 
+# Installation
+
+If you want to experiment with the current generated bindings, you can try
+
+```bash
+  opam pin add olivine https://github.com/Octachron/olivine.git
+```
+
+
 # Generated binding naming conventions :
 
 First, all names use a snake case convention from type names, enum names, function
