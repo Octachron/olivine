@@ -1,6 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
-module Bt = Builtin_types
+module Bt = Vk__builtin__types
 module Vkc = Vk.Core
 
 module Utils = struct
@@ -216,7 +216,7 @@ module Image = struct
     Device.capabilities |> current_extent
 
   let swap_chain_info =
-    let qfi = A.of_list Builtin_types.uint_32_t [0] in
+    let qfi = A.of_list Bt.uint_32_t [0] in
     Vkt.Swapchain_create_info_khr.make
       ~surface: surface_khr
       ~min_image_count: image_count

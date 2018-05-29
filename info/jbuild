@@ -15,5 +15,6 @@
 (executable (
             (name infolivine)
             (libraries (info))
+            (modules (Infolivine))
  )
 )

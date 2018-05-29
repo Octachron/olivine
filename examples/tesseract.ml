@@ -1,6 +1,6 @@
 module A = Ctypes.CArray
 module Vkt = Vk.Types
-module Bt = Builtin_types
+module Bt = Vk__builtin__types
 module Vkh = Vk__helpers
 module Vkc = Vk.Core
 

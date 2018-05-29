@@ -13,7 +13,7 @@ open Utils
 
 let packed m = Exp.pack H.Mod.(ident @@ nlid @@ modname m)
 
-let builtin = "Builtin_types"
+let builtin = "Vk__builtin__types"
 let builtin' = L.(~:builtin)
 
 let view = L.(~:"view")
@@ -48,7 +48,7 @@ let alias {B.builtins;_} (name,origin) =
       (val' view [%type: [%t t] Ctypes.typ])
     ^:: item
       [%stri let view_opt =
-               Builtin_types.integer_opt [%e packed name] ]
+               Vk__builtin__types.integer_opt [%e packed name] ]
       (val' L.(view//"opt") [%type: [%t t] option Ctypes.typ])
     ^:: nil *)
   end

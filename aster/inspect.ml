@@ -55,7 +55,7 @@ let vk_prefix ctx name =
     "Vk__" ^ name
 
 let (~:) = L.(~:)
-let bty = ~: "Builtin_types"
+let bty = ~: "Vk__builtin__types"
 
 let prefix ?(prim=[]) ?(name= ~:"t") tyvar ?(par=[]) ctx rootname =
   match typeclass rootname ctx with

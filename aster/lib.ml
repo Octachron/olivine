@@ -507,8 +507,8 @@ let generate root preambule dict (spec:Info.Typed.spec) =
           ]
           [%sig: module Std: sig module Format=Format end]
         @*
-        item [%str include Builtin_types]
-          [%sig: include (module type of Builtin_types) open Unsigned ]
+        item [%str include Vk__builtin__types]
+          [%sig: include (module type of Vk__builtin__types) open Unsigned ]
       ] in
     core_submodules [vk]
     @ [ Module (make ~sig' [vk] types) ] in

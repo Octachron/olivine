@@ -48,7 +48,7 @@ let pp set (fields,_) =
     [%sigi: val pp: Format.formatter -> 'a set -> unit]
 
 let resume bitname name =
-  let inner = ~:"Bitset" in
+  let inner = ~:"Vk__builtin__bitset" in
   let index_view b ty n =
     let v = Pat.var (nloc b) and e = ident (qn name n) in
     item [%stri let [%p v] = [%e e ]]
@@ -67,7 +67,9 @@ let make_extended (bitname, fields) =
                   List.filter (fun x -> x <> "flags") name.postfix }
   in
   let values = values core_name fields in
-  item [%stri include Bitset.Make()] [%sigi: include Bitset.S ]
+  item
+    [%stri include Vk__builtin__bitset.Make()]
+    [%sigi: include Vk__builtin__bitset.S ]
   ^:: values
   @* pp core_name fields ^:: nil
 
@@ -76,4 +78,6 @@ let make (name,opt) =
   match opt with
   | Some _ -> nil
   | None ->
-    item [%str include Bitset.Make()] [%sig: include Bitset.S ]
+    item
+      [%str include Vk__builtin__bitset.Make()]
+      [%sig: include Vk__builtin__bitset.S ]

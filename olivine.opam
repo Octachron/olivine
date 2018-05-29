@@ -8,13 +8,14 @@ homepage: "https://github.com/Octachron/olivine"
 bug-reports: "https://github.com/Octachron/olivine/issues"
 
 build:[
- ["jbuilder" "build" "-p" name "-j" jobs]
+ ["./configure.sh"]
+ [make "vk"]
 ]
 
 
 depends: [
   "jbuilder" {build}
-  "ppx-tools-versioned"
+  "ppx_tools_versioned"
   "ocaml-migrate-parsetree"
   "xmlm"
   "fmt"

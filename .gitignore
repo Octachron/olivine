@@ -2,8 +2,10 @@ _build/*
 *~
 spec/vk.xml
 spec/vulkan.h
-lib/*
+lib/*.ml
+lib/*.mli
 bin/*
+olivine.install
 *.spv
 .*
 econfig/*

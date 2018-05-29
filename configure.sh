@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 # create the generated lib folder
-mkdir lib;
-mkdir bin;
+mkdir -p lib;
+mkdir -p bin;
 
-mkdir econfig && echo "let supported_systems = []" > config/econfig.ml;
+mkdir -p econfig && echo "let supported_systems = []" > econfig/econfig.ml;
 
-mkdir spec && cd spec \
+mkdir -p spec && cd spec \
 && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml";

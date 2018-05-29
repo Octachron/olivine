@@ -1,3 +1,4 @@
+open Info
 let fp = Format.fprintf
 let stdout = Format.std_formatter
 

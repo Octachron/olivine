@@ -4,13 +4,15 @@ DUNE=jbuilder build
 SPIR=glslangValidator -V
 
 
-all: bin/infolivine vk.cmxa bin/triangle bin/tesseract bin/libgen
+all: vk bin/infolivine bin/triangle bin/tesseract
 
-bin/triangle: vk.cmxa shaders/triangle/vert.spv shaders/triangle/frag.spv
-	$(CCO) examples/$(notdir $@).native && mv $(notdir $@).native $@
+bin/triangle: shaders/triangle/vert.spv shaders/triangle/frag.spv | vk
+	$(DUNE) examples/$(notdir $@).exe
+	mv _build/default/examples/$(notdir $@).exe $@
 
-bin/tesseract: vk.cmxa shaders/tesseract/vert.spv shaders/tesseract/frag.spv
-	$(CCO) examples/$(notdir $@).native && mv $(notdir $@).native $@
+bin/tesseract: shaders/tesseract/vert.spv shaders/tesseract/frag.spv | vk
+	$(DUNE) examples/$(notdir $@).exe
+	mv _build/default/examples/$(notdir $@).exe $@
 
 bin/infolivine:  info/*
 	$(DUNE) info/infolivine.exe && $(CCO) \
@@ -24,9 +26,9 @@ bin/libgen:  aster/*.ml generator/*.ml info/*.ml
 lib/vk.ml: bin/libgen spec/vk.xml
 	./bin/libgen spec/vk.xml lib
 
-vk.cmxa: _tags spec/vk.xml info/*.ml aster/*.ml generator/*.ml\
-	lib_aux/* lib/vk.ml
-	$(CCO) $@
+vk: _tags spec/vk.xml lib/vk.ml
+	cp lib_aux/*.ml lib
+	$(DUNE) @install
 
 shaders/%/frag.spv : shaders/%/base.frag
 	cd shaders/$* && $(SPIR) base.frag
@@ -46,4 +48,4 @@ vkspec:
 	&& cd spec && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml"
 
 clean:
-	$(CC) -clean; rm lib/vk.ml; rm bin/*
+	$(CC) -clean; rm lib/*.ml{,i}; rm bin/*
