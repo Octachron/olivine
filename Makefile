@@ -44,8 +44,9 @@ test-tesseract: bin/tesseract
 	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./bin/tesseract
 
 vkspec:
-	mkdir -p spec\
-	&& cd spec && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/1.0/src/spec/vk.xml"
+	mkdir -p spec \
+	&& cd spec \
+        && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml"
 
 clean:
 	$(CC) -clean; rm lib/*.ml{,i}; rm bin/*

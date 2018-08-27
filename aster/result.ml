@@ -24,8 +24,7 @@ let find name {B.results=m; _ } =
       L.pp_var name;
     List.iter (fun (name,id) -> Fmt.(pf stderr) "%a:%d\n%!"
                   L.pp_var name id)
-    @@ M.bindings m;
-    raise Not_found
+    @@ M.bindings m; exit 2
 
 let def name lbls = decltype name
     ~manifest:(polyvariant_type ~order:Eq @@ List.map mkconstr lbls)

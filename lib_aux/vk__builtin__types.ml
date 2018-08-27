@@ -116,6 +116,7 @@ module Int_32_t = struct
   let read = Int32.to_int
   let write = Int32.of_int
   let ctype = Ctypes.view ~read ~write Ctypes.int32_t
+  let ctype_opt = integer_opt' zero ctype
 end
 let int_32_t = Int_32_t.ctype
 

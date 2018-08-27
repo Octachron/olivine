@@ -21,7 +21,7 @@ let is_option_f = function
   | _ -> false
 
 let is_option = function
-  | Ty.Option _ -> true
+  | Ty.Option _ | Const Option _ -> true
   | _ -> false
 
 let is_char = function

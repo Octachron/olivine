@@ -61,6 +61,7 @@ let make_dict spec =
   |> add Main "2d"
   |> add Main "3d"
   |> add Main "16Bit"
+  |> add Main "8Bit"
   |> add Main "UUID"
   |> add_word "Win32"
   |> add_post "flags"

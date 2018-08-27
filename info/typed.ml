@@ -8,6 +8,20 @@ open Xml.Infix
 
 let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
 
+let type_errorf x =
+  Fmt.kstrf (fun s -> raise (Type_error s)) x
+
+module Option = struct
+  let map f = function
+    | None -> None
+    | Some x -> Some (f x)
+
+  let merge_exn x y = match x, y with
+    | Some x, _ -> x
+    | _, Some y -> y
+    | _ -> assert false
+end
+
 type entity =
   | Const of Arith.t
   | Type of Ty.typexpr
@@ -27,16 +41,20 @@ module Extension = struct
       version : int }
 
   type enum =
-    { extend:string; name:string; offset:int; upward:bool }
+    { extend:string; name:string; offset:int; upward:bool; extension_number: int option }
 
   type bit = { extend:string; name:string; pos:int}
 
-  type t =
-    { metadata: metadata;
+  type 'a data =
+    {
+      metadata: 'a;
       types: string list;
       commands: string list;
       enums: enum list;
       bits: bit list }
+
+  type t = metadata data
+  type feature_set = string data
 
   let pp_exttype ppf = function
     | None -> Fmt.pf ppf "support=disabled"
@@ -95,6 +113,8 @@ module Extension = struct
     let enum extension_number m0 =
       let find = find decorate_enum m0 in
       let add m (x:enum) =
+        let extension_number =
+          Option.merge_exn  x.extension_number extension_number in
         let key = x.extend in
         let b, l = find key m  in
         let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
@@ -115,8 +135,8 @@ module Extension = struct
         N.add key l m in
       List.fold_left add N.empty
 
-    let extend m ext =
-      let ext_num = ext.metadata.number in
+    let extend number m ext =
+      let ext_num = number ext in
       let bits = bit m ext.bits in
       let enums = enum ext_num m ext.enums in
       let cmp (_,x) (_,y)= compare x y in
@@ -129,11 +149,18 @@ module Extension = struct
       |> N.fold rebuild_enum enums
       |> N.fold rebuild_set bits
 
-    let all m exts =
+    let all_exts m exts =
+      let number x = Some x.metadata.number in
       let exts =
-        let number x = x.metadata.number in
         List.sort (fun x y -> compare (number x) (number y)) exts in
-      List.fold_left extend m exts
+      List.fold_left (extend number) m exts
+
+    let update m update =
+      let number x = None in
+      List.fold_left (extend number) m update
+
+    let all m upd exts =
+      all_exts (update m upd) exts
 
   end
 
@@ -143,6 +170,7 @@ type spec = {
   vendor_ids: vendor_id list;
   tags: short_tag list;
   entities: entity N.t;
+  updates : Extension.feature_set list;
   extensions : Extension.t list;
   includes: c_include list;
   requires: require list;
@@ -158,7 +186,7 @@ let case cases default x =
   let full x (l, _ ) = List.for_all (validate x) l in
   let f l node = (snd @@ List.find (full node) l) node in
   match x with
-  | Xml.Data _ -> raise @@ Type_error "unexpected data"
+  | Xml.Data _ -> type_errorf "unexpected data"
   | Node node ->
     try f cases node with Not_found -> default
 
@@ -179,7 +207,7 @@ let flatten tree =
       List.iter (flatten b) children;
       Buffer.add_string b "⦘"
     | Node { name="comment"; _ } -> ()
-    | Node { name; _ } -> raise @@ Type_error ("Unexpected type node: " ^ name)
+    | Node { name; _ } -> type_errorf "Unexpected type node: %s" name
   in
   List.iter (flatten b) tree;
   Buffer.contents b
@@ -309,15 +337,19 @@ let map2 f (x,y) = (x,f y)
 let register name entity spec  =
   { spec with entities = N.add name entity spec.entities }
 
-let parse p s =
+let parse name p s =
 (*  let lex = Lexing.from_string s in
   Fmt.(pf stderr) "lexing:\n%a\n%!"
     Cp__helper.pp_lex lex; *)
-  p Cxml_lexer.start @@ Lexing.from_string s
+  try p Cxml_lexer.start @@ Lexing.from_string s with
+    Cxml_parser.Error ->
+    Format.eprintf "@[<v> Parsing failure %s :@ %s@]@." name s;
+    exit 2
 
 let typedef spec node =
   let s = flatten node.Xml.children in
-  let name, ty = map2 (refine node) @@ parse Cxml_parser.typedef s in
+  let name, ty =
+    map2 (refine node) @@ parse "typedef" Cxml_parser.typedef s in
   register name (Type ty) spec
 
 let is_option_ty = function
@@ -346,12 +378,16 @@ let fields_refine fields =
     | [] -> extended in
   refine [] fields
 
+let discarded_c_helper_structure =
+  ["VkBaseInStructure"; "VkBaseOutStructure"]
+
 let structure spec node =
   let name = node%("name") in
+  if List.mem name discarded_c_helper_structure then spec else
   let field fields = function
     | Xml.Node ({ name = "member"; children; _ } as n) ->
       let s = flatten children in
-      let name, s = parse Cxml_parser.field s in
+      let name, s = parse "field" Cxml_parser.field s in
       (name, refine n s) :: fields
     | _ -> fields in
   let fields = fields_refine @@ List.fold_left field [] node.children in
@@ -366,7 +402,7 @@ let union spec node =
   let field fields = function
     | Xml.Node ({ name = "member"; children; _ } as n) ->
       let s = flatten children in
-      let name, s = parse Cxml_parser.field s in
+      let name, s = parse "field" Cxml_parser.field s in
       (name, refine n s) :: fields
     | _ -> fields in
   let fields = (List.rev @@ List.fold_left field [] node.children) in
@@ -374,34 +410,46 @@ let union spec node =
   register name (Type ty) spec
 
 let bitmask spec node =
-  let name, ty = parse Cxml_parser.typedef @@ flatten node.Xml.children in
-  let ty =
-    match ty with
-    | Ty.Name n ->
-      Ty.Bitset { implementation=n;
-                     field_type = node%?("requires") }
-    | _ -> raise @@ Type_error "Bitmask expected" in
-  register name (Type ty) spec
+  match node%?("alias") with
+  | Some _ -> spec
+  | None ->
+    let name, ty = parse "typedef-bitmask" Cxml_parser.typedef
+      @@ flatten node.Xml.children in
+    let ty =
+      match ty with
+      | Ty.Name n ->
+        Ty.Bitset { implementation=n;
+                    field_type = node%?("requires") }
+      | _ -> type_errorf "Bitmask expected" in
+    register name (Type ty) spec
 
 let handle spec node =
-  let h, name =
-    match node.Xml.children with
-    | Node h  ::  _ ::
-      Node { name ="name"; children = [Data name]; _ } :: _ ->
-      h, name
-    | _  -> raise @@ Type_error "Handle type name expected" in
-  let d =
-    match h.children with
-    | [Data "VK_DEFINE_HANDLE"] -> true
-    | [Data "VK_DEFINE_NON_DISPATCHABLE_HANDLE"] -> false
-    | _ -> raise @@ Type_error "Unknown handle type" in
-  let parent = node%?("parent") in
-  let ty = Ty.Handle { dispatchable = d; parent } in
-  register name (Type ty) spec
+  match node%?("alias") with
+  | Some _ -> spec
+  | None ->
+    let h, name =
+      match node.Xml.children with
+      | Node h  ::  _ ::
+        Node { name ="name"; children = [Data name]; _ } :: _ ->
+        h, name
+      | _  ->
+        type_errorf "Handle type name expected, got %a"
+          Xml.pp_xml (Node node)
+    in
+    let d =
+      match h.children with
+      | [Data "VK_DEFINE_HANDLE"] -> true
+      | [Data "VK_DEFINE_NON_DISPATCHABLE_HANDLE"] -> false
+      | _ ->
+        type_errorf "Unknown handle type: %a" Xml.pp_xml (Node h) in
+    let parent = node%?("parent") in
+    let ty = Ty.Handle { dispatchable = d; parent } in
+    register name (Type ty) spec
 
 let enum spec node =
   let name = node%("name") in
-  register name (Type (Ty.Enum [])) spec
+  if node%??("alias") then spec
+  else register name (Type (Ty.Enum [])) spec
 
 
 let c_include spec node =
@@ -436,19 +484,19 @@ let types spec =
     spec
 
 let vendorid = function
-  | Xml.Data _ -> raise @@ Type_error "VendorId: unexpected data"
+  | Xml.Data s -> type_errorf "VendorId: unexpected data %s" s
   | Node  ({children = []; _ } as n) ->
     begin try
         { name = n%("name");
           id = int_of_string @@ n%("id");
           comment = n%("comment")
         } with
-      Not_found -> raise @@ Type_error "VendorId: wrong field"
+      Not_found -> type_errorf "VendorId: wrong field"
     end
-  | Node _ -> raise @@ Type_error "VendorId: unexpected children"
+  | Node _ -> type_errorf "VendorId: unexpected children"
 
 let short_tag = function
-  | Xml.Data _ -> raise @@ Type_error "Vendor tags: unexpected data"
+  | Xml.Data s -> type_errorf "Vendor tags: unexpected data %s" s
   | Node ({ children = [];  _ } as n) ->
     let get x = M.find (Xml.name x) n.attributes in
     begin try
@@ -456,15 +504,16 @@ let short_tag = function
           author = get "author";
           contact = get "contact"
         } with
-      Not_found -> raise @@ Type_error "VendorId: wrong field"
+      Not_found -> type_errorf "VendorId: wrong field"
     end
-  | Node _ -> raise @@ Type_error "VendorId: unexpected children"
+  | Node _ -> type_errorf "VendorId: unexpected children"
 
 
 
 let enum_data constrs x =
   match x with
   | Xml.Node ({ name = "enum"; _ } as n) ->
+    if n%?("alias") <> None then constrs else
     let pos =
       begin match n%?("value"), n%?("offset") with
         | Some x, _  -> T.Abs (int_of_string x)
@@ -475,8 +524,8 @@ let enum_data constrs x =
   | Data _ -> constrs
   | Node { name="unused"; _ } -> (*Why?*) constrs
   | Node { name="comment"; _ } -> constrs
-  | Node n -> raise @@ Type_error
-      ("Expected enum node, got " ^ n.name ^ " node")
+  | Node n as x ->
+    type_errorf "Expected enum node, got %a" Xml.pp_xml x
 let bitset_data (fields,values) = function
   | Xml.Node ({ name="enum"; _ } as x ) ->
     let name = x%("name") in
@@ -485,21 +534,25 @@ let bitset_data (fields,values) = function
       | None, Some p -> fields, (name, int_of_string p) :: values
       | _ -> assert false
     end
-  | Data s -> raise @@ Type_error ("Expected bitmask enum, got data " ^ s)
-  | Node n -> raise @@ Type_error ("Expected bitmask enum, got node " ^ n.name)
+  | Data s -> type_errorf "Expected bitmask enum, got data %s" s
+  | Node n -> type_errorf "Expected bitmask enum, got node %s" n.name
+
 let constant spec = function
   | Xml.Node ({name="enum"; _ } as n) ->
+    if n%?("alias") <> None then spec else
     let name = n%("name") in
     let const = n%("value") in
-    let num_expr = Arith.simplify @@ parse Cxml_parser.formula const in
+    let num_expr =
+      Arith.simplify @@ parse "formula" Cxml_parser.formula const in
     register name (Const num_expr) spec
-  | _ -> raise @@ Type_error "Unexpected data in constant"
+  | x -> type_errorf "Unexpected data in constant: %a"
+           Xml.pp_xml x
 
 
 let enums spec x =
   match x%?("name") with
   | Some "API Constants" -> List.fold_left constant spec x.children
-  | None -> raise @@ Type_error "Unnamed enum"
+  | None -> type_errorf "Unnamed enum"
   | Some n -> match x%?("type") with
     | Some "enum" ->
       let ty = N.find n spec.entities in
@@ -508,7 +561,7 @@ let enums spec x =
         | Type (Ty.Enum constrs) ->
           Ty.Enum (List.fold_left enum_data constrs
                       @@ List.rev x.children)
-        | _ -> raise @@ Type_error ("Enum expected, got " ^ n) in
+        | _ -> type_errorf "Enum expected, got %s" n in
       register n (Type ty) spec
     | Some "bitmask" ->
       let ty = N.find n spec.entities in
@@ -518,29 +571,29 @@ let enums spec x =
           let fields, values =
             List.fold_left bitset_data ([], []) x.children in
           Ty.Bitfields { fields; values}
-        | Type ty -> raise @@ Type_error
-            (Format.asprintf "Expected bitset %s, got %a" n Ty.pp ty)
-        | Fn _ -> raise @@ Type_error "Expected a bitset, got a function"
-        | Const _ -> raise @@ Type_error "Expected a bitset, got a constant"
+        | Type ty ->
+          type_errorf "Expected bitset %s, got %a" n Ty.pp ty
+        | Fn _ -> type_errorf "Expected a bitset, got a function"
+        | Const _ -> type_errorf "Expected a bitset, got a constant"
       in
 
       register n (Type ty) spec
-    | Some s -> raise @@ Type_error ("Unknown enum type: " ^ s)
-    | None -> raise @@ Type_error "Untyped enum"
+    | Some s -> type_errorf "Unknown enum type: %s" s
+    | None -> type_errorf "Untyped enum"
 
 
 let proto n =
-  parse Cxml_parser.field @@ flatten n.Xml.children
+  parse "field" Cxml_parser.field @@ flatten n.Xml.children
 
 let arg l = function
-  | Xml.Data s -> raise @@
-    Type_error ("expected function arg, got data: " ^ s )
+  | Xml.Data s -> type_errorf "expected function arg, got data: %s" s
   | Node {name="implicitexternsyncparams"; _ } ->
     (* TODO *) l
   | Node ({ name = "param"; _ } as n) ->
-    (map2 (refine n) @@ parse Cxml_parser.field @@ flatten n.children) :: l
-  | Node n -> raise @@
-    Type_error ("expected param node, got "^ n.name ^ " node")
+    (map2 (refine n) @@ parse "field" Cxml_parser.field
+     @@ flatten n.children) :: l
+  | Node n ->
+    type_errorf "expected param node, got %s node " n.name
 
 let args_refine _name args =
   let rec refine = function
@@ -554,8 +607,7 @@ let args_refine _name args =
   refine @@ fields_refine args
 
 let command spec = function
-  | Xml.Data s -> raise @@
-    Type_error ("expected command node, got data"^ s)
+  | Xml.Data s -> type_errorf "expected command node, got data %s" s
   | Node ( { name="command";
              children = Node ({ name = "proto"; _ } as p) :: args;
              _ } as n) ->
@@ -566,8 +618,9 @@ let command spec = function
       (Fn { Ty.return; name; original_name=name;
             args = args_refine name @@ List.fold_left arg [] args })
       spec
-  | Node n -> raise @@
-    Type_error ("expected command node, got "^ n.name ^ " node")
+  | Node n as x-> if n%?("alias") <> None then spec else
+      type_errorf "expected command node, got %s node: %a"
+        n.name Xml.pp_xml x
 
 module Extension_reader = struct
 
@@ -577,18 +630,19 @@ module Extension_reader = struct
 
   let etype n = n%("name")
   let command n = n%("name")
-  let enum n: Extension.enum = { Extension.extend = n%("extends");
-                 name = n%("name");
-                 offset = int_of_string @@ n%("offset");
-                 upward = not ( n%?("dir") = Some "-")
-               }
+  let enum n: Extension.enum =
+    { Extension.extend = n%("extends");
+      name = n%("name");
+      offset = int_of_string @@ n%("offset");
+      upward = not ( n%?("dir") = Some "-");
+      extension_number = Option.map int_of_string (n%?("extnumber"))
+    }
   let bit n = { Extension.extend = n%("extends");
                 pos = int_of_string @@ n%("bitpos");
                 name = n%("name") }
 
-  let data x (ext:Extension.t) = match x with
-    | Xml.Data _ -> raise @@
-      Type_error "Extension data: unexpected raw data"
+  let data (type a) x (ext: a Extension.data) = match x with
+    | Xml.Data _ -> type_errorf "Extension data: unexpected raw data"
     | Node n ->
       match n.name with
       | "type" -> { ext with types = etype n :: ext.types }
@@ -599,51 +653,74 @@ module Extension_reader = struct
         { ext with enums = enum n :: ext.enums }
       | "enum" when n%??"value" || n%??"name" -> (*FIXME*) ext
       | "comment" -> ext
-      | n ->
-        raise @@ Type_error
-          (Fmt.strf "Extension.data: unexpected node %s: %a"
-             n Extension.pp_metadata ext.metadata
-          )
+      | _ ->
+        type_errorf "Extension.data: unexpected node %a"
+             Xml.pp_xml (Node n)
 
   let extension_requires ext =
     ext
-    |> List.map (function | Xml.Node { name = "require"; children; _ } -> children
-                          | _ -> raise (Type_error
-                                   "Non require children to extension nodes")
+    |> List.map (function
+        | Xml.Node { name = "require"; children; _ } -> children
+        | _ -> type_errorf "Non require children to extension nodes"
       )
     |> List.concat
 
-let extension = function
-  | Xml.Data _ -> raise @@ Type_error "Extension: unexpected data"
-  | Node ({ name = "extension"; children; _ } as n) ->
+
+  let enabled = function
+    | Xml.Data _ -> true
+    | Xml.Node n ->
+      not (n%?("supported") = Some "disabled")
+      && not ( n%?("promotedto") = Some "VK_VERSION_1_1"
+             )
+
+let ext_metadata n = function
+  | Xml.Node ({ name="enum";_} as version) :: Node({name="enum";_} as name)  :: q ->
+    let name = name%("name") in
+    (* name are now suffixed by "_extension_name" … *)
+    let name = String.(sub name 0 (length name - length "_extension_name")) in
+    { Extension.version = int_of_string (version%("value"));
+      name;
+      number = int_of_string @@ n%("number");
+      type' = n%?("type")
+    }, q
+  | _ -> type_errorf "Unexpected structure to extensions children:%a" Xml.pp_xml (Node n)
+
+let feature n q =   n%("number"), q
+
+let extension (type a) (meta: _ -> _ -> a * _) = function
+  | Xml.Data _ -> type_errorf "Extension: unexpected data"
+  | Node ({ name = "extension"|"feature"; children; _ } as n) ->
     let all_children = extension_requires children in
     (* TODO: analyze correctly requirements *)
-    begin match  all_children with
-      | Node ({ name="enum";_} as version) :: Node({name="enum";_} as name)  :: q ->
-        let metadata =
-          let name = name%("name") in
-          (* name are now suffixed by "_extension_name" … *)
-          let name = String.(sub name 0 (length name - length "_extension_name")) in
-          { Extension.version = int_of_string (version%("value"));
-            name;
-            number = int_of_string @@ n%("number");
-            type' = n%?("type")
-          }
-        in
+    let metadata, q = meta n all_children in
         let start =
           { Extension.metadata; types = []; commands = []; enums = [];
             bits = [] } in
         List.fold_right data q start
-      | _ -> raise (Type_error "Unexpected structure to extensions children")
-    end
   | Node { name; _ } as n ->
     Fmt.epr "@[<hov>%a@]@." Xml.pp_xml n;
-    raise @@ Type_error ("Extension: unexpected node" ^ name )
+    type_errorf "Extension: unexpected node %s" name
 end
 
 let extend spec =
   { spec with
-    entities = Extension.Extend.all spec.entities spec.extensions }
+    entities = Extension.Extend.all spec.entities
+        spec.updates
+        spec.extensions }
+let add_extension spec children =
+  { spec with
+    extensions =
+      spec.extensions @
+      List.map Extension_reader.(extension ext_metadata)
+      @@ List.filter Extension_reader.enabled
+        children }
+
+let add_feature spec children =
+  { spec with
+    updates =
+      spec.updates @
+      List.map Extension_reader.(extension feature)
+        children }
 
 let section spec x =
   match x with
@@ -660,22 +737,21 @@ let section spec x =
       enums spec n
     | "commands" ->
       List.fold_left command spec n.children
-    | "extensions" ->
-      { spec with extensions =
-                    spec.extensions @
-                    List.map Extension_reader.extension n.children }
+    | "extensions"  -> add_extension spec n.children
+    | "feature" -> add_feature spec [Node n]
     | _ -> spec
 
 let typecheck tree =
   let root spec = function
     | Xml.Node { children; _ } ->
       List.fold_left section spec children
-    | Data _ -> raise @@ Type_error "root: unexpected data"
+    | Data _ -> type_errorf "root: unexpected data"
   in
   extend @@ root {
     vendor_ids = [];
     tags = [];
     entities = N.empty;
+    updates = [];
     includes = [];
     requires = [];
     extensions = [];

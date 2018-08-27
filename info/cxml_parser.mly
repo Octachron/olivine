@@ -81,6 +81,8 @@ typexp:
 
 unconst:
 | ty = raw_typename q=qualifier { q ty }
+| STRUCT ty = raw_typename q=qualifier { q ty }
+
 
 post_qualifier:
   | {fun x -> x}

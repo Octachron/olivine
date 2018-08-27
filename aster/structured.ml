@@ -333,10 +333,11 @@ let set types typ r field value =
       [%e setf (name index) (array_len index)];
       [%e setf (name array) (start value.e) ]
     ]
-  | Ty.Record_extension { exts; _ } ->
+  | Ty.Record_extension { exts; tag; ptr } ->
+    let split = Record_extension.split tag ptr (typ,exts) value.e in
     [%expr
       let type__gen, next__gen =
-        [%e Record_extension.split (typ,exts) value.e ] in
+        [%e split] in
       [%e setf "s_type" [%expr type__gen] ];
       [%e setf "next" [%expr next__gen] ]
     ]

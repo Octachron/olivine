@@ -42,13 +42,15 @@ let strp x = Pat.construct (nloc @@ flag x) None
 
 let typext = ident % typename
 
-let split (name,exts) input =
+let split tag ptr (name,exts) input =
   let v = ident' "x" in
   let case x = Exp.case (constr.p x v.p)
       [%expr [%e str x] ,
              [%e C.coerce (C.ptr @@ typext x) C.(ptr void) (C.addr v.e)]] in
   let noext_case =
-    Exp.case [%pat? No_extension] [%expr [%e str name], Ctypes.null ] in
+    let null = if Inspect.is_option (snd ptr) then
+        [%expr None] else [%expr Ctypes.null] in
+    Exp.case [%pat? No_extension] [%expr [%e str name], [%e null] ] in
   let exn = Exp.case [%pat? _ ] [%expr raise Unknown_record_extension ] in
   let cases = noext_case :: (List.map case exts) @ [exn] in
   Exp.match_ input cases

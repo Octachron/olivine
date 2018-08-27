@@ -139,7 +139,7 @@ let split_sticky_camel_case dict s =
   and numeric acc start n =
     let c = s.[n] in
     if not (is_num c) then
-      capital numeric (sub start n::acc) n
+      capital lower (sub start n::acc) n
     else if n + 1 < mx then
       numeric acc start (n+1)
     else

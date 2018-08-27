@@ -335,11 +335,11 @@ let rec generate_ideal core dict registry current
   let (items, lib as build ) = (S.remove p items, lib) in
   let name = L.make dict p in
   let renamer = L.make dict in
-  match M.find p registry with
-  | Info.Typed.Const c ->
+  match M.find_opt p registry with
+  | Some Info.Typed.Const c ->
     let lib = add [const] (Const (name,c)) lib in
     items,lib
-  | Info.Typed.Fn fn ->
+  | Some Info.Typed.Fn fn ->
     let items, lib =
       dep_fn (dict, generate_ideal core dict registry current)
         fn build in
@@ -354,7 +354,7 @@ let rec generate_ideal core dict registry current
         |> add ( core current ) (Fn {implementation=Native; fn})
         |> add (current @ [raw]) (Fn {implementation=Raw; fn}) in
     items, lib
-  | Info.Typed.Type typ ->
+  | Some Info.Typed.Type typ ->
     let items, lib =
       deps (dict,generate_ideal core dict registry current) build
         typ in
@@ -369,6 +369,7 @@ let rec generate_ideal core dict registry current
           lib |> add [types; name] (Type (name,typ))
     in
     (items,lib)
+  | None -> Fmt.epr "Lost item %s@." p; exit 2
 
 let rec generate_core core dict registry path (items, _ as build) =
   if items = S.empty then
