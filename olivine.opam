@@ -21,4 +21,6 @@ depends: [
   "fmt"
   "menhir" {build}
   "ctypes-foreign"
+  "ctypes"
+  "integers"
   ]
