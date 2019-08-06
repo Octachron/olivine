@@ -15,11 +15,11 @@ bin/tesseract: shaders/tesseract/vert.spv shaders/tesseract/frag.spv | vk
 	mv _build/default/examples/$(notdir $@).exe $@
 
 bin/infolivine:  info/*
-	$(DUNE) info/infolivine.exe && $(CCO) \
+	$(DUNE) info/infolivine.exe \
 	&& mv _build/default/info/$(notdir $@.exe) $@
 
 bin/libgen:  aster/*.ml generator/*.ml info/*.ml
-	$(DUNE) generator/libgen.exe && $(CCO) \
+	$(DUNE) generator/libgen.exe \
 	&& mv _build/default/generator/$(notdir $@.exe) $@
 
 
@@ -49,4 +49,4 @@ vkspec:
         && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml"
 
 clean:
-	$(CC) -clean; rm lib/*.ml{,i}; rm bin/*
+	$(DUNE) clean; rm lib/*.ml{,i}; rm bin/*

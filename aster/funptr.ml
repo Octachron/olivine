@@ -9,7 +9,7 @@ open Item
 open Utils
 
 let mkty ctx args ret =
-  let ret  = Type.converter ctx true ret in
+  let ret  = Type.converter ctx ~degraded:true ret in
   let fn = C.listr (fun l r -> [%expr[%e l] @-> [%e r] ])
     (Type.converter ctx ~degraded:true)
     args
@@ -21,7 +21,7 @@ let expand = function
   | l -> l
 
 let view = L.(~:"ctype")
-let make ctx (tyname, (fn:Ty.fn)) =
+let make ctx (_tyname, (fn:Ty.fn)) =
   let ty = pty view and tyo = pty L.(view//"opt")in
   match List.map snd @@ Ty.flatten_fn_fields fn.args with
   | [] ->

@@ -54,9 +54,6 @@ let (/) x s = Longident.( Ldot(x,s) )
 let qn module' x =
   (lid @@modname module') / x
 
-let (%) f g x = f (g x)
-
-
 let typ ?par name =
   let lid =
     match par with
@@ -137,7 +134,7 @@ let make_genf ?(suffix="") name f =
     H.Mod.(apply (ident @@ nloc @@ lid f/("Make" ^ suffix)) @@ structure [])
     H.Mty.(ident (nloc @@ lid f/("S"^suffix)))
 
-let include_genf ?(suffix="") name f =
+let include_genf ?(suffix="") _name f =
   item
     [include' @@
      H.Mod.(apply (ident @@ nloc @@ lid f/("Make" ^ suffix))

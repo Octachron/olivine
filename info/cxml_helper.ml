@@ -25,13 +25,15 @@ let mark_open_tag tag =
 
 let mark_close_tag _tag =
   "\x1b[0m"
-
+[@@@alert "-deprecated"]
 let enable_colors ppf =
   Format.pp_set_tags ppf true;
   Format.pp_set_mark_tags ppf true;
   Format.pp_set_formatter_tag_functions ppf
     { (Format.pp_get_formatter_tag_functions ppf ()) with
       mark_open_tag; mark_close_tag }
+[@@@alert "+deprecated"]
+
 end
 
 

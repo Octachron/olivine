@@ -10,7 +10,7 @@ open Item
 open Utils
 
 
-let modname ctx = L.simple ["Vk__Subresult"]
+let modname _ctx = L.simple ["Vk__Subresult"]
 
 let expr ctx (ok,errors) =
   tyvar ~par:[modname ctx] @@ Info.Subresult.composite_nominal ok errors
@@ -27,11 +27,11 @@ let find name {B.results=m; _ } =
     @@ M.bindings m; exit 2
 
 let def name lbls = decltype name
-    ~manifest:(polyvariant_type ~order:Eq @@ List.map mkconstr lbls)
+    ~manifest:(polyvariant_type ~order:Eq @@ List.map nloc @@ List.map mkconstr lbls)
 
 
 let side_type ~order x =
-  polyvariant_type ~order @@ List.map mkconstr x
+  polyvariant_type ~order @@ List.map nloc @@ List.map mkconstr x
 
 let typ ok error =
   [%type:

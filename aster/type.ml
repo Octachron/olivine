@@ -107,9 +107,9 @@ let rec mk
     [%type: [%t mk ty] Ctypes.CArray.t ]
   | Result {ok;bad} ->
     let ok =
-      polyvariant_type ~order:Eq @@ List.map mkconstr ok in
+      polyvariant_type ~order:Eq @@ List.map nloc @@  List.map mkconstr ok in
     let bad =
-      polyvariant_type ~order:Eq @@ List.map mkconstr bad in
+      polyvariant_type ~order:Eq @@  List.map nloc @@ List.map mkconstr bad in
     [%type: ([%t ok], [%t  bad]) Pervasives.result ]
   | Record_extensions _ -> [%type: unit Ctypes.ptr ]
   (* ^FIXME^?: better typing? *)

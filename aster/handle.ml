@@ -1,11 +1,9 @@
-open Item
 open Utils
-open Common
 open Info.Linguistic
 
 let inner = ~:"Inner"
 
-let make ~dispatchable name =
+let make ~dispatchable _name =
     if dispatchable then
       include_genf inner "Vk__builtin__handle"
     else

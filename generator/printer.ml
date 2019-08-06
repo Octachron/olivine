@@ -13,8 +13,7 @@ let item, str, sg = I.(item,str,sg)
 
 
 module C = struct
-  open Migrate_parsetree
-  module T = Convert(OCaml_404)(OCaml_current)
+  module T = Convert(Migrate_parsetree.OCaml_406)(Migrate_parsetree.OCaml_current)
 end
 
 let pps =

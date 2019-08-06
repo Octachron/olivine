@@ -1,5 +1,4 @@
 
-open Migrate_parsetree.Ast_404
 module Aliases= struct
   module L = Info.Linguistic
   module B = Lib
@@ -187,7 +186,7 @@ let allocate_field types fields vars f body  =
       | None -> body
       | Some (ty,_) ->
         let alloc = C.wrap_opt t @@ allocate_n
-            (Type.converter types true ty) [%expr 1] in
+            (Type.converter types ~degraded:true ty) [%expr 1] in
         [%expr let [%p f.p] = [%e alloc] in [%e body] ]
     end
   | Array_f { array=a, Option _; index=i, Ptr Option Name t } ->
@@ -331,8 +330,8 @@ let look_out vars output = List.fold_left ( fun (l,vars) f ->
   ) ([], vars) output
 
 let result_part ok bad =
-  polyvariant_type ~order:Eq @@ List.map mkconstr ok,
-  polyvariant_type ~order:Eq @@ List.map mkconstr bad
+  polyvariant_type ~order:Eq @@ List.map nloc @@ List.map mkconstr ok,
+  polyvariant_type ~order:Eq @@  List.map nloc @@  List.map mkconstr bad
 
 
 let return_type types outputs return =

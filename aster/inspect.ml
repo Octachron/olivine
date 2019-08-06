@@ -28,11 +28,11 @@ let is_char = function
   | Ty.Name t -> L.to_path t = ["char"]
   | _ -> false
 
-
+(*
 let is_result = function
   | B.Ty.Result _ -> true
   | _ -> false
-
+*)
 
 let typeclass name (ctx:B.context) =
   let rec root name = match name.L.postfix with

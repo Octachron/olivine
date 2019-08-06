@@ -68,7 +68,7 @@ type ('a,'b) math =
   | Floor: (int * int,'b) math -> (int,'b) math
 
 
-let rec to_int: type a. (a,'b) math -> (int,'b) math = function
+let to_int: type a. (a,'b) math -> (int,'b) math = function
   | Var _ as v -> v
   | Div(_,_) as d -> Floor d
   | Ceil _ as c -> c
@@ -171,8 +171,8 @@ module Typexpr(X:name) = struct
   type type_decl = name * typexpr
 
   let field_to_type  = function
-    | Array_f { array=n, ty; _ } -> ty
-    | Simple(n,ty) -> ty
+    | Array_f { array=_n, ty; _ } -> ty
+    | Simple(_n,ty) -> ty
     | Record_extension _ -> failwith "Not implemented: typ for record_extension"
 
   let flatten_fields l =

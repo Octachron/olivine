@@ -26,7 +26,6 @@
 open Retype
 open Ty
 open Arith
-open Unsigned
 %}
 
 %start<unit> start
@@ -55,12 +54,12 @@ raw_typename:
   | n = IDENTIFIER { Name n }
 
 fn:
-  | api = IDENTIFIER STAR n = name { n }
+  | _api = IDENTIFIER STAR n = name { n }
   | STAR n = name { n }
 ;;
 
 args:
- | LPAR void = IDENTIFIER RPAR { [] }
+ | LPAR _void = IDENTIFIER RPAR { [] }
  | LPAR l = separated_list(COMMA, arg) RPAR { l }
  ;;
 

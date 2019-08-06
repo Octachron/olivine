@@ -156,7 +156,7 @@ module Extension = struct
       List.fold_left (extend number) m exts
 
     let update m update =
-      let number x = None in
+      let number _x = None in
       List.fold_left (extend number) m update
 
     let all m upd exts =
@@ -524,7 +524,7 @@ let enum_data constrs x =
   | Data _ -> constrs
   | Node { name="unused"; _ } -> (*Why?*) constrs
   | Node { name="comment"; _ } -> constrs
-  | Node n as x ->
+  | Node _n as x ->
     type_errorf "Expected enum node, got %a" Xml.pp_xml x
 let bitset_data (fields,values) = function
   | Xml.Node ({ name="enum"; _ } as x ) ->

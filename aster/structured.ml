@@ -88,7 +88,7 @@ let sfield types (name,t) =
   (* Note: we could try to simplify further field names,
      but they happen to be quite short in practice *)
   let str = varname name and
-  conv = Type.converter types false t in
+  conv = Type.converter types ~degraded:false t in
   let ty = Type.mk ~raw_type:true ~decay_array:Dyn_array types t in
   item
     [%stri let [%p pat var name] = Ctypes.field [%e tn] [%e string str] [%e conv] ]
@@ -106,7 +106,7 @@ let unsafe_make_i = item
 
 let tymod n = L.simple [Fmt.strf "Vk__Types__%a" L.pp_module n]
 
-let pretyp ctx n x =
+let pretyp _ctx n x =
   let q = tymod n in
   ident @@ qualify [q] x
 
@@ -244,8 +244,8 @@ let getter typename types fields field =
           and [%p xv.p] = [%e get_field' x] in [%e body] ]
     | Record_extension {exts;tag=tag,_ ;ptr= ptr, _ } ->
       main @@
-      Record_extension.merge (typename, exts) (get_field' tag)
-        (get_field' ptr)
+      Record_extension.merge (typename, exts) ~tag:(get_field' tag)
+        ~data:(get_field' ptr)
     | Simple (n, Array(Some (Lit i), ty )) when Inspect.is_char ty ->
       main [%expr Ctypes.string_from_ptr [%e start @@ get_field' n]
           [%e int.e i] ]
@@ -288,7 +288,7 @@ let array_len x = [%expr Ctypes.CArray.length [%e x] ]
 let nullptr types = function
   | Ty.Option _ -> [%expr None]
   | t ->
-    C.coerce C.(ptr void) (Type.converter types true t)
+    C.coerce ~from:C.(ptr void) ~to':(Type.converter types ~degraded:true t)
       [%expr Ctypes.null]
 
 let convert_string n s =
