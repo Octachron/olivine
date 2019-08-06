@@ -1,0 +1,14 @@
+(library
+ (name helper)
+ (modules Vec)
+ (wrapped false))
+
+(executable
+ (name triangle)
+ (modules Triangle)
+ (libraries vk helper tsdl))
+
+(executable
+ (name tesseract)
+ (modules Tesseract)
+ (libraries vk helper tsdl))

@@ -1,0 +1,19 @@
+(library
+ (name info)
+ (libraries xmlm fmt ctypes)
+ (modules :standard \ infolivine))
+
+(menhir
+ (modules latex_parser))
+
+(menhir
+ (modules cxml_parser))
+
+(ocamllex cxml_lexer)
+
+(ocamllex latex_lexer)
+
+(executable
+ (name infolivine)
+ (libraries info)
+ (modules Infolivine))

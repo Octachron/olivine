@@ -1,6 +1,6 @@
 CC=ocamlbuild
 CCO=$(CC) -use-ocamlfind -use-menhir
-DUNE=jbuilder build
+DUNE=dune build
 SPIR=glslangValidator -V
 
 

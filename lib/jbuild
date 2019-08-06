@@ -1,8 +1,0 @@
-(jbuild_version 1)
-
-(library(
-  (public_name olivine)
-  (name vk)
-  (libraries (ctypes.foreign))
-  (wrapped false)
-))
