@@ -46,7 +46,8 @@ test-tesseract: bin/tesseract
 vkspec:
 	mkdir -p spec \
 	&& cd spec \
-        && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml"
+        && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml" \
+        && patch -i remove-debug-marker.diff vk.xml
 
 clean:
 	dune clean; rm lib/*.ml{,i}; rm bin/*
