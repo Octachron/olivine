@@ -321,7 +321,7 @@ let typ_path name = [types; name]
 
 let raw_builtins =
   [ "uint_32_t";  "cametallayer"; "uint_16_t"; "void"; "int_32_t"; "uint_64_t";
-   "int_64_t"; "size_t"; "uint_8_t"; "float"; "int"]
+   "int_64_t"; "size_t"; "uint_8_t"; "float"; "double"; "int"]
 
 
 let builtins dict =

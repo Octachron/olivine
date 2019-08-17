@@ -140,6 +140,23 @@ module Int_32_t = struct
 end
 let int_32_t = Int_32_t.ctype
 
+
+module Int_64_t = struct
+  let zero = 0
+  let of_int x = x
+  let to_int x = x
+  let to_string = string_of_int
+  let pp ppf x = Format.fprintf ppf "%d" x
+
+  type t = int
+  let read = Int64.to_int
+  let write = Int64.of_int
+  let ctype = Ctypes.view ~read ~write Ctypes.int64_t
+  let ctype_opt = integer_opt' zero ctype
+end
+let int_64_t = Int_64_t.ctype
+
+
 module Uint_64_t = struct
   let of_int =  U64.of_int
   let to_int = U64.to_int
@@ -192,6 +209,14 @@ module Float = struct
   let pp = Format.pp_print_float
   let ctype = Ctypes.float
 end
+
+
+module Double = struct
+  type t = float
+  let pp = Format.pp_print_float
+  let ctype = Ctypes.double
+end
+
 
 module Void = struct
   type t = void
