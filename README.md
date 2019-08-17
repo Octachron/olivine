@@ -18,10 +18,26 @@ comes with Vulkan suport.
 # Installation
 
 If you want to experiment with the current generated bindings, you can try
+(this currently requires to disable opam sandboxing due to the donwloading of the vulkan spec)
 
 ```bash
   opam pin add olivine https://github.com/Octachron/olivine.git
 ```
+
+# Running examples
+
+The examples can be run with either
+
+```bash
+make test-triangle
+```
+and
+```bash
+make test-tesseract
+```
+
+or by calling the executable by hand. Using `make test-*` enable the Lunarg standard
+validation layer for a more verbose log.
 
 
 # Generated binding naming conventions :
