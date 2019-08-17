@@ -53,7 +53,7 @@ let rec is_empty m =
 let sys_specific =
   let module S = Info.Common.StringSet in
   let all = S.of_list
-      [ "xlib";  "xcb";  "wl"; "android"; "wayland"; "mir"; "win"; "win32" ] in
+      [ "ggp"; "fuchsia"; "xlib";  "xcb";  "wl"; "android"; "wayland"; "mir"; "win"; "win32" ] in
   let unsupported = S.diff all @@ S.of_list Econfig.supported_systems in
   let check x = S.mem x unsupported in
   fun name -> List.exists (List.exists check )
@@ -320,7 +320,7 @@ let types = L.simple["types"]
 let typ_path name = [types; name]
 
 let raw_builtins =
-  [ "uint_32_t"; "void"; "int_32_t"; "uint_64_t";
+  [ "uint_32_t";  "cametallayer"; "uint_16_t"; "void"; "int_32_t"; "uint_64_t";
    "int_64_t"; "size_t"; "uint_8_t"; "float"; "int"]
 
 

@@ -2,4 +2,6 @@
  (public_name olivine)
  (name vk)
  (libraries ctypes.foreign)
- (wrapped false))
+ (wrapped false)
+ (flags (:standard -w "-6-27-34-3-32"))
+)

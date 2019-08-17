@@ -272,6 +272,12 @@ let input_expand types vars f body = match f with
       ]
     else
       [%expr let [%p f.p] =[%e start f.e] in [%e body] ]
+  | Simple(f, Option(Array(Some Path _, _))) ->
+    let f = M.find (varname f) vars in
+      [%expr let [%p f.p] = match [%e f.e] with
+          | Some [%p f.p] -> Some [%e start f.e]
+          | None -> None in [%e body]
+      ]
   | Simple(f, Array(Some (Const _ | Lit _),_) )->
     let f = M.find (varname f) vars in
     [%expr let [%p f.p] = [%e start f.e] in [%e body] ]

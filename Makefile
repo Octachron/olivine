@@ -49,4 +49,4 @@ vkspec:
         && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml"
 
 clean:
-	$(DUNE) clean; rm lib/*.ml{,i}; rm bin/*
+	dune clean; rm lib/*.ml{,i}; rm bin/*

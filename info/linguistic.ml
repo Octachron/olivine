@@ -270,6 +270,20 @@ let remove_prefix prefix name =
     | _ :: _, _ -> name in
   remove_prefix name prefix name
 
+
+let subst_prefix ~old ~newer name =
+  let rec subst ~back ~old ~newer ~current =
+    match old, current, newer with
+    | [] , l, more -> Ok (more @ l)
+    | p :: old, w :: current, p' :: newer when p = w ->
+      begin match subst ~back ~old ~newer ~current  with
+          | Ok r -> Ok (p'::r)
+          | Error _ as e -> e
+      end
+    | _ :: _, _, _ -> Error back in
+  subst ~back:name ~old ~newer ~current:name
+
+
 let remove_context context a =
   { prefix = remove_prefix context.prefix a.prefix;
     main = remove_prefix context.main a.main;

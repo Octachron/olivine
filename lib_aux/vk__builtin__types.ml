@@ -1,5 +1,6 @@
 module U32 = Unsigned.UInt32
 module U64 = Unsigned.UInt64
+module U16 = Unsigned.UInt16
 module S = Unsigned.Size_t
 
 module type intlike = sig type t val zero: t val ctype: t Ctypes.typ end
@@ -22,6 +23,11 @@ let uint_64_t = Ctypes.uint64_t
 type uint_32_t = int (* ASSUME 64 bits *)
 let uint_32_t = Ctypes.view ~read:(U32.to_int) ~write:(U32.of_int)
     Ctypes.uint32_t
+
+type uint_16_t = int (* ASSUME 64 bits *)
+let uint_16_t = Ctypes.view ~read:(U16.to_int) ~write:(U16.of_int)
+    Ctypes.uint16_t
+
 
 type void = unit
 let void = Ctypes.void
@@ -96,6 +102,20 @@ module Uint_32_t_0 = struct
 end
 module Uint_32_t = struct include Uint_32_t_0
   let ctype_opt = integer_opt (module Uint_32_t_0)
+end
+
+module Uint_16_t_0 = struct
+  let zero = 0
+  let of_int x = x
+  let to_int x = x
+  let to_string = string_of_int
+  let pp ppf x = Format.fprintf ppf "%d" x
+
+  type t = int
+  let ctype = uint_16_t
+end
+module Uint_16_t = struct include Uint_16_t_0
+  let ctype_opt = integer_opt (module Uint_16_t_0)
 end
 
 module Bool_32 = struct
@@ -178,3 +198,11 @@ module Void = struct
   let ctype = Ctypes.void
   let pp = Vk__helpers.Pp.abstract
 end
+
+module Cametallayer = struct
+  type m
+  type t = m Ctypes.structure
+  let ctype : t Ctypes.typ  = Ctypes.structure "CAmetallayer"
+  let pp = Vk__helpers.Pp.abstract
+end
+type cametallayer = Cametallayer.t Ctypes.structure

@@ -51,7 +51,8 @@ module Extension = struct
       types: string list;
       commands: string list;
       enums: enum list;
-      bits: bit list }
+      bits: bit list;
+}
 
   type t = metadata data
   type feature_set = string data
@@ -296,12 +297,14 @@ let array_refine node =
 let rec optionalize l typ = match l, typ with
   | false :: q , Ty.Ptr typ -> Ty.Ptr (optionalize q typ)
   | true :: q, Ptr typ -> Option (Ptr (optionalize q typ))
+  | true :: q, Array(n,typ) -> Option (Array (n,optionalize q typ))
   | q, Const typ -> Const(optionalize q typ)
   | q, Option typ -> Option(optionalize q typ)
   | [true], typ -> Option typ
+  | [false], typ -> typ
   | [], typ -> typ
   | _ ->
-    Fmt.(pf stderr) "optionalize: %a\n%!" Fmt.(list bool) l;
+    Fmt.(pf stderr) "optionalize: %a  %a\n%!" Ty.pp typ Fmt.(list bool) l;
     raise @@ Invalid_argument "optionalize"
 
 let option_refine node =
@@ -526,13 +529,18 @@ let enum_data constrs x =
   | Node { name="comment"; _ } -> constrs
   | Node _n as x ->
     type_errorf "Expected enum node, got %a" Xml.pp_xml x
+
 let bitset_data (fields,values) = function
-  | Xml.Node ({ name="enum"; _ } as x ) ->
-    let name = x%("name") in
-    begin match x%?("bitpos"), x%?("value") with
-      | Some p, None -> (name, int_of_string p) :: fields, values
-      | None, Some p -> fields, (name, int_of_string p) :: values
-      | _ -> assert false
+  | Xml.Node ({ name="enum"; _ } as x ) as xml ->
+    begin match x%?("alias") with
+    | Some _ -> fields, values
+    | None ->
+      let name = x%("name") in
+      begin match x%?("bitpos"), x%?("value") with
+        | Some p, None -> (name, int_of_string p) :: fields, values
+        | None, Some p -> fields, (name, int_of_string p) :: values
+        | _ -> type_errorf "Unknown  bitfield: %a " Xml.pp_xml xml
+      end
     end
   | Data s -> type_errorf "Expected bitmask enum, got data %s" s
   | Node n -> type_errorf "Expected bitmask enum, got node %s" n.name
@@ -670,8 +678,7 @@ module Extension_reader = struct
     | Xml.Data _ -> true
     | Xml.Node n ->
       not (n%?("supported") = Some "disabled")
-      && not ( n%?("promotedto") = Some "VK_VERSION_1_1"
-             )
+      && not ( n%?("promotedto") <> None)
 
 let ext_metadata n = function
   | Xml.Node ({ name="enum";_} as version) :: Node({name="enum";_} as name)  :: q ->
@@ -740,6 +747,7 @@ let section spec x =
     | "extensions"  -> add_extension spec n.children
     | "feature" -> add_feature spec [Node n]
     | _ -> spec
+
 
 let typecheck tree =
   let root spec = function

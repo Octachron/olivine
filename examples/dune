@@ -1,14 +1,17 @@
 (library
  (name helper)
  (modules Vec)
+ (flags :standard -w "-32-6-26-27")
  (wrapped false))
 
 (executable
  (name triangle)
  (modules Triangle)
+ (flags :standard -w "-32-6-26-27")
  (libraries vk helper tsdl))
 
 (executable
  (name tesseract)
  (modules Tesseract)
+ (flags :standard -w "-32-6-26-27")
  (libraries vk helper tsdl))

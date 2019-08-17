@@ -93,6 +93,7 @@ let rec math: Latex.item -> (int, 'name) math =
       Ceil (Div(math a, math b))
     | Macro("over", [a;b] ) -> Floor(Div(math a, math b))
     | Macro("mathit", [Word s]) -> Var ( s)
+    | Macro("textrm", [Word x]) -> Var x
     | Macro("mathit", [Macro _ ]) ->
       Format.eprintf "Wrong argument: macro for mathit macro@."; exit 2
     | Macro("mathit", ([] | _ :: _ :: _) ) ->
