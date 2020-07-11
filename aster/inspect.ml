@@ -142,7 +142,9 @@ let type_path types fields p =
         (None,ty,a) :: acc
       (*          Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
                   raise @@ Invalid_argument "Non-record path" *)
-      | _ -> raise @@ Invalid_argument "Unknown type in path" in
+      | _ ->
+        Format.eprintf "Fatal error: unknow type path %a@." L.pp_type a;
+        exit 2 in
   type_path types [] (None, fields) p
 
 let rec last_type = function

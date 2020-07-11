@@ -33,7 +33,7 @@ module Utils = struct
   let space = Format.pp_print_cut
   let ( #. ) x f= f x
 
-  let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
+  let debug fmt = Format.printf ("@[Debug: " ^^ fmt ^^ "@]@.")
 
   let (<?>) x s = match x with
     | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
@@ -102,7 +102,8 @@ end
 
 let zero_offset = Vkt.Device_size.zero
 
-let create_buffer device flag mem_size =
+let create_buffer phy device flag mem_size =
+  let module Memprop = Vkt.Physical_device_memory_properties in
     let buffer_info =
       Vkt.Buffer_create_info.make
         ~size: mem_size
@@ -112,14 +113,11 @@ let create_buffer device flag mem_size =
     let buffer = Vkc.create_buffer device buffer_info () <?> "Buffer creation" in
 
     let memory_rqr = Vkc.get_buffer_memory_requirements ~device ~buffer in
+    debug "memory requirement: %a" Vkt.Memory_requirements.pp memory_rqr;
     let bit =
       memory_rqr #. Vkt.Memory_requirements.memory_type_bits in
-    let rec find_first k n =
-      if k > 32 then failwith "No memory"
-      else
-      if n land bit = n then k else
-        find_first (k+1) (n lsl 1) in
-    let memory_type_index = find_first 0 1 in
+    let phymem = Vkc.get_physical_device_memory_properties phy in
+    let memory_type_index = 1 in
     let alloc_info =
       Vkt.Memory_allocate_info.make
         ~allocation_size:memory_rqr#.Vkt.Memory_requirements.size
@@ -187,7 +185,7 @@ module Device = struct
    let phymem = Vkc.get_physical_device_memory_properties phy
 (*    TODO: look at the memory flags output: lot of strange entries *)
 
-  ;; debug "memory flags, %a" Vkt.Physical_device_memory_properties.pp phymem
+  ;; debug "memory flags,@ %a" Vkt.Physical_device_memory_properties.pp phymem
 
 
   let queue_family_properties =
@@ -514,7 +512,7 @@ module Geom = struct
   let mem_size = Vkt.Device_size.of_int @@ fsize * A.length input
 
   let buffer, buffer_memory =
-    create_buffer device Vkt.Buffer_usage_flags.vertex_buffer mem_size
+    create_buffer Device.phy device Vkt.Buffer_usage_flags.vertex_buffer mem_size
 
   let () =
     let len = A.length input in
@@ -655,7 +653,7 @@ module Texture = struct
   let memsize = Vkt.Device_size.of_int @@ texsize * fsize
 
   let format = Vkt.Format.R_32_sfloat
-  let src_buffer, memory = create_buffer device
+  let src_buffer, memory = create_buffer Device.phy device
       Vkt.Buffer_usage_flags.transfer_src memsize
 
   let transfer_data () = (* fill texture data *)
@@ -808,7 +806,7 @@ module Uniform = struct
 
   let size = Vkt.Device_size.of_int ( (Vec.dim + 1 ) * Vec.dim * fsize )
   let buffer, memory =
-    create_buffer device Vkt.Buffer_usage_flags.uniform_buffer size
+    create_buffer Device.phy device Vkt.Buffer_usage_flags.uniform_buffer size
 
   let pool_sizes = let open Vkt.Descriptor_pool_size in
     array

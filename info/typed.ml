@@ -9,7 +9,7 @@ open Xml.Infix
 let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
 
 let type_errorf x =
-  Fmt.kstrf (fun s -> raise (Type_error s)) x
+  Fmt.kpf (fun _ -> Fmt.pf Fmt.stderr "@]@."; exit 2) Fmt.stderr ("@[Fatal type error:@ " ^^ x)
 
 module Option = struct
   let map f = function
@@ -256,6 +256,33 @@ let rec lexbuf ppf lex =
 
 end
 
+
+(* Old version *)
+let _len_path s =
+     let p = List.filter ((<>) "") @@ String.split_on_char ':' s in
+      match p with
+      | [] -> assert false
+      | p -> Ty.Path p
+
+let len_path s =
+  let sub start curr =
+    String.sub s start (curr-start) in
+  let rec segm prevs start curr =
+    if curr >= String.length s then
+      if curr > start then
+        List.rev (sub start curr :: prevs)
+      else
+        List.rev prevs
+    else
+      match s.[curr] with
+      | 'a'..'z' | 'A'..'Z' -> segm prevs start (curr+1)
+      | '-' ->
+        segm ((sub start curr)::prevs) (curr+2) (curr+3)
+      | ':' ->
+        segm ((sub start curr)::prevs) (curr+1) (curr+2)
+      | _ -> assert false in
+  Ty.Path (segm [] 0 1)
+
 let len_info s =
   let lens = String.split_on_char ',' s in
   let latex = "latexmath" in
@@ -271,11 +298,9 @@ let len_info s =
       let p = Latex_parser.start Latex_lexer.start (lex ()) in
       debug "parsed, %a" Latex.pp p;
       Ty.Math_expr (Retype.math p)
-    | s ->
-      let p = List.filter ((<>) "") @@ String.split_on_char ':' s in
-      match p with
-      | [] -> assert false
-      | p -> Ty.Path p in
+    | "2*VK_UUID_SIZE" -> (* FIXME *) Const { factor = 2; name = "VK_UUID_SIZE" }
+    | s -> len_path s
+  in
   List.map len lens
 
 let array_refine node =
@@ -298,13 +323,14 @@ let rec optionalize l typ = match l, typ with
   | false :: q , Ty.Ptr typ -> Ty.Ptr (optionalize q typ)
   | true :: q, Ptr typ -> Option (Ptr (optionalize q typ))
   | true :: q, Array(n,typ) -> Option (Array (n,optionalize q typ))
+  | false :: q, Array(n,typ) -> Array (n,optionalize q typ)
   | q, Const typ -> Const(optionalize q typ)
   | q, Option typ -> Option(optionalize q typ)
   | [true], typ -> Option typ
   | [false], typ -> typ
   | [], typ -> typ
   | _ ->
-    Fmt.(pf stderr) "optionalize: %a  %a\n%!" Ty.pp typ Fmt.(list bool) l;
+    Fmt.(pf stderr) "@[optionalize: %a@ [%a]@]@." Ty.pp typ Fmt.(list bool) l;
     raise @@ Invalid_argument "optionalize"
 
 let option_refine node =
@@ -341,12 +367,13 @@ let register name entity spec  =
   { spec with entities = N.add name entity spec.entities }
 
 let parse name p s =
-(*  let lex = Lexing.from_string s in
-  Fmt.(pf stderr) "lexing:\n%a\n%!"
-    Cp__helper.pp_lex lex; *)
+
   try p Cxml_lexer.start @@ Lexing.from_string s with
     Cxml_parser.Error ->
     Format.eprintf "@[<v> Parsing failure %s :@ %s@]@." name s;
+    let lex = Lexing.from_string s in
+    Fmt.(pf stderr) "@[<hv> lexing:\n%a\n@.@]"
+      Cxml_helper.pp_lex lex;
     exit 2
 
 let typedef spec node =
@@ -365,10 +392,12 @@ let fields_refine fields =
           | Option Ty.Array(Some Path [index'],_)) as array )
       :: (name, _ as index) :: q when name = index' ->
       refine (Ty.Array_f { index; array } :: extended) q
-    | (n, (Ty.Array(Some Path( a :: _), _) as ty)) :: q
-          when List.assoc a fields |> is_option_ty
-          ->
-          refine ( Simple(n, Option ty) :: extended) q
+    | (n, (Ty.Array(Some Path( a :: _), _) as ty)) :: q ->
+      begin match List.assoc a fields |> is_option_ty with
+      | exception Not_found -> type_errorf "Not found path component %s" a
+      | false -> refine (Ty.Simple(n,ty)::extended) q
+      | true -> refine ( Simple(n, Option ty) :: extended) q
+      end
     | ("pNext", Ty.Record_extensions exts as ptr) ::
       ("sType", Ty.Name "VkStructureType" as tag) :: q ->
       refine (Ty.Record_extension { tag; ptr; exts } ::extended) q
@@ -542,8 +571,8 @@ let bitset_data (fields,values) = function
         | _ -> type_errorf "Unknown  bitfield: %a " Xml.pp_xml xml
       end
     end
-  | Data s -> type_errorf "Expected bitmask enum, got data %s" s
-  | Node n -> type_errorf "Expected bitmask enum, got node %s" n.name
+  | Data s -> type_errorf "Expected bitmask enum, got data@ %s" s
+  | Node n -> type_errorf "Expected bitmask enum, got node@ %s" n.name
 
 let constant spec = function
   | Xml.Node ({name="enum"; _ } as n) ->
@@ -572,20 +601,23 @@ let enums spec x =
         | _ -> type_errorf "Enum expected, got %s" n in
       register n (Type ty) spec
     | Some "bitmask" ->
-      let ty = N.find n spec.entities in
-      let ty =
+ (*     let n = String.sub n 0 (String.length n - 4) ^ "s" in *)
+      begin match N.find_opt n spec.entities with
+        | None -> Fmt.(pf stderr) "Not found: %s@." n; spec
+        | Some ty ->
+        let ty =
         match ty with
         | Type Enum [] ->
           let fields, values =
             List.fold_left bitset_data ([], []) x.children in
           Ty.Bitfields { fields; values}
         | Type ty ->
-          type_errorf "Expected bitset %s, got %a" n Ty.pp ty
-        | Fn _ -> type_errorf "Expected a bitset, got a function"
-        | Const _ -> type_errorf "Expected a bitset, got a constant"
+          type_errorf "Expected bitset %s,@ got@ %a" n Ty.pp ty
+        | Fn _ -> type_errorf "Expected a bitset,@ got a function"
+        | Const _ -> type_errorf "Expected a bitset,@ got a constant"
       in
-
       register n (Type ty) spec
+      end
     | Some s -> type_errorf "Unknown enum type: %s" s
     | None -> type_errorf "Untyped enum"
 

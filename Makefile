@@ -10,7 +10,7 @@ bin/triangle: shaders/triangle/vert.spv shaders/triangle/frag.spv | vk
 	$(DUNE) examples/$(notdir $@).exe
 	mv _build/default/examples/$(notdir $@).exe $@
 
-bin/tesseract: shaders/tesseract/vert.spv shaders/tesseract/frag.spv | vk
+bin/tesseract: examples/tesseract.ml shaders/tesseract/vert.spv shaders/tesseract/frag.spv | vk
 	$(DUNE) examples/$(notdir $@).exe
 	mv _build/default/examples/$(notdir $@).exe $@
 

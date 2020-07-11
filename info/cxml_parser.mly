@@ -102,7 +102,7 @@ qualifier:
 
 intexp:
  | n = INT  { Lit n }
- | ENUM n=name { Const n }
+ | ENUM n=name { Const {factor=1; name=n} }
 
 typename:
   LT id = IDENTIFIER RT { Name id }

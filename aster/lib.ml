@@ -203,7 +203,7 @@ module Rename = struct
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
     | Path p -> Ty.Path (List.map (!) p)
-    | Const n -> Ty.Const !n
+    | Const { name;factor} -> Ty.Const { factor; name = !name }
     | Null_terminated -> Ty.Null_terminated
     | Math_expr x -> Ty.Math_expr (T.rename (!) x)
   and fn (!) {Cty.args; name; original_name; return } =
@@ -369,7 +369,9 @@ let rec generate_ideal core dict registry current
           lib |> add [types; name] (Type (name,typ))
     in
     (items,lib)
-  | None -> Fmt.epr "Lost item %s@." p; exit 2
+  | None -> Fmt.epr "Lost item %s@." p;
+    (* FIXME *)
+    (items,lib)
 
 let rec generate_core core dict registry path (items, _ as build) =
   if items = S.empty then

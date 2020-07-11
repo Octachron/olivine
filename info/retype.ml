@@ -62,6 +62,7 @@ type pos = Abs of int | Bit of int | Offset of int
 
 type ('a,'b) math =
   | Int: int -> (int,'b) math
+  | Mult: ('a,'b) math * ('a,'b) math -> (int,'b) math
   | Var: 'b -> (int,'b) math
   | Div: ('a,'b) math * ('a,'b) math -> (int * int,'b) math
   | Ceil: (int * int,'b) math -> (int,'b) math
@@ -74,6 +75,7 @@ let to_int: type a. (a,'b) math -> (int,'b) math = function
   | Ceil _ as c -> c
   | Int _ as n -> n
   | Floor _ as f -> f
+  | Mult(_,_) as d -> d
 
 let int_of_word s =
     try Int(int_of_string s) with
@@ -86,6 +88,7 @@ let rec vars: type a. 'b list -> (a,'b) math -> 'b list = fun l ->
   | Floor x -> vars l x
   | Ceil x -> vars l x
   | Div (x,y) -> vars (vars l x) y
+  | Mult (x,y) -> vars (vars l x) y
 
 let rec math: Latex.item -> (int, 'name) math =
   let open Latex in function
@@ -110,6 +113,7 @@ let rec rename: type a n name. ( n -> name) ->  (a,n) math -> (a,name) math  =
   | Var x -> Var(namer x)
   | Int _ as n -> n
   | Div(x,y) -> Div(rename namer x, rename namer y)
+  | Mult(x,y) -> Mult(rename namer x, rename namer y)
   | Ceil x -> Ceil (rename namer x)
   | Floor x -> Floor (rename namer x)
 
@@ -125,7 +129,7 @@ module Typexpr(X:name) = struct
   type 'a constexpr =
     | Lit of 'a
     | Path of name list
-    | Const of name
+    | Const of {factor:int; name:name}
     | Null_terminated
     | Math_expr of (int,name) math
 
@@ -209,7 +213,7 @@ module Typexpr(X:name) = struct
     | Lit n -> fp ppf "%a" pp n
     | Null_terminated -> fp ppf "%s" "null-terminated"
     | Math_expr _ -> fp ppf "%s" "math-expr"
-    | Const name -> fp ppf "%a" X.pp name
+    | Const {factor; name} -> fp ppf "%d * %a" factor X.pp name
     | Path p -> fp ppf "[%a]" (Fmt.list ~sep:dot X.pp) p
 
   let pp_bitfield ppf (name,int) =

@@ -12,3 +12,4 @@ module M = Info.Common.StringMap
       [%expr let x, y = [%e expr x], [%e expr y] in if x mod y = 0 then x / y else 1 + x/y ]
     | T.Floor x -> expr x
     | T.Div (x,y) -> [%expr [%e expr x] / [%e expr y] ]
+    | T.Mult (x,y) -> [%expr [%e expr x] * [%e expr y] ]

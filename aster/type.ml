@@ -20,7 +20,14 @@ let tyvar ?(post=[]) ?par types name =
     ~prim:[L.simple ["Ctypes"]] tyvar ?par
     types name
 
-let const = ident % qualify L.[simple ["Vk__Const"] ] % varname
+let const_ident = ident % qualify L.[simple ["Vk__Const"] ] % varname
+
+let mult factor const =
+  if factor = 1 then
+    const
+  else
+    [%expr [%e int.e factor] * [%e const]]
+
 
 let rec converter types ~degraded x =
   let tyvar ?post = tyvar ?post types in
@@ -33,16 +40,16 @@ let rec converter types ~degraded x =
   | Ptr ty -> [%expr Ctypes.ptr [%e make ty] ]
   | Option Name n -> tyvar ~post:["opt"] n
   | Option (Ptr typ) -> [%expr Ctypes.ptr_opt [%e make typ] ]
-  | Option Array (Some Const n ,typ) when not degraded ->
-    [%expr Vk__helpers.array_opt [%e (var n).e] [%e make typ] ]
+  | Option Array (Some Const {factor; name} ,typ) when not degraded ->
+    [%expr Vk__helpers.array_opt [%e mult factor (var name).e] [%e make typ] ]
   | Option Array (Some (Lit n) ,typ) when not degraded ->
     [%expr Vk__helpers.array_opt [%e int.e n ] [%e make typ ]]
   | Option Array (_,t) -> [%expr Ctypes.ptr_opt [%e make t]]
   | Option String -> [%expr Ctypes.string_opt]
   | Option t -> Fmt.epr "Not implemented: option %a@." Ty.pp t; exit 2
   | String -> [%expr Ctypes.string]
-  | Array (Some Const n ,typ) when not degraded ->
-    [%expr Ctypes.array [%e const n] [%e make typ]]
+  | Array (Some Const {factor;name} ,typ) when not degraded ->
+    [%expr Ctypes.array [%e mult factor (const_ident name)] [%e make typ]]
   | Array (Some (Lit n) ,typ) when not degraded ->
     [%expr Ctypes.array [%e int.e n] [%e make typ]]
   | Array (_,typ) -> make (Ty.Ptr typ)

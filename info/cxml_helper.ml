@@ -63,7 +63,7 @@ let pp ppf = let open Pp in
   | UINT64 n -> lit string ppf (Unsigned.ULLong.to_string n)
   | FLOAT f -> lit float ppf f
   | STRING s -> lit estring ppf s
-  | IDENTIFIER s -> fp ppf "%s" s
+  | IDENTIFIER s -> fp ppf "%s(id)" s
   | MACRO s -> macro ppf s
   | COLON -> punct ppf ":"
   | DOT -> punct ppf "."
@@ -81,10 +81,10 @@ let pp ppf = let open Pp in
   | EOF -> fp ppf "EOF"
   | LT -> punct ppf "⦇"
   | RT -> punct ppf "⦈"
- | LN -> punct ppf "⦗"
- | RN -> punct ppf "⦘"
- | CONST -> keyword ppf "const"
- | UNION -> keyword ppf "UNION"
+  | LN -> punct ppf "⦗"
+  | RN -> punct ppf "⦘"
+  | CONST -> keyword ppf "const"
+  | UNION -> keyword ppf "UNION"
 
 let rec pp_lex ppf lex =
   match Cxml_lexer.start lex with

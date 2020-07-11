@@ -31,7 +31,7 @@ rule start = parse
  | "}" { RBRACE }
  | "," { COMMA }
  | ":" { COLON }
- | ";" { SEMI }
+ | ";" { start lexbuf }
  | "+" { PLUS }
  | "-" { MINUS }
  | "." { DOT }
