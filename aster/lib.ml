@@ -414,12 +414,14 @@ let rec take_module name = function
 
 let open' s =
   let open Ast_helper in
-  let opn = Opn.mk @@ Utils.nlid @@  " Vk__" ^ s ^ "\n" in
-   I.item (Str.open_ opn) (Sig.open_ opn)
+  let name = Utils.nlid @@  " Vk__" ^ s  in
+  let opn = Opn.mk name in
+  let m = Opn.mk (Mod.ident name) in
+   I.item (Str.open_ m) (Sig.open_ opn)
 
 let opens x = I.imap open' x
 let ast x = Ast x
-
+let loc = Location.none
 let mkforeign prefix name =
   let sig' = [ast @@
    I.item

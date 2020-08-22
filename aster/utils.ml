@@ -14,8 +14,7 @@ let type_module = L.simple ["types"]
 
 type ('a,'b) dual = {p:'a ; e:'b}
 
-let nloc = Location.mknoloc
-
+let nloc txt = Location.{ txt; loc = none }
 
 let typestr n = Fmt.strf "%a" L.pp_type n
 let val' name ty  = H.Sig.value @@ H.Val.mk (nloc @@ typestr name) ty
@@ -26,12 +25,12 @@ let nlid x = nloc(lid x)
 
 let modname = Fmt.strf "%a" L.pp_module
 
-let qualify l name =
+let qualify l n =
   let open Longident in
   List.fold_left (fun gen elt x -> Ldot(gen elt,x) )
     (fun s -> Lident s)
     (List.map modname l)
-    name
+    n
 
 let varname n = Fmt.strf "%a" L.pp_var n
 let typename n = lid(typestr n)
@@ -62,7 +61,7 @@ let typ ?par name =
   H.Typ.constr (nloc @@ lid ) []
 
 let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
-
+let loc = Location.none
 let any = { p = [%pat? _ ]; e = [%expr ()] }
 let typexp n = [%expr [%e typename n]]
 let tyvar ?(par=[]) n = ident @@ qualify par (typestr n)
@@ -105,7 +104,7 @@ let decltype ?recflag ?manifest ?kind name =
   type' ?recflag [H.Type.mk ?kind ?manifest @@ nloc name]
 
 let module' name me =
-  let name = nloc @@ modname name in
+  let name = nloc @@ Some (modname name) in
   item
   H.( Str.module_ @@ Mb.mk name @@ str me )
   H.(Sig.module_ @@ Md.mk name @@ sg me )
@@ -119,9 +118,10 @@ let modtype ?(par=[]) name =
   item s s
 
 let functor' name mty result =
+  let arg = Named (nloc (Some name), mty) in
   item
-    H.( Mod.functor_ (nloc name) (Some mty) @@ str result )
-    H.( Mty.functor_ (nloc name) (Some mty) @@ sg result )
+    H.( Mod.functor_ arg @@ str result )
+    H.( Mty.functor_ arg @@ sg result )
 
 let (~:) x = L.simple [x]
 let include' me = Ast_helper.(Str.include_ @@ Incl.mk me)
@@ -153,7 +153,7 @@ let variant name constrs =
 type order = Eq | Lesser | Greater
 let polyvariant_type ~order constrs =
   let ty c =
-    P.Rtag (c,[],true,[]) in
+    H.Rf.tag c true [] in
   match order with
   | Eq -> H.Typ.variant (List.map ty constrs) Asttypes.Closed None
   | Greater -> H.Typ.variant (List.map ty constrs) Asttypes.Open None
@@ -164,11 +164,15 @@ let polyvariant name constrs =
   let typ = polyvariant_type ~order:Eq constrs in
   type' [H.Type.mk ~manifest:typ name]
 
-let open' name e = Exp.open_ Asttypes.Fresh (nlid @@ modname name) e
+let open' name e =
+  let mident = H.Mod.ident (nlid @@ modname name) in
+  let info = H.Opn.mk ~override:Fresh mident in
+  Exp.open_ info  e
 
 let info msg =
-  nloc "olivine.info",
-  Parsetree.PStr [H.Str.eval @@ H.Exp.constant @@ Parsetree.Pconst_string(msg,None)]
+  H.Attr.mk
+  (nloc "olivine.info")
+  (Parsetree.PStr [H.Str.eval @@ H.Exp.constant @@ Parsetree.Pconst_string(msg,None)])
 
 let  (<?>) (exp:Parsetree.expression) msg =
   Format.kasprintf

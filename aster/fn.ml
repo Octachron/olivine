@@ -60,7 +60,7 @@ let regularize_fields types fields =
 
 let annotate fmt =
   Fmt.kstrf (fun s e -> Exp.attr e @@
-              (nloc "debug", P.PStr [H.Str.eval @@ string s ]))
+              (H.Attr.mk (nloc "debug") (P.PStr [H.Str.eval @@ string s ])))
     fmt
 
 let arg_types (fn:Ty.fn) =
