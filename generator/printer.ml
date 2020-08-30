@@ -42,7 +42,7 @@ let delim = Atlas_set.(
     empty |> add L.[~:"vk"] |> add  L.[ ~:"vk"; ~:"types" ]
   )
 
-let type_to_ast ctx (name,ty) =
+let rec type_to_ast ctx (name,ty) =
   match ty with
   | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> I.nil
   | Result {ok;bad} ->
@@ -69,7 +69,8 @@ let type_to_ast ctx (name,ty) =
     Aster.Structured.make ctx Record (name,r.fields)
   | Record_extensions _ -> (* FIXME *)
     assert false
-
+  | Width w ->
+    type_to_ast ctx (name,w.ty)
 
 let rec item_to_ast current (lib:B.lib) item =
   let types = match B.find_module B.types lib.content.sig' with

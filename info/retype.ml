@@ -160,6 +160,7 @@ module Typexpr(X:name) = struct
     | Result of { ok: name list; bad: name list }
     | Record of {is_private:bool; fields: field list}
     | Record_extensions of name list
+    | Width of { size:int; ty:typexpr }
 
   and simple_field = name * typexpr
   and field =
@@ -261,6 +262,8 @@ module Typexpr(X:name) = struct
     | Record_extensions exts ->
       let ppl = pp_list (const "@ | ") X.pp in
       fp ppf "@[record extensions [%a]@ " ppl exts
+    | Width { size; ty } ->
+      Format.fprintf ppf "%a:%d" pp ty size
 
 
   and pp_simple_field ppf (name, t) =

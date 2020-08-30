@@ -376,11 +376,23 @@ let parse name p s =
       Cxml_helper.pp_lex lex;
     exit 2
 
+
+let objective_code_fragment =
+{|#ifdef __OBJC__
+@class CAMetalLayer;
+#else
+typedef void⦗CAMetalLayer⦘;
+#endif|}
+
 let typedef spec node =
   let s = flatten node.Xml.children in
-  let name, ty =
-    map2 (refine node) @@ parse "typedef" Cxml_parser.typedef s in
-  register name (Type ty) spec
+  if s = objective_code_fragment then spec
+    (* FIXME: We are not handling CAMetalLayer *)
+  else
+    let name, ty =
+      map2 (refine node) @@ parse "typedef" Cxml_parser.typedef s in
+    register name (Type ty) spec
+
 
 let is_option_ty = function
   | Ty.Option _ | Const Option _ -> true

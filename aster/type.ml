@@ -46,6 +46,7 @@ let rec converter types ~degraded x =
     [%expr Vk__helpers.array_opt [%e int.e n ] [%e make typ ]]
   | Option Array (_,t) -> [%expr Ctypes.ptr_opt [%e make t]]
   | Option String -> [%expr Ctypes.string_opt]
+  | Option Width { ty; _ } -> make (Option ty)
   | Option t -> Fmt.epr "Not implemented: option %a@." Ty.pp t; exit 2
   | String -> [%expr Ctypes.string]
   | Array (Some Const {factor;name} ,typ) when not degraded ->
@@ -62,6 +63,7 @@ let rec converter types ~degraded x =
   (* ^FIXME^?: better typing? *)
   | FunPtr _ ->
     failwith "Not_implemented: funptr"
+  | Width tyw -> make tyw.ty
 
 
 type decay = All | Dyn_array | None
@@ -124,6 +126,7 @@ let rec mk
   | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
   | Handle _  ->
     failwith "Anonymous type"
+  | Width t -> mk t.ty
 
 let fn types
     ?(decay_array=None)

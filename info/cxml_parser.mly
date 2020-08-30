@@ -40,7 +40,8 @@ start:
 
 
 typedef:
-  TYPEDEF a = def { a }
+  | TYPEDEF a = def { a }
+  | STRUCT LN ty = IDENTIFIER RN { ty, Name ty }
 ;;
 
 def:
@@ -48,6 +49,8 @@ def:
   | t = typexp LPAR f = fn RPAR args=args
   { f, FunPtr { original_name=f; name=f; return=t; args }   }
 ;;
+
+
 
 raw_typename:
   | t = typename { t }
@@ -85,6 +88,7 @@ unconst:
 
 post_qualifier:
   | {fun x -> x}
+  | COLON n=INT { fun x -> Width {size=n;ty=x } }
   | EOF {fun x -> x}
   | LSQ RSQ q = post_qualifier { fun x -> Array(None, q x) }
   | LSQ n = intexp RSQ q = post_qualifier

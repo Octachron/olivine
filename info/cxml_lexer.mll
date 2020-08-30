@@ -61,6 +61,7 @@ rule start = parse
  | "/*" { longcomment lexbuf }
  | eof {EOF}
 
+
 and comment = parse
 | "\n" {start lexbuf}
 | _ {comment lexbuf}

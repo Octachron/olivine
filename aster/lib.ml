@@ -200,6 +200,7 @@ module Rename = struct
                              bad = List.map (!) r.bad }
     | Record_extensions l ->
       Ty.Record_extensions (record_extension (!) l)
+    | Width { size; ty } -> Width { size; ty = typ ty }
   and const (!) = function
     | Cty.Lit a -> Ty.Lit a
     | Path p -> Ty.Path (List.map (!) p)
@@ -288,7 +289,7 @@ let refine_fn (fn:Ty.fn) =
     { fn with args = identify_out fn.args }
   | _ -> fn
 
-let deps gen build = function
+let rec deps gen build = function
   | Cty.Option t | Ptr t | Array(_,t) | (Name _ as t) ->
     dep_typ gen build t
   | Const _  | String
@@ -304,6 +305,7 @@ let deps gen build = function
   | Record_extensions exts ->
     List.fold_left (dep_typ gen) build @@ List.map (fun n -> Cty.Name n)
     exts
+  | Width { ty; size=_} -> deps gen build ty
 
 let result_info dict registry =
   match M.find "VkResult" registry with

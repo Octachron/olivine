@@ -366,6 +366,8 @@ let rec printer types t =
   | Ptr t when Inspect.is_void t -> [%expr Vk__helpers.Pp.addr]
   | Ptr t -> [%expr Vk__helpers.Pp.ptr [%e printer t]]
   | String -> [%expr Vk__helpers.Pp.string]
+  | Width {size=_; ty } ->
+    printer ty
   | ty -> Fmt.epr "Not implemented: %a@." Ty.pp ty;
     raise @@ Invalid_argument "Printer not implemented"
 
