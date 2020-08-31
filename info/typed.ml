@@ -52,9 +52,25 @@ module Extension = struct
       commands: string list;
       enums: enum list;
       bits: bit list;
-}
+    }
+
 
   type t = metadata data
+   type versioned =
+     | Active of t
+     | Promoted_to of string N.t
+
+   let rec filter_map f = function
+      | [] -> []
+      | a :: q ->
+        match f a with
+        | None -> filter_map f q
+        | Some x -> x :: filter_map f q
+
+    let only_active exts = filter_map
+          (function Active x -> Some x | Promoted_to _ -> None) exts
+
+
   type feature_set = string data
 
   let pp_exttype ppf = function
@@ -76,7 +92,7 @@ module Extension = struct
       "@[<hov>{name=%s;@ extend=%s;@ pos=%d;}@]"
       b.name b.extend b.pos
 
-  let pp ppf (t:t) =
+  let pp_active ppf (t:t) =
     Fmt.pf ppf
     "@[<v 2>{metadata=%a;@;types=[%a];@;commands=[%a];@;enums=[%a];@;\
      bits=[%a]@ }@]"
@@ -85,6 +101,13 @@ module Extension = struct
       Fmt.(list string) t.commands
       (Fmt.list pp_enum) t.enums
       (Fmt.list pp_bit) t.bits
+
+  let pp ppf = function
+    | Active t ->
+      pp_active ppf t
+    | Promoted_to aliases ->
+      Fmt.pf ppf "@[<v>Promoted extension.@,aliases:@[%a@]@]"
+        Fmt.(list @@ pair string string) (N.bindings aliases)
 
   module Extend = struct
 
@@ -152,6 +175,7 @@ module Extension = struct
 
     let all_exts m exts =
       let number x = Some x.metadata.number in
+      let exts = only_active exts in
       let exts =
         List.sort (fun x y -> compare (number x) (number y)) exts in
       List.fold_left (extend number) m exts
@@ -172,9 +196,10 @@ type spec = {
   tags: short_tag list;
   entities: entity N.t;
   updates : Extension.feature_set list;
-  extensions : Extension.t list;
+  extensions : Extension.versioned list;
   includes: c_include list;
   requires: require list;
+  aliases: string N.t
 }
 
 
@@ -453,47 +478,48 @@ let union spec node =
   let ty = Ty.Union fields in
   register name (Type ty) spec
 
-let bitmask spec node =
+let with_aliases f spec node =
   match node%?("alias") with
-  | Some _ -> spec
-  | None ->
-    let name, ty = parse "typedef-bitmask" Cxml_parser.typedef
-      @@ flatten node.Xml.children in
-    let ty =
-      match ty with
-      | Ty.Name n ->
-        Ty.Bitset { implementation=n;
-                    field_type = node%?("requires") }
-      | _ -> type_errorf "Bitmask expected" in
-    register name (Type ty) spec
+  | None -> f spec node
+  | Some alias ->
+    match node%?("name") with
+    | None -> spec
+    | Some name ->
+      { spec with aliases = N.add name alias spec.aliases }
 
-let handle spec node =
-  match node%?("alias") with
-  | Some _ -> spec
-  | None ->
-    let h, name =
-      match node.Xml.children with
-      | Node h  ::  _ ::
-        Node { name ="name"; children = [Data name]; _ } :: _ ->
-        h, name
-      | _  ->
-        type_errorf "Handle type name expected, got %a"
-          Xml.pp_xml (Node node)
-    in
-    let d =
-      match h.children with
-      | [Data "VK_DEFINE_HANDLE"] -> true
-      | [Data "VK_DEFINE_NON_DISPATCHABLE_HANDLE"] -> false
-      | _ ->
-        type_errorf "Unknown handle type: %a" Xml.pp_xml (Node h) in
-    let parent = node%?("parent") in
-    let ty = Ty.Handle { dispatchable = d; parent } in
-    register name (Type ty) spec
+let bitmask = with_aliases @@ fun spec node ->
+  let name, ty = parse "typedef-bitmask" Cxml_parser.typedef
+    @@ flatten node.Xml.children in
+  let ty =
+    match ty with
+    | Ty.Name n ->
+      Ty.Bitset { implementation=n;
+                  field_type = node%?("requires") }
+    | _ -> type_errorf "Bitmask expected" in
+  register name (Type ty) spec
 
-let enum spec node =
-  let name = node%("name") in
-  if node%??("alias") then spec
-  else register name (Type (Ty.Enum [])) spec
+let handle = with_aliases @@ fun spec node ->
+  let h, name =
+    match node.Xml.children with
+    | Node h  ::  _ ::
+      Node { name ="name"; children = [Data name]; _ } :: _ ->
+      h, name
+    | _  ->
+      type_errorf "Handle type name expected, got %a"
+        Xml.pp_xml (Node node)
+  in
+  let d =
+    match h.children with
+    | [Data "VK_DEFINE_HANDLE"] -> true
+    | [Data "VK_DEFINE_NON_DISPATCHABLE_HANDLE"] -> false
+    | _ ->
+      type_errorf "Unknown handle type: %a" Xml.pp_xml (Node h) in
+  let parent = node%?("parent") in
+  let ty = Ty.Handle { dispatchable = d; parent } in
+  register name (Type ty) spec
+
+let enum = with_aliases @@ fun spec node ->
+  register (node%("name")) (Type (Ty.Enum [])) spec
 
 
 let c_include spec node =
@@ -693,6 +719,14 @@ module Extension_reader = struct
                 pos = int_of_string @@ n%("bitpos");
                 name = n%("name") }
 
+   let promoted_data x aliases = match x with
+     | Xml.Data _ -> type_errorf "Extension data: unexpected raw data"
+     | Node n ->
+       match n.name with
+       | "enum" when n%??"alias" ->
+         N.add (n%"name") (n%"alias") aliases
+       | _ -> aliases
+
   let data (type a) x (ext: a Extension.data) = match x with
     | Xml.Data _ -> type_errorf "Extension data: unexpected raw data"
     | Node n ->
@@ -717,12 +751,21 @@ module Extension_reader = struct
       )
     |> List.concat
 
+  type status =
+    | Disabled
+    | Active
+    | Promoted
 
-  let enabled = function
-    | Xml.Data _ -> true
+  let status = function
+    | Xml.Data _ -> Active
     | Xml.Node n ->
-      not (n%?("supported") = Some "disabled")
-      && not ( n%?("promotedto") <> None)
+      if n%?("supported") = Some "disabled" then
+        Disabled
+      else if
+        n%?("promotedto") <> None
+      then
+        Promoted
+      else Active
 
 let ext_metadata n = function
   | Xml.Node ({ name="enum";_} as version) :: Node({name="enum";_} as name)  :: q ->
@@ -751,6 +794,27 @@ let extension (type a) (meta: _ -> _ -> a * _) = function
   | Node { name; _ } as n ->
     Fmt.epr "@[<hov>%a@]@." Xml.pp_xml n;
     type_errorf "Extension: unexpected node %s" name
+
+
+let promoted_extension = function
+  | Xml.Data _ -> type_errorf "Extension: unexpected data"
+  | Node ({ name = "extension"|"feature"; children; _ } as n) ->
+    let all_children = extension_requires children in
+    (* TODO: analyze correctly requirements *)
+    let _metadata, q = ext_metadata n all_children in
+    List.fold_right promoted_data q N.empty
+  | Node { name; _ } as n ->
+    Fmt.epr "@[<hov>%a@]@." Xml.pp_xml n;
+    type_errorf "Extension: unexpected node %s" name
+
+
+   let read children =
+     let child l x = match status x with
+         | Promoted -> Extension.Promoted_to (promoted_extension x) :: l
+         | Active -> Extension.Active (extension ext_metadata x) :: l
+         | Disabled -> l in
+     List.fold_left child [] children
+
 end
 
 let extend spec =
@@ -761,10 +825,7 @@ let extend spec =
 let add_extension spec children =
   { spec with
     extensions =
-      spec.extensions @
-      List.map Extension_reader.(extension ext_metadata)
-      @@ List.filter Extension_reader.enabled
-        children }
+      spec.extensions @ Extension_reader.read children }
 
 let add_feature spec children =
   { spec with
@@ -807,6 +868,7 @@ let typecheck tree =
     includes = [];
     requires = [];
     extensions = [];
+    aliases = N.empty
   } tree
 
 let fp = Fmt.pf

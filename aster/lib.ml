@@ -10,11 +10,7 @@ module T = Info.Retype
 module Cty = T.Ty
 module Arith = T.Arith
 
-module Full_name = struct
-  type name = L.name
-  let pp ppf x = L.pp_var ppf x
-end
-module Ty = Info.Retype.Typexpr(Full_name)
+module Ty = Rename.Ty
 module LOrd = struct type t = L.name let compare = compare end
 module Name_set = Set.Make(LOrd)
 module Name_map = Map.Make(LOrd)
@@ -50,14 +46,8 @@ let rec is_empty m =
     | _ -> false in
   m.sig' = [] || List.for_all empty_submodule m.sig'
 
-let sys_specific =
-  let module S = Info.Common.StringSet in
-  let all = S.of_list
-      [ "ggp"; "fuchsia"; "xlib";  "xcb";  "wl"; "android"; "wayland"; "mir"; "win"; "win32" ] in
-  let unsupported = S.diff all @@ S.of_list Econfig.supported_systems in
-  let check x = S.mem x unsupported in
-  fun name -> List.exists (List.exists check )
-    L.[name.prefix;name.postfix;name.main]
+
+
 
 module Result = struct
   module Map = Map.Make(struct
@@ -171,70 +161,6 @@ let may f = function
   | None -> None
   | Some x -> Some (f x)
 
-module Rename = struct
-  let elt dict = L.make dict
-  let rec typ (!) x =
-    let typ = typ (!) in
-    match x with
-    | Cty.Name n -> Ty.Name !n
-    | Const ty -> Ty.Const(typ ty)
-    | Ptr ty -> Ty.Ptr(typ ty)
-    | Option ty  -> Ty.Option(typ ty)
-    | String -> String
-    | Handle p ->
-      Ty.Handle { parent = may (!) p.parent; dispatchable=p.dispatchable }
-    | Array (cexpr, t) -> Ty.Array( may (const (!)) cexpr, typ t)
-    | FunPtr f -> Ty.FunPtr (fn (!) f)
-    | Enum constrs -> Ty.Enum(List.map (constr(!)) constrs)
-    | Union f -> Ty.Union (sfields (!) f)
-    | Record r ->
-      Ty.Record{ is_private = r.is_private; fields = fields (!) r.fields }
-    | Bitset b ->
-      Ty.Bitset { implementation = ! (b.implementation);
-                  field_type = may (!) b.field_type }
-    | Bitfields b ->
-      Ty.Bitfields { fields = List.map (bitfield (!)) b.fields;
-                     values =  List.map (bitfield (!)) b.values
-                   }
-    | Result r -> Ty.Result{ ok = List.map (!) r.ok;
-                             bad = List.map (!) r.bad }
-    | Record_extensions l ->
-      Ty.Record_extensions (record_extension (!) l)
-    | Width { size; ty } -> Width { size; ty = typ ty }
-  and const (!) = function
-    | Cty.Lit a -> Ty.Lit a
-    | Path p -> Ty.Path (List.map (!) p)
-    | Const { name;factor} -> Ty.Const { factor; name = !name }
-    | Null_terminated -> Ty.Null_terminated
-    | Math_expr x -> Ty.Math_expr (T.rename (!) x)
-  and fn (!) {Cty.args; name; original_name; return } =
-    Ty.{ args = fn_fields (!) args;
-         name = ! name; original_name;
-         return = typ (!) return }
-  and bitfield (!) (name, n) = !name, n
-  and sfield (!) (n,ty) = !n, typ (!) ty
-  and field (!) = function
-    | Cty.Simple f -> Ty.Simple(sfield (!) f)
-    | Array_f r ->
-      Array_f { index = sfield (!) r.index;
-                array = sfield (!) r.array }
-    | Record_extension { exts; tag; ptr } ->
-      Record_extension {
-        exts = record_extension (!) exts;
-        tag = sfield (!) tag;
-        ptr = sfield (!) ptr
-      }
-  and fn_field (!) (r:Cty.fn_field) =
-    { Ty.dir = r.dir; field = field (!) r.field }
-  and sfields (!) = List.map @@ sfield (!)
-  and fields (!) = List.map @@ field (!)
-  and fn_fields (!) = List.map @@ fn_field (!)
-  and constr (!) (n, p) = !n, p
-  and record_extension (!) l =
-    List.filter (fun x -> not @@ sys_specific x)
-    @@ List.map (!) l
-end
-
 let subresult = L.simple ["subresult"]
 
 let rec dep_typ (dict,gen as g) (items,lib as build) =
@@ -245,14 +171,14 @@ let rec dep_typ (dict,gen as g) (items,lib as build) =
     if S.mem t items then gen build t else build
   | Result _ as t ->
     begin match Rename.typ (L.make dict) t with
-      | Ty.Result {ok;bad} as t ->
+      | Rename.Ty.Result {ok;bad} as t ->
         let name = Info.Subresult.composite_nominal ok bad in
         let okname = Info.Subresult.side_name ok in
         let badname = Info.Subresult.side_name bad in
         items,
         lib
         |> add [subresult] @@ Type (okname, Ty.Result {ok; bad=[]})
-        |> add [subresult] @@ Type (badname,Ty.Result {bad; ok=[]})
+        |> add [subresult] @@ Type (badname, Ty.Result {bad; ok=[]})
         |> add [subresult] @@ Type (name,t)
       | _ -> assert false
     end
@@ -446,7 +372,7 @@ let generate_subextension dict registry branch lib
     (ext:Info.Typed.Extension.t) =
   let name = List.rev (L.make dict ext.metadata.name).postfix in
   let name = L.simple(L.remove_prefix [branch] name) in
-  if sys_specific name then lib else
+  if Sys_info.is_specific name then lib else
   match ext.metadata.type' with
   | None -> lib
   | Some t ->
@@ -461,7 +387,7 @@ let generate_subextension dict registry branch lib
         []
     in
     let items = S.of_list
-      @@ List.filter (fun name -> not @@ sys_specific
+      @@ List.filter (fun name -> not @@ Sys_info.is_specific
                        @@ L.make dict name)
       @@ ext.commands (*@ ext.types*) in
     let branch' = L.simple [branch] in
@@ -475,7 +401,7 @@ let generate_subextension dict registry branch lib
 
 let generate_extensions dict registry extensions lib =
   let exts =
-    List.fold_left (classify_extension dict) M.empty extensions in
+    List.fold_left (classify_extension dict) M.empty (Info.Typed.Extension.only_active extensions) in
   let gen_branch name exts lib =
     List.fold_left (generate_subextension dict registry name)
       lib exts in
@@ -488,9 +414,9 @@ let generate_extensions dict registry extensions lib =
 let filter_extension dict registry name0 =
   let name = L.make dict name0 in
   match M.find name0 registry with
-  | Info.Typed.Type _ -> not @@ sys_specific name
+  | Info.Typed.Type _ -> not @@ Sys_info.is_specific name
   | Fn _ ->
-    not (L.is_extension dict name|| sys_specific name)
+    not (L.is_extension dict name|| Sys_info.is_specific name)
   | Const _ -> true
 
 
