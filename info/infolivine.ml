@@ -7,16 +7,16 @@ module N = Common.StringMap
 let read filename =
   let spec = open_in filename in
   let source = Xmlm.(make_input @@ `Channel spec) in
-  Typed.typecheck @@ Xml.normalize @@ snd @@ Xml.tree source
+  Structured_spec.typecheck @@ Xml.normalize @@ snd @@ Xml.tree source
 
 let () =
   (*   then *)
   let info = read Sys.argv.(1) in
   if Array.length Sys.argv > 2 then
     let query = Sys.argv.(2) in
-    Typed.pp_entity stdout @@ (query, N.find query info.entities)
+    Structured_spec.pp_entity stdout @@ (query, N.find query info.entities)
   else
-    Typed.pp stdout info
+    Structured_spec.pp stdout info
 
     (*    let counts = Name_study.count_names info.entities in
     let pp_count ppf (name,n) = fp ppf "%s(%d)" name n in

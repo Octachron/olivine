@@ -1,0 +1,152 @@
+module C = Common
+module N = C.StringMap
+module T = Refined_types
+
+type metadata =
+  { name:string;
+    number:int;
+    type':string option;
+    version : int }
+
+type enum =
+  { extend:string; name:string; offset:int; upward:bool; extension_number: int option }
+
+type bit = { extend:string; name:string; pos:int}
+
+type 'a data =
+  {
+    metadata: 'a;
+    types: string list;
+    commands: string list;
+    enums: enum list;
+    bits: bit list;
+  }
+
+
+type t = metadata data
+type versioned =
+  | Active of t
+  | Promoted_to of string N.t
+
+
+let only_active exts = C.List.filter_map
+    (function Active x -> Some x | Promoted_to _ -> None) exts
+
+
+type feature_set = string data
+
+let pp_exttype ppf = function
+  | None -> Fmt.pf ppf "support=disabled"
+  | Some x -> Fmt.pf ppf "type=\"%s\"" x
+
+let pp_metadata ppf (m:metadata) =
+  Fmt.pf ppf
+    "@[<hov>{name=%s;@ number=%d;@ %a;@ version=%d}@]"
+    m.name m.number pp_exttype m.type' m.version
+
+let pp_enum ppf (e:enum)=
+  Fmt.pf ppf
+    "@[<hov>{name=%s;@ extend=%s;@ offset=%d;@ upward=%b}@]"
+    e.name e.extend e.offset e.upward
+
+let pp_bit ppf (b:bit)=
+  Fmt.pf ppf
+    "@[<hov>{name=%s;@ extend=%s;@ pos=%d;}@]"
+    b.name b.extend b.pos
+
+let pp_active ppf (t:t) =
+  Fmt.pf ppf
+    "@[<v 2>{metadata=%a;@;types=[%a];@;commands=[%a];@;enums=[%a];@;\
+     bits=[%a]@ }@]"
+    pp_metadata t.metadata
+    Fmt.(list string) t.types
+    Fmt.(list string) t.commands
+    (Fmt.list pp_enum) t.enums
+    (Fmt.list pp_bit) t.bits
+
+let pp ppf = function
+  | Active t ->
+    pp_active ppf t
+  | Promoted_to aliases ->
+    Fmt.pf ppf "@[<v>Promoted extension.@,aliases:@[%a@]@]"
+      Fmt.(list @@ pair string string) (N.bindings aliases)
+
+module Extend = struct
+
+  type bound = {inf:int;sup:int}
+  let all = { inf = max_int; sup = min_int }
+  let add b x = { sup = max x b.sup; inf  = min x b.inf }
+
+  let extrema =
+    List.fold_left add all
+
+  let decorate_enum = function
+    | Refined_types.Ty.Enum constrs ->
+      let add' b = function
+        | _, T.Abs n -> add b n
+        | _ -> b in
+      List.fold_left add' all constrs, constrs
+    | _ -> raise Not_found
+
+
+  let find decorate m0 x m =
+    try N.find x m with
+    | Not_found ->
+      match N.find x m0 with
+      | Entity.Type ty -> decorate ty
+      | _ -> raise Not_found
+
+  let enum extension_number m0 =
+    let find = find decorate_enum m0 in
+    let add m (x:enum) =
+      let extension_number =
+        C.Option.merge_exn  x.extension_number extension_number in
+      let key = x.extend in
+      let b, l = find key m  in
+      let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
+      let pos = if x.upward then +pos else -pos in
+      let elt = add b pos, (x.name, T.Abs pos) ::l in
+      N.add key elt m in
+    List.fold_left add N.empty
+
+  let bit m0 =
+    let proj = function
+      | T.Ty.Bitfields x -> x.fields, x.values
+      | _ -> raise Not_found in
+    let find = find proj m0 in
+    let add m (x:bit) =
+      let key = x.extend in
+      let fields, vals = find key m in
+      let l = (x.name, x.pos) :: fields, vals in
+      N.add key l m in
+    List.fold_left add N.empty
+
+  let extend number m ext =
+    let ext_num = number ext in
+    let bits = bit m ext.bits in
+    let enums = enum ext_num m ext.enums in
+    let cmp (_,x) (_,y)= compare x y in
+    let sort = List.sort cmp in
+    let rebuild_enum key (_,l) =
+      N.add key (Entity.Type(T.Ty.Enum (sort l))) in
+    let rebuild_set key (fields,values) =
+      N.add key (Entity.Type(T.Ty.Bitfields { fields; values })) in
+    m
+    |> N.fold rebuild_enum enums
+    |> N.fold rebuild_set bits
+
+  let all_exts m exts =
+    let number x = Some x.metadata.number in
+    let exts = only_active exts in
+    let exts =
+      List.sort (fun x y -> compare (number x) (number y)) exts in
+    List.fold_left (extend number) m exts
+
+  let update m update =
+    let number _x = None in
+    List.fold_left (extend number) m update
+
+  let all m upd exts =
+    all_exts (update m upd) exts
+
+end

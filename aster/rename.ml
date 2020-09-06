@@ -1,11 +1,11 @@
 module L = Info.Linguistic
-module Cty = Info.Retype.Ty
+module Cty = Info.Refined_types.Ty
 
 module Full_name = struct
   type name = L.name
   let pp ppf x = L.pp_var ppf x
 end
-module Ty = Info.Retype.Typexpr(Full_name)
+module Ty = Info.Refined_types.Typexpr(Full_name)
 
 
 
@@ -47,7 +47,7 @@ and const (!) = function
   | Path p -> Ty.Path (List.map (!) p)
   | Const { name;factor} -> Ty.Const { factor; name = !name }
   | Null_terminated -> Ty.Null_terminated
-  | Math_expr x -> Ty.Math_expr (Info.Retype.rename (!) x)
+  | Math_expr x -> Ty.Math_expr (Info.Refined_types.rename (!) x)
 and fn (!) {Cty.args; name; original_name; return } =
   Ty.{ args = fn_fields (!) args;
        name = ! name; original_name;

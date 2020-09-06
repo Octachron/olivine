@@ -7,7 +7,7 @@ module I = Aster.Item
 let read filename =
   let spec = open_in filename in
   let source = Xmlm.(make_input @@ `Channel spec) in
-  Info.Typed.typecheck @@ Info.Xml.normalize @@ snd @@ Info.Xml.tree source
+  Info.Structured_spec.typecheck @@ Info.Xml.normalize @@ snd @@ Info.Xml.tree source
 
 
 let add_word name dict =
@@ -25,7 +25,7 @@ let add role name dict =
 let add_ext x exts =
   S.add (String.lowercase_ascii x) exts
 
-let vendor_tag (dict,out) (x:Info.Typed.short_tag)=
+let vendor_tag (dict,out) (x:Info.Structured_spec.short_tag)=
   ( add Extension x.name dict,
     add_ext x.name out)
 
@@ -43,7 +43,7 @@ let add_pre x dict =
 
 let make_dict spec =
   let dict, exts =
-    List.fold_left vendor_tag (empty,S.empty) spec.Info.Typed.tags in
+    List.fold_left vendor_tag (empty,S.empty) spec.Info.Structured_spec.tags in
   dict
   |> add Main "RandR"
   |> add Main "RR"

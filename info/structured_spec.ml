@@ -1,9 +1,9 @@
 exception Type_error of string
 module N = Common.StringMap
 module M = Xml.Map
-module T = Retype
-module Ty = Retype.Ty
-module Arith = Retype.Arith
+module T = Refined_types
+module Ty = T.Ty
+module Arith = T.Arith
 open Xml.Infix
 
 let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
@@ -11,192 +11,19 @@ let debug f = Fmt.epr ("Debug:" ^^ f ^^ "@.")
 let type_errorf x =
   Fmt.kpf (fun _ -> Fmt.pf Fmt.stderr "@]@."; exit 2) Fmt.stderr ("@[Fatal type error:@ " ^^ x)
 
-module Option = struct
-  let map f = function
-    | None -> None
-    | Some x -> Some (f x)
 
-  let merge_exn x y = match x, y with
-    | Some x, _ -> x
-    | _, Some y -> y
-    | _ -> assert false
-end
-
-type entity =
-  | Const of Arith.t
-  | Type of Ty.typexpr
-  | Fn of Ty.fn
 
 type vendor_id = { name: string; id: int; comment: string }
 type short_tag = { name: string; author:string; contact: string}
 type c_include = { name: string; system:bool; provide:string option }
 type require = { from:string; type_name:string }
 
-module Extension = struct
-
-  type metadata =
-    { name:string;
-      number:int;
-      type':string option;
-      version : int }
-
-  type enum =
-    { extend:string; name:string; offset:int; upward:bool; extension_number: int option }
-
-  type bit = { extend:string; name:string; pos:int}
-
-  type 'a data =
-    {
-      metadata: 'a;
-      types: string list;
-      commands: string list;
-      enums: enum list;
-      bits: bit list;
-    }
-
-
-  type t = metadata data
-   type versioned =
-     | Active of t
-     | Promoted_to of string N.t
-
-   let rec filter_map f = function
-      | [] -> []
-      | a :: q ->
-        match f a with
-        | None -> filter_map f q
-        | Some x -> x :: filter_map f q
-
-    let only_active exts = filter_map
-          (function Active x -> Some x | Promoted_to _ -> None) exts
-
-
-  type feature_set = string data
-
-  let pp_exttype ppf = function
-    | None -> Fmt.pf ppf "support=disabled"
-    | Some x -> Fmt.pf ppf "type=\"%s\"" x
-
-  let pp_metadata ppf (m:metadata) =
-    Fmt.pf ppf
-      "@[<hov>{name=%s;@ number=%d;@ %a;@ version=%d}@]"
-      m.name m.number pp_exttype m.type' m.version
-
-  let pp_enum ppf (e:enum)=
-    Fmt.pf ppf
-      "@[<hov>{name=%s;@ extend=%s;@ offset=%d;@ upward=%b}@]"
-      e.name e.extend e.offset e.upward
-
-  let pp_bit ppf (b:bit)=
-    Fmt.pf ppf
-      "@[<hov>{name=%s;@ extend=%s;@ pos=%d;}@]"
-      b.name b.extend b.pos
-
-  let pp_active ppf (t:t) =
-    Fmt.pf ppf
-    "@[<v 2>{metadata=%a;@;types=[%a];@;commands=[%a];@;enums=[%a];@;\
-     bits=[%a]@ }@]"
-      pp_metadata t.metadata
-      Fmt.(list string) t.types
-      Fmt.(list string) t.commands
-      (Fmt.list pp_enum) t.enums
-      (Fmt.list pp_bit) t.bits
-
-  let pp ppf = function
-    | Active t ->
-      pp_active ppf t
-    | Promoted_to aliases ->
-      Fmt.pf ppf "@[<v>Promoted extension.@,aliases:@[%a@]@]"
-        Fmt.(list @@ pair string string) (N.bindings aliases)
-
-  module Extend = struct
-
-    type bound = {inf:int;sup:int}
-    let all = { inf = max_int; sup = min_int }
-    let add b x = { sup = max x b.sup; inf  = min x b.inf }
-
-    let extrema =
-      List.fold_left add all
-
-    let decorate_enum = function
-      | Ty.Enum constrs ->
-        let add' b = function
-          | _, T.Abs n -> add b n
-          | _ -> b in
-        List.fold_left add' all constrs, constrs
-      | _ -> raise Not_found
-
-
-    let find decorate m0 x m =
-      try N.find x m with
-      | Not_found ->
-        match N.find x m0 with
-        | Type ty -> decorate ty
-        | _ -> raise Not_found
-
-    let enum extension_number m0 =
-      let find = find decorate_enum m0 in
-      let add m (x:enum) =
-        let extension_number =
-          Option.merge_exn  x.extension_number extension_number in
-        let key = x.extend in
-        let b, l = find key m  in
-        let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
-        let pos = if x.upward then +pos else -pos in
-        let elt = add b pos, (x.name, T.Abs pos) ::l in
-        N.add key elt m in
-      List.fold_left add N.empty
-
-    let bit m0 =
-      let proj = function
-        | Ty.Bitfields x -> x.fields, x.values
-        | _ -> raise Not_found in
-      let find = find proj m0 in
-      let add m (x:bit) =
-        let key = x.extend in
-        let fields, vals = find key m in
-        let l = (x.name, x.pos) :: fields, vals in
-        N.add key l m in
-      List.fold_left add N.empty
-
-    let extend number m ext =
-      let ext_num = number ext in
-      let bits = bit m ext.bits in
-      let enums = enum ext_num m ext.enums in
-      let cmp (_,x) (_,y)= compare x y in
-      let sort = List.sort cmp in
-      let rebuild_enum key (_,l) =
-        N.add key (Type(Ty.Enum (sort l))) in
-      let rebuild_set key (fields,values) =
-        N.add key (Type(Ty.Bitfields { fields; values })) in
-      m
-      |> N.fold rebuild_enum enums
-      |> N.fold rebuild_set bits
-
-    let all_exts m exts =
-      let number x = Some x.metadata.number in
-      let exts = only_active exts in
-      let exts =
-        List.sort (fun x y -> compare (number x) (number y)) exts in
-      List.fold_left (extend number) m exts
-
-    let update m update =
-      let number _x = None in
-      List.fold_left (extend number) m update
-
-    let all m upd exts =
-      all_exts (update m upd) exts
-
-  end
-
-end
-
 type spec = {
   vendor_ids: vendor_id list;
   tags: short_tag list;
-  entities: entity N.t;
-  updates : Extension.feature_set list;
-  extensions : Extension.versioned list;
+  entities: Entity.t N.t;
+  updates : Structured_extensions.feature_set list;
+  extensions : Structured_extensions.versioned list;
   includes: c_include list;
   requires: require list;
   aliases: string N.t
@@ -322,7 +149,7 @@ let len_info s =
       debug "tokenized, %a" Tmp.lexbuf (lex ());
       let p = Latex_parser.start Latex_lexer.start (lex ()) in
       debug "parsed, %a" Latex.pp p;
-      Ty.Math_expr (Retype.math p)
+      Ty.Math_expr (Refined_types.math p)
     | "2*VK_UUID_SIZE" -> (* FIXME *) Const { factor = 2; name = "VK_UUID_SIZE" }
     | s -> len_path s
   in
@@ -700,126 +527,9 @@ let command spec = function
       type_errorf "expected command node, got %s node: %a"
         n.name Xml.pp_xml x
 
-module Extension_reader = struct
-
-  let int_of_string s =
-    try int_of_string s with
-    | Failure _ -> -1 (**FIXME: constant value *)
-
-  let etype n = n%("name")
-  let command n = n%("name")
-  let enum n: Extension.enum =
-    { Extension.extend = n%("extends");
-      name = n%("name");
-      offset = int_of_string @@ n%("offset");
-      upward = not ( n%?("dir") = Some "-");
-      extension_number = Option.map int_of_string (n%?("extnumber"))
-    }
-  let bit n = { Extension.extend = n%("extends");
-                pos = int_of_string @@ n%("bitpos");
-                name = n%("name") }
-
-   let promoted_data x aliases = match x with
-     | Xml.Data _ -> type_errorf "Extension data: unexpected raw data"
-     | Node n ->
-       match n.name with
-       | "enum" when n%??"alias" ->
-         N.add (n%"name") (n%"alias") aliases
-       | _ -> aliases
-
-  let data (type a) x (ext: a Extension.data) = match x with
-    | Xml.Data _ -> type_errorf "Extension data: unexpected raw data"
-    | Node n ->
-      match n.name with
-      | "type" -> { ext with types = etype n :: ext.types }
-      | "command" -> { ext with commands = command n :: ext.commands }
-      | "enum" when n%??"bitpos" ->
-        { ext with bits = bit n :: ext.bits }
-      | "enum" when n%??"offset" ->
-        { ext with enums = enum n :: ext.enums }
-      | "enum" when n%??"value" || n%??"name" -> (*FIXME*) ext
-      | "comment" -> ext
-      | _ ->
-        type_errorf "Extension.data: unexpected node %a"
-             Xml.pp_xml (Node n)
-
-  let extension_requires ext =
-    ext
-    |> List.map (function
-        | Xml.Node { name = "require"; children; _ } -> children
-        | _ -> type_errorf "Non require children to extension nodes"
-      )
-    |> List.concat
-
-  type status =
-    | Disabled
-    | Active
-    | Promoted
-
-  let status = function
-    | Xml.Data _ -> Active
-    | Xml.Node n ->
-      if n%?("supported") = Some "disabled" then
-        Disabled
-      else if
-        n%?("promotedto") <> None
-      then
-        Promoted
-      else Active
-
-let ext_metadata n = function
-  | Xml.Node ({ name="enum";_} as version) :: Node({name="enum";_} as name)  :: q ->
-    let name = name%("name") in
-    (* name are now suffixed by "_extension_name" … *)
-    let name = String.(sub name 0 (length name - length "_extension_name")) in
-    { Extension.version = int_of_string (version%("value"));
-      name;
-      number = int_of_string @@ n%("number");
-      type' = n%?("type")
-    }, q
-  | _ -> type_errorf "Unexpected structure to extensions children:%a" Xml.pp_xml (Node n)
-
-let feature n q =   n%("number"), q
-
-let extension (type a) (meta: _ -> _ -> a * _) = function
-  | Xml.Data _ -> type_errorf "Extension: unexpected data"
-  | Node ({ name = "extension"|"feature"; children; _ } as n) ->
-    let all_children = extension_requires children in
-    (* TODO: analyze correctly requirements *)
-    let metadata, q = meta n all_children in
-        let start =
-          { Extension.metadata; types = []; commands = []; enums = [];
-            bits = [] } in
-        List.fold_right data q start
-  | Node { name; _ } as n ->
-    Fmt.epr "@[<hov>%a@]@." Xml.pp_xml n;
-    type_errorf "Extension: unexpected node %s" name
-
-
-let promoted_extension = function
-  | Xml.Data _ -> type_errorf "Extension: unexpected data"
-  | Node ({ name = "extension"|"feature"; children; _ } as n) ->
-    let all_children = extension_requires children in
-    (* TODO: analyze correctly requirements *)
-    let _metadata, q = ext_metadata n all_children in
-    List.fold_right promoted_data q N.empty
-  | Node { name; _ } as n ->
-    Fmt.epr "@[<hov>%a@]@." Xml.pp_xml n;
-    type_errorf "Extension: unexpected node %s" name
-
-
-   let read children =
-     let child l x = match status x with
-         | Promoted -> Extension.Promoted_to (promoted_extension x) :: l
-         | Active -> Extension.Active (extension ext_metadata x) :: l
-         | Disabled -> l in
-     List.fold_left child [] children
-
-end
-
 let extend spec =
   { spec with
-    entities = Extension.Extend.all spec.entities
+    entities = Structured_extensions.Extend.all spec.entities
         spec.updates
         spec.extensions }
 let add_extension spec children =
@@ -888,7 +598,7 @@ let pp_required ppf r =
     r.type_name r.from
 
 let pp_entity ppf (name,ent)= match ent with
-  | Fn fn -> fp ppf "%a@;" Ty.pp_fn fn
+  | Entity.Fn fn -> fp ppf "%a@;" Ty.pp_fn fn
   | Type ty -> fp ppf "%a@;" Ty.pp_typedecl (name,ty)
   | Const c -> fp ppf "constant %s=%a@;" name Arith.pp c
 
@@ -907,4 +617,4 @@ let pp ppf r =
     (Fmt.list pp_include) r.includes
     (Fmt.list pp_required) r.requires
     Fmt.(list @@ pp_entity ) (N.bindings r.entities)
-    (Fmt.list Extension.pp) r.extensions
+    (Fmt.list Structured_extensions.pp) r.extensions

@@ -346,7 +346,7 @@ let pp_type ppf p =
 let pp_var ppf = pp_type ppf
 
 type nametree =
-  | Obj of Typed.entity
+  | Obj of Entity.t
   | Node of (int * nametree M.t)
 
 let locate dict name obj nametree =
@@ -384,7 +384,7 @@ let rec pp_nametree ppf = function
     let bs = List.filter (fun (_n,m) -> cardinal m > 5 ) (M.bindings m)
     in
     Fmt.pf ppf "@[<v 2>%a@]"
-      (Retype.Ty.pp_list (Retype.Ty.const "@;") pp_branch) bs
+      (Refined_types.Ty.pp_list (Refined_types.Ty.const "@;") pp_branch) bs
 and pp_branch ppf (name, m) =
     Fmt.pf ppf "%s(%d):@;@[%a@]" name (cardinal m) pp_nametree m
 

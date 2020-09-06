@@ -6,7 +6,7 @@ module U = Utils
 type ast_item = (Parsetree.structure, Parsetree.signature) I.item
 module Deps = Set.Make(struct type t = path let compare = compare end)
 
-module T = Info.Retype
+module T = Info.Refined_types
 module Cty = T.Ty
 module Arith = T.Arith
 
@@ -236,7 +236,7 @@ let rec deps gen build = function
 let result_info dict registry =
   match M.find "VkResult" registry with
   | exception Not_found -> assert false
-  | Info.Typed.Type Cty.Enum constrs ->
+  | Info.Entity.Type Cty.Enum constrs ->
     Result.make @@ List.map Rename.(constr @@ elt dict) constrs
   | _ -> assert false
 
@@ -264,10 +264,10 @@ let rec generate_ideal core dict registry current
   let name = L.make dict p in
   let renamer = L.make dict in
   match M.find_opt p registry with
-  | Some Info.Typed.Const c ->
+  | Some Info.Entity.Const c ->
     let lib = add [const] (Const (name,c)) lib in
     items,lib
-  | Some Info.Typed.Fn fn ->
+  | Some Info.Entity.Fn fn ->
     let items, lib =
       dep_fn (dict, generate_ideal core dict registry current)
         fn build in
@@ -282,7 +282,7 @@ let rec generate_ideal core dict registry current
         |> add ( core current ) (Fn {implementation=Native; fn})
         |> add (current @ [raw]) (Fn {implementation=Raw; fn}) in
     items, lib
-  | Some Info.Typed.Type typ ->
+  | Some Info.Entity.Type typ ->
     let items, lib =
       deps (dict,generate_ideal core dict registry current) build
         typ in
@@ -323,7 +323,7 @@ let rec normalize_sigs acc = function
 and normalize m =
   { m with sig' = normalize_sigs [] m.sig' }
 
-let classify_extension dict m (ext:Info.Typed.Extension.t) =
+let classify_extension dict m (ext:Info.Structured_extensions.t) =
   let path = L.to_path @@ L.make dict ext.metadata.name in
   match path with
   | [] -> assert false
@@ -369,7 +369,7 @@ let core_submodules prefix =
 
 
 let generate_subextension dict registry branch lib
-    (ext:Info.Typed.Extension.t) =
+    (ext:Info.Structured_extensions.t) =
   let name = List.rev (L.make dict ext.metadata.name).postfix in
   let name = L.simple(L.remove_prefix [branch] name) in
   if Sys_info.is_specific name then lib else
@@ -401,7 +401,8 @@ let generate_subextension dict registry branch lib
 
 let generate_extensions dict registry extensions lib =
   let exts =
-    List.fold_left (classify_extension dict) M.empty (Info.Typed.Extension.only_active extensions) in
+    List.fold_left (classify_extension dict) M.empty
+      (Info.Structured_extensions.only_active extensions) in
   let gen_branch name exts lib =
     List.fold_left (generate_subextension dict registry name)
       lib exts in
@@ -414,7 +415,7 @@ let generate_extensions dict registry extensions lib =
 let filter_extension dict registry name0 =
   let name = L.make dict name0 in
   match M.find name0 registry with
-  | Info.Typed.Type _ -> not @@ Sys_info.is_specific name
+  | Info.Entity.Type _ -> not @@ Sys_info.is_specific name
   | Fn _ ->
     not (L.is_extension dict name|| Sys_info.is_specific name)
   | Const _ -> true
@@ -426,7 +427,7 @@ let find_submodule name lib =
   List.find (fun m -> m.name = name) lib.content.submodules
 *)
 
-let generate root preambule dict (spec:Info.Typed.spec) =
+let generate root preambule dict (spec:Info.Structured_spec.spec) =
   let registry = spec.entities in
   let submodules =
     let sig' = let open I in

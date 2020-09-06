@@ -23,15 +23,15 @@
 %nonassoc COMPLEMENT
 
 %{
-open Retype
+open Refined_types
 open Ty
 open Arith
 %}
 
 %start<unit> start
-%start<Retype.Ty.type_decl> typedef
-%start<Retype.Ty.simple_field> field
-%start <Retype.Arith.t> formula
+%start<Refined_types.Ty.type_decl> typedef
+%start<Refined_types.Ty.simple_field> field
+%start <Refined_types.Arith.t> formula
 %%
 
 start:
