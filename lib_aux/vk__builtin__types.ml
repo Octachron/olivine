@@ -66,6 +66,16 @@ let bool_32 =
     ~write:( fun x -> if x then true' else false' )
     Ctypes.uint32_t
 
+let bool_32_opt =
+  let true' = U32.of_int Vk__Const.true'
+  and false' = U32.of_int Vk__Const.false' in
+  Ctypes.view
+    ~read:( fun x -> if U32.zero = x then None else if x = true' then Some true else Some false )
+    ~write:(function None -> U32.zero | Some x -> if x then true' else false' )
+    Ctypes.uint32_t
+
+
+
 let bool = bool_32
 
 (*let device_size_opt = integer_opt Ctypes.uint64_t (module U64)*)
@@ -122,6 +132,7 @@ module Bool_32 = struct
   type t = bool
   let t = bool
   let ctype = bool_32
+  let ctype_opt = bool_32_opt
   let pp = Format.pp_print_bool
 end
 
