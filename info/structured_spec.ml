@@ -564,13 +564,22 @@ let section spec x =
     | _ -> spec
 
 
+(* Black_list Android built_in types *)
+let black_list spec =
+  let entities = spec.entities in
+  let entities =
+    N.remove "ANativeWindow" @@
+    N.remove "AHardwareBuffer" @@
+    entities in
+  { spec with entities }
+
 let typecheck tree =
   let root spec = function
     | Xml.Node { children; _ } ->
       List.fold_left section spec children
     | Data _ -> type_errorf "root: unexpected data"
   in
-  extend @@ root {
+  extend @@ black_list @@ root {
     vendor_ids = [];
     tags = [];
     entities = N.empty;
