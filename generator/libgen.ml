@@ -47,7 +47,9 @@ let make_dict spec =
   dict
   |> add Main "RandR"
   |> add Main "RR"
-  |> add  Main "ID"
+  |> add Main "DirectFB"
+  |> add Main "IDirectFB"
+  |> add Main "FB"
   |> add Main "D3D12"
   |> add Main "MacOS"
   |> add Main "LOD"
