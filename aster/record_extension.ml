@@ -13,7 +13,7 @@ open Utils
 let stype = ident' "stype__generated"
 let pnext = ident' "pnext__generated"
 
-let name root_name =  L.(root_name//"ext")
+let name root_name =  L.(root_name//"eXt")
 
 let def (typename,exts) =
   let name = typestr @@ name typename  in

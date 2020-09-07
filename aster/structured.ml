@@ -203,7 +203,7 @@ let type_field types typename = function
     when Inspect.is_option ity && not (Inspect.is_option ty) ->
     [%type: [%t Type.mk types ty] option ]
   | Array_f { array = _, ty; _ } -> Type.mk types  ty
-  | Record_extension _ -> typ L.(typename//"ext")
+  | Record_extension _ -> typ (Record_extension.name typename)
 
 let const x = varpath ~par:[L.simple["Vk__Const"]] x
 
