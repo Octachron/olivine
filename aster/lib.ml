@@ -22,7 +22,7 @@ type type' = Ty.typexpr
 type fn = Ty.fn
 type implementation = Raw | Regular | Native
 
-module M = Map.Make(String)
+module M = Info.Common.StringMap
 
 type module' = {
   name : L.name;
@@ -75,6 +75,21 @@ type context = {
   builtins: Name_set.t;
   results: int Result.Map.t;
 }
+
+
+type full_dict =
+  { aliases: string M.t;
+    dict: L.dict
+  }
+
+let rename full_dict =
+  let ling = L.make full_dict.dict in
+  fun name ->
+    let fresh =
+      match M.find name full_dict.aliases with
+      | x -> x
+      | exception Not_found -> name in
+    ling fresh
 
 type kind = Typedef | Builtin | Result | Prim
 
@@ -170,7 +185,7 @@ let rec dep_typ (dict,gen as g) (items,lib as build) =
   | Name t ->
     if S.mem t items then gen build t else build
   | Result _ as t ->
-    begin match Rename.typ (L.make dict) t with
+    begin match Rename.typ (rename dict) t with
       | Rename.Ty.Result {ok;bad} as t ->
         let name = Info.Subresult.composite_nominal ok bad in
         let okname = Info.Subresult.side_name ok in
@@ -237,7 +252,7 @@ let result_info dict registry =
   match M.find "VkResult" registry with
   | exception Not_found -> assert false
   | Info.Entity.Type Cty.Enum constrs ->
-    Result.make @@ List.map Rename.(constr @@ elt dict) constrs
+    Result.make @@ List.map Rename.(constr @@ rename dict) constrs
   | _ -> assert false
 
 let const = L.simple["const"]
@@ -255,14 +270,14 @@ let raw_builtins =
 let builtins dict =
   Name_set.of_list @@
   L.simple ["bool";"32"] :: L.simple ["Bool"; "32"]
-  :: List.map (L.make dict) raw_builtins
+  :: List.map (rename dict) raw_builtins
 
 let rec generate_ideal core dict registry current
     (items, lib as build) p =
   if not @@ S.mem p items then build else
   let (items, lib as build ) = (S.remove p items, lib) in
-  let name = L.make dict p in
-  let renamer = L.make dict in
+  let name = rename dict p in
+  let renamer = rename dict in
   match M.find_opt p registry with
   | Some Info.Entity.Const c ->
     let lib = add [const] (Const (name,c)) lib in
@@ -301,6 +316,7 @@ let rec generate_ideal core dict registry current
     (* FIXME *)
     (items,lib)
 
+
 let rec generate_core core dict registry path (items, _ as build) =
   if items = S.empty then
     snd build
@@ -324,7 +340,7 @@ and normalize m =
   { m with sig' = normalize_sigs [] m.sig' }
 
 let classify_extension dict m (ext:Info.Structured_extensions.t) =
-  let path = L.to_path @@ L.make dict ext.metadata.name in
+  let path = L.to_path @@ rename dict ext.metadata.name in
   match path with
   | [] -> assert false
   | a :: _ ->
@@ -370,15 +386,15 @@ let core_submodules prefix =
 
 let generate_subextension dict registry branch lib
     (ext:Info.Structured_extensions.t) =
-  let name = List.rev (L.make dict ext.metadata.name).postfix in
+  let renamer = rename dict in
+  let name = List.rev (renamer ext.metadata.name).postfix in
   let name = L.simple(L.remove_prefix [branch] name) in
   if Sys_info.is_specific name then lib else
   match ext.metadata.type' with
   | None -> lib
   | Some t ->
     let vkext = "Vk__extension_sig" in
-    let s = I.str (U.modtype ~par:L.[simple [vkext]]
-                   @@ L.make dict t) in
+    let s = I.str (U.modtype ~par:L.[simple [vkext]] @@ renamer t) in
     let args = ["X", s] in
     let preambule =
       I.item
@@ -387,8 +403,7 @@ let generate_subextension dict registry branch lib
         []
     in
     let items = S.of_list
-      @@ List.filter (fun name -> not @@ Sys_info.is_specific
-                       @@ L.make dict name)
+      @@ List.filter (fun name -> not @@ Sys_info.is_specific @@ renamer name)
       @@ ext.commands (*@ ext.types*) in
     let branch' = L.simple [branch] in
     let ext_m =
@@ -451,6 +466,7 @@ let generate root preambule dict (spec:Info.Structured_spec.spec) =
     @@ List.filter (filter_extension dict registry)
     @@ List.map fst
     @@ M.bindings registry in
+  let dict = {aliases = Info.Structured_spec.aliases spec; dict } in
   let content =
     normalize
     @@ generate_extensions dict registry spec.extensions

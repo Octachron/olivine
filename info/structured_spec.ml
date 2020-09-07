@@ -18,7 +18,7 @@ type short_tag = { name: string; author:string; contact: string}
 type c_include = { name: string; system:bool; provide:string option }
 type require = { from:string; type_name:string }
 
-type spec = {
+type t = {
   vendor_ids: vendor_id list;
   tags: short_tag list;
   entities: Entity.t N.t;
@@ -28,7 +28,7 @@ type spec = {
   requires: require list;
   aliases: string N.t
 }
-
+type spec = t
 
 
 let case cases default x =
@@ -618,3 +618,9 @@ let pp ppf r =
     (Fmt.list pp_required) r.requires
     Fmt.(list @@ pp_entity ) (N.bindings r.entities)
     (Fmt.list Structured_extensions.pp) r.extensions
+
+let aliases spec =
+  let add_extension aliases = function
+    | Structured_extensions.Active _ -> aliases
+    | Promoted_to m -> N.union (fun _k x _y -> Some x) aliases m in
+  List.fold_left add_extension spec.aliases spec.extensions
