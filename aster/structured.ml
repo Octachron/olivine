@@ -355,7 +355,7 @@ let rec printer types t =
   | Ty.Name t ->
     begin match B.find_type t types with
       | exception Not_found -> pp t
-      | Some (Ty.FunPtr _ |Union _ ) -> abstract
+      | Some (Ty.(Alias FunPtr _) |Union _ ) -> abstract
       | Some Ty.Bitfields _ -> pp (Bitset.set_name t)
       | _ -> pp t end
   | Array(_, Name t) when L.to_path t = ["char"] ->

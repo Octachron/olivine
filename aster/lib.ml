@@ -18,7 +18,7 @@ module Name_map = Map.Make(LOrd)
 type 'a with_deps = { x:'a; deps: Deps.t }
 
 type const = Arith.t
-type type' = Ty.typexpr
+type typedef' = Ty.typedef
 type fn = Ty.fn
 type implementation = Raw | Regular | Native
 
@@ -34,7 +34,7 @@ type module' = {
 and item =
   | Const of L.name * const
   | Fn of { implementation: implementation; fn:fn }
-  | Type of L.name * type'
+  | Type of L.name * typedef'
   | Module of module'
   | Ast of ast_item
 and sig' = item M.t
@@ -70,7 +70,7 @@ type lib = {
 }
 
 type context = {
-  types: type' Name_map.t;
+  types: typedef' Name_map.t;
   current: L.name list;
   builtins: Name_set.t;
   results: int Result.Map.t;
@@ -180,7 +180,7 @@ let subresult = L.simple ["subresult"]
 
 let rec dep_typ (dict,gen as g) (items,lib as build) =
   function
-  | Cty.Ptr t | Const t | Option t | Array(_,t) ->
+  | Cty.Ptr t | Const t | Option t | Array(_,t) | Width{ty=t; _ } ->
     dep_typ g build t
   | Name t ->
     if S.mem t items then gen build t else build
@@ -192,15 +192,13 @@ let rec dep_typ (dict,gen as g) (items,lib as build) =
         let badname = Info.Subresult.side_name bad in
         items,
         lib
-        |> add [subresult] @@ Type (okname, Ty.Result {ok; bad=[]})
-        |> add [subresult] @@ Type (badname, Ty.Result {bad; ok=[]})
-        |> add [subresult] @@ Type (name,t)
+        |> add [subresult] @@ Type (okname, Ty.(Alias (Result {ok; bad=[]})))
+        |> add [subresult] @@ Type (badname, Ty.(Alias (Result {bad; ok=[]})))
+        |> add [subresult] @@ Type (name, Ty.Alias t)
       | _ -> assert false
     end
-  | Record_extensions exts ->
-    List.fold_left (dep_typ g) build @@ List.map (fun n -> Cty.Name n)
-      exts
-  | _ -> build
+  | FunPtr {return; _ } -> dep_typ g build return
+  | String -> build
 
 
 let dep_fields gen fields build =
@@ -230,12 +228,10 @@ let refine_fn (fn:Ty.fn) =
     { fn with args = identify_out fn.args }
   | _ -> fn
 
-let rec deps gen build = function
-  | Cty.Option t | Ptr t | Array(_,t) | (Name _ as t) ->
+let deps gen build = function
+  | Cty.Alias t ->
     dep_typ gen build t
-  | Const _  | String
-  | Result _  | Handle _ | Enum _ | Bitfields _ -> build
-  | FunPtr fn -> dep_fn gen fn build
+  | Handle _ | Enum _ | Bitfields _ -> build
   | Union fields ->
     dep_fields gen fields build
   | Record {fields; _ } ->
@@ -243,10 +239,6 @@ let rec deps gen build = function
   | Bitset { field_type = Some name'; _ } ->
     snd gen build name'
   | Bitset _ -> build
-  | Record_extensions exts ->
-    List.fold_left (dep_typ gen) build @@ List.map (fun n -> Cty.Name n)
-    exts
-  | Width { ty; size=_} -> deps gen build ty
 
 let result_info dict registry =
   match M.find "VkResult" registry with
@@ -302,12 +294,12 @@ let rec generate_ideal core dict registry current
       deps (dict,generate_ideal core dict registry current) build
         typ in
     let lib = match typ with
-      | Name n when List.mem n raw_builtins -> lib
+      | Alias Name n when List.mem n raw_builtins -> lib
       | _ ->
-        let typ = Rename.typ renamer typ in
+        let typ = Rename.typedef renamer typ in
         match typ with
         | Bitfields _ as t -> let rname = U.bitset_core_name name in
-          lib |> add [types; rname] (Type (name,t))
+          lib |> add [types; rname] (Type (name, t))
         | _ ->
           lib |> add [types; name] (Type (name,typ))
     in

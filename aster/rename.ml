@@ -22,14 +22,19 @@ let rec typ (!) x =
   | Ptr ty -> Ty.Ptr(typ ty)
   | Option ty  -> Ty.Option(typ ty)
   | String -> String
-  | Handle p ->
-    Ty.Handle { parent = may (!) p.parent; dispatchable=p.dispatchable }
   | Array (cexpr, t) -> Ty.Array( may (const (!)) cexpr, typ t)
   | FunPtr f -> Ty.FunPtr (fn (!) f)
+  | Result r -> Ty.Result{ ok = List.map (!) r.ok;
+                           bad = List.map (!) r.bad }
+  | Width { size; ty } -> Width { size; ty = typ ty }
+and typedef (!) = function
+  | Cty.Handle p ->
+    Ty.Handle { parent = may (!) p.parent; dispatchable=p.dispatchable }
   | Enum constrs -> Ty.Enum(List.map (constr(!)) constrs)
   | Union f -> Ty.Union (sfields (!) f)
   | Record r ->
-    Ty.Record{ is_private = r.is_private; fields = fields (!) r.fields }
+    Ty.Record{ is_private = r.is_private; fields = fields (!) r.fields;
+             extensions = List.map (!) r.extensions }
   | Bitset b ->
     Ty.Bitset { implementation = ! (b.implementation);
                 field_type = may (!) b.field_type }
@@ -37,11 +42,8 @@ let rec typ (!) x =
     Ty.Bitfields { fields = List.map (bitfield (!)) b.fields;
                    values =  List.map (bitfield (!)) b.values
                  }
-  | Result r -> Ty.Result{ ok = List.map (!) r.ok;
-                           bad = List.map (!) r.bad }
-  | Record_extensions l ->
-    Ty.Record_extensions (record_extension (!) l)
-  | Width { size; ty } -> Width { size; ty = typ ty }
+  | Alias x -> Ty.Alias (typ (!) x)
+
 and const (!) = function
   | Cty.Lit a -> Ty.Lit a
   | Path p -> Ty.Path (List.map (!) p)

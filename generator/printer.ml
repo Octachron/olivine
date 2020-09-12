@@ -44,11 +44,10 @@ let delim = Atlas_set.(
 
 let rec type_to_ast ctx (name,ty) =
   match ty with
-  | Ty.Const _  | Option _ | Ptr _ | String | Array (_,_) -> I.nil
-  | Result {ok;bad} ->
+  | Ty.Alias Result {ok;bad} ->
     Aster.Result.make ctx (name,ok,bad)
-  | Name t -> Aster.Misc.alias ctx (name,t)
-  | FunPtr fn -> Aster.Funptr.make ctx (name,fn)
+  | Ty.Alias Name t -> Aster.Misc.alias ctx (name,t)
+  | Ty.Alias FunPtr fn -> Aster.Funptr.make ctx (name,fn)
   | Union fields -> Aster.Structured.make ctx Union (name,fields)
   | Bitset { field_type = Some _; _ } -> I.nil
   | Bitset { field_type = None; _ } -> Aster.Bitset.make (name,None)
@@ -67,10 +66,9 @@ let rec type_to_ast ctx (name,ty) =
     else I.nil
   | Record r ->
     Aster.Structured.make ctx Record (name,r.fields)
-  | Record_extensions _ -> (* FIXME *)
-    assert false
-  | Width w ->
-    type_to_ast ctx (name,w.ty)
+  | Alias Width w ->
+    type_to_ast ctx (name,Alias w.ty)
+  | Ty.Alias (Const _ | Array _ | Option _ | String | Ptr _ ) -> I.nil
 
 let rec item_to_ast current (lib:B.lib) item =
   let types = match B.find_module B.types lib.content.sig' with

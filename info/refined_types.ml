@@ -140,14 +140,8 @@ module Typexpr(X:name) = struct
         | In_Out -> "in|out"
       )
 
-  type typexpr =
-    | Const of typexpr
-    | Name of name
-    | Ptr of typexpr
-    | Option of typexpr
-    | String
-    | Array of int constexpr option * typexpr
-    | FunPtr of fn
+
+  type typedef =
     | Enum of  constructor list
     | Union of simple_field list
     | Bitset of { implementation:name; field_type:name option}
@@ -157,9 +151,18 @@ module Typexpr(X:name) = struct
           values: (name * int) list
         }
     | Handle of { parent: name option; dispatchable:bool }
+    | Record of {is_private:bool; fields: field list; extensions: name list }
+    | Alias of typexpr
+
+  and typexpr =
+    | Const of typexpr
+    | Name of name
+    | Ptr of typexpr
+    | Option of typexpr
+    | String
+    | Array of int constexpr option * typexpr
+    | FunPtr of fn
     | Result of { ok: name list; bad: name list }
-    | Record of {is_private:bool; fields: field list}
-    | Record_extensions of name list
     | Width of { size:int; ty:typexpr }
 
   and simple_field = name * typexpr
@@ -174,7 +177,7 @@ module Typexpr(X:name) = struct
   and fn_field = { dir:direction; field:field }
   and fn = { original_name:string; name:name; return: typexpr; args: fn_field list }
 
-  type type_decl = name * typexpr
+  type type_decl = name * typedef
 
   let field_to_type  = function
     | Array_f { array=_n, ty; _ } -> ty
@@ -234,34 +237,11 @@ module Typexpr(X:name) = struct
     | Array(Some cexp, ty) -> fp ppf "array[%a](%a)"
                                 (pp_constexp Fmt.int) cexp pp ty
     | FunPtr fn -> pp_fn ppf fn
-    | Enum cs ->
-      fp ppf "@[[%a]@]" (pp_list (const "@ | ") pp_constr) cs
-    | Record {is_private; fields} ->
-      fp ppf "@[%s{%a}@]" (if is_private then "private" else "")
-        (pp_list (const ";@ ") pp_field) fields
-    | Union fields ->
-      fp ppf "@[[%a]@]" (pp_list (const "@ ||") pp_simple_field) fields
-    | Bitset {implementation; field_type} ->
-      fp ppf "Bitset@[@ {implementation:%a;@ field_type:(%a)}@]"
-        X.pp implementation Fmt.(option X.pp)  field_type
-    | Bitfields {fields; values} ->
-      let bitfields = pp_list (const ";@ ") pp_bitfield in
-
-      fp ppf "Bitfields @ \
-              @[{fields:@ @[[%a]@];@ \
-              values:@ @[[%a]@] @ }@]"
-        bitfields fields bitfields values
-    | Handle h ->
-      fp ppf "Handle@ @[{parent:%a; dispatchable:%b}@]"
-        Fmt.(option X.pp) h.parent h.dispatchable
     | String -> fp ppf "string"
     | Result {ok;bad} ->
       let ppl = pp_list (const "@ | ") X.pp in
       fp ppf "@[either@ [ok:%a]@ [bad:%a]@]"
         ppl ok ppl bad
-    | Record_extensions exts ->
-      let ppl = pp_list (const "@ | ") X.pp in
-      fp ppf "@[record extensions [%a]@ " ppl exts
     | Width { size; ty } ->
       Format.fprintf ppf "%a:%d" pp ty size
 
@@ -294,8 +274,35 @@ module Typexpr(X:name) = struct
       (pp_list (const ",@ ") pp_fn_field) fn.args
       pp fn.return
 
+  let pp_def ppf = function
+    | Enum cs ->
+      fp ppf "@[[%a]@]" (pp_list (const "@ | ") pp_constr) cs
+    | Record {is_private; fields; extensions} ->
+      let pp_extensions ppf =  function
+        | [] -> ()
+        | l -> Fmt.pf ppf "extended by [%a]" Fmt.(list ~sep:comma X.pp) l in
+      fp ppf "@[%s{%a}%a@]" (if is_private then "private" else "")
+        (pp_list (const ";@ ") pp_field) fields pp_extensions extensions
+    | Union fields ->
+      fp ppf "@[[%a]@]" (pp_list (const "@ ||") pp_simple_field) fields
+    | Bitset {implementation; field_type} ->
+      fp ppf "Bitset@[@ {implementation:%a;@ field_type:(%a)}@]"
+        X.pp implementation Fmt.(option X.pp)  field_type
+    | Bitfields {fields; values} ->
+      let bitfields = pp_list (const ";@ ") pp_bitfield in
+
+      fp ppf "Bitfields @ \
+              @[{fields:@ @[[%a]@];@ \
+              values:@ @[[%a]@] @ }@]"
+        bitfields fields bitfields values
+    | Handle h ->
+      fp ppf "Handle@ @[{parent:%a; dispatchable:%b}@]"
+        Fmt.(option X.pp) h.parent h.dispatchable
+    | Alias typexp -> pp ppf typexp
+
+
   let pp_typedecl ppf (name,ty)=
-    fp ppf "@[type %a=@ %a@]" X.pp name pp ty
+    fp ppf "@[type %a=@ %a@]" X.pp name pp_def ty
 
 end
 

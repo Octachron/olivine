@@ -41,13 +41,13 @@ start:
 
 typedef:
   | TYPEDEF a = def { a }
-  | STRUCT LN ty = IDENTIFIER RN { ty, Name ty }
+  | STRUCT LN ty = IDENTIFIER RN { ty, Alias (Name ty) }
 ;;
 
 def:
-  | t = typename n = name { n, t }
+  | t = typename n = name { n, Alias t }
   | t = typexp LPAR f = fn RPAR args=args
-  { f, FunPtr { original_name=f; name=f; return=t; args }   }
+  { f, Alias (FunPtr { original_name=f; name=f; return=t; args })   }
 ;;
 
 

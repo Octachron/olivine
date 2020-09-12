@@ -86,6 +86,11 @@ let is_result = function
   | Ty.Result _ -> true
   | _ -> false
 
+let is_result_def = function
+  | Ty.(Alias Result _) -> true
+  | _ -> false
+
+
 let is_extension =
   function
   | Ty.Record_extension _ -> true
@@ -106,7 +111,7 @@ let rec find_field_type name = function
 let typeclass name ctx =
   match B.find_type name ctx, B.Name_set.mem name ctx.builtins
   with
-  | Some t, _ -> if is_result t then B.Result else B.Typedef
+  | Some t, _ -> if is_result_def t then B.Result else B.Typedef
   | None, true -> B.Builtin
   | None, false -> B.Prim
 
@@ -114,7 +119,7 @@ let find_record tn ctx =
   match B.find_type tn ctx with
   | Some Ty.Record{ fields; _ } -> fields
   | Some ty ->
-    Fmt.epr "Path ended with %a@.%!" Ty.pp ty;
+    Fmt.epr "Path ended with %a@.%!" Ty.pp_def ty;
     raise @@ Invalid_argument "Non-record path, a least a type"
   | None ->
     raise @@ Invalid_argument "Non-record path: not even a type"

@@ -54,13 +54,8 @@ let rec converter types ~degraded x =
   | Array (Some (Lit n) ,typ) when not degraded ->
     [%expr Ctypes.array [%e int.e n] [%e make typ]]
   | Array (_,typ) -> make (Ty.Ptr typ)
-  | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
-  | Handle _  ->
-    failwith "Anonymous type"
   | Result {ok;bad} ->
     Result.expr types (ok,bad)
-  | Record_extensions _ -> [%expr Ctypes.ptr Ctypes.void]
-  (* ^FIXME^?: better typing? *)
   | FunPtr _ ->
     failwith "Not_implemented: funptr"
   | Width tyw -> make tyw.ty
@@ -120,12 +115,7 @@ let rec mk
     let bad =
       polyvariant_type ~order:Eq @@  List.map nloc @@ List.map mkconstr bad in
     [%type: ([%t ok], [%t  bad]) Pervasives.result ]
-  | Record_extensions _ -> [%type: unit Ctypes.ptr ]
-  (* ^FIXME^?: better typing? *)
   | FunPtr _ -> C.not_implemented "funptr type"
-  | Enum _ | Record _ | Union _ | Bitset _ | Bitfields _
-  | Handle _  ->
-    failwith "Anonymous type"
   | Width t -> mk t.ty
 
 let fn types

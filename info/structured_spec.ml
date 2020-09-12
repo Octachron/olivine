@@ -194,12 +194,12 @@ let option_refine node =
     |> List.map bool_of_string
     |> optionalize
 
-let structure_refine node t =
-  match node%?("validextensionstructs") with
-  | None -> t
+let structure_extension_relation node =
+  match node%?("structextend") with
+  | None -> []
   | Some l ->
-    let l = l |> String.split_on_char ',' |> List.tl in
-    Ty.Record_extensions l
+    let l = l |> String.split_on_char ',' in
+    l
 
 let result_refine (s,e) ty =
   let open Ty in
@@ -211,7 +211,7 @@ let result_refine (s,e) ty =
   | _ -> ty
 
 let refine node t =
-  structure_refine node @@ option_refine node @@ array_refine node t
+  option_refine node @@ array_refine node t
 
 let map2 f (x,y) = (x,f y)
 
@@ -242,7 +242,7 @@ let typedef spec node =
     (* FIXME: We are not handling CAMetalLayer *)
   else
     let name, ty =
-      map2 (refine node) @@ parse "typedef" Cxml_parser.typedef s in
+      (*map2 (refine node) @@*) parse "typedef" Cxml_parser.typedef s in
     register name (Type ty) spec
 
 
@@ -262,9 +262,6 @@ let fields_refine fields =
       | false -> refine (Ty.Simple(n,ty)::extended) q
       | true -> refine ( Simple(n, Option ty) :: extended) q
       end
-    | ("pNext", Ty.Record_extensions exts as ptr) ::
-      ("sType", Ty.Name "VkStructureType" as tag) :: q ->
-      refine (Ty.Record_extension { tag; ptr; exts } ::extended) q
     | ("pNext", _  as ptr) :: ("sType", _ as tag) :: q ->
       refine (Ty.Record_extension { tag; ptr; exts= [] } ::extended) q
     | ("pNext", ty ) :: q ->
@@ -289,7 +286,7 @@ let structure spec node =
   let fields = fields_refine @@ List.fold_left field [] node.children in
   let is_private = match node%?("returnedonly") with
     | None -> false | Some b -> bool_of_string b in
-  let ty = Ty.Record {fields; is_private} in
+  let ty = Ty.Record {fields; is_private; extensions = [] } in
   register name (Type ty) spec
 
 
@@ -319,7 +316,7 @@ let bitmask = with_aliases @@ fun spec node ->
     @@ flatten node.Xml.children in
   let ty =
     match ty with
-    | Ty.Name n ->
+    | Ty.(Alias (Name n)) ->
       Ty.Bitset { implementation=n;
                   field_type = node%?("requires") }
     | _ -> type_errorf "Bitmask expected" in
@@ -477,7 +474,7 @@ let enums spec x =
             List.fold_left bitset_data ([], []) x.children in
           Ty.Bitfields { fields; values}
         | Type ty ->
-          type_errorf "Expected bitset %s,@ got@ %a" n Ty.pp ty
+          type_errorf "Expected bitset %s,@ got@ %a" n Ty.pp_def ty
         | Fn _ -> type_errorf "Expected a bitset,@ got a function"
         | Const _ -> type_errorf "Expected a bitset,@ got a constant"
       in
