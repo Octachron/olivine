@@ -84,19 +84,24 @@ let pp ppf = function
 
 module Extend = struct
 
-  type bound = {inf:int;sup:int}
-  let all = { inf = max_int; sup = min_int }
-  let add b x = { sup = max x b.sup; inf  = min x b.inf }
+  module Bound = struct
+    type t = {inf:int;sup:int}
+    let all = { inf = max_int; sup = min_int }
+    let add b x = { sup = max x b.sup; inf  = min x b.inf }
 
-  let extrema =
-    List.fold_left add all
+    let extrema =
+      List.fold_left add all
+  end
 
+ module IntMap = Map.Make(Int)
   let decorate_enum = function
     | Refined_types.Ty.Enum constrs ->
-      let add' b = function
-        | _, T.Abs n -> add b n
-        | _ -> b in
-      List.fold_left add' all constrs, constrs
+      let add' (b,emap) = function
+        | _, T.Abs n as constr ->
+          Bound.add b n,
+          IntMap.add n constr emap
+        | _ -> b, emap in
+      List.fold_left add' (Bound.all,IntMap.empty) constrs
     | _ -> raise Not_found
 
 
@@ -107,11 +112,12 @@ module Extend = struct
       | Entity.Type ty -> decorate ty
       | _ -> raise Not_found
 
+
   let enum extension_number m0 =
     let find = find decorate_enum m0 in
     let add m (x:enum) =
       let key = x.extend in
-      let b, l = find key m  in
+      let b, emap = find key m  in
       let abs =
         match x.info with
         | Core n -> n
@@ -120,7 +126,7 @@ module Extend = struct
             C.Option.merge_exn  ext.extension_number extension_number in
           let pos = (1000000 + extension_number - 1) * 1000 + ext.offset in
           if ext.upward then +pos else -pos in
-      let elt = add b abs, (x.name, T.Abs abs) ::l in
+      let elt = Bound.add b abs, IntMap.add abs (x.name, T.Abs abs) emap in
       N.add key elt m in
     List.fold_left add N.empty
 
@@ -140,10 +146,9 @@ module Extend = struct
     let ext_num = number ext in
     let bits = bit m ext.bits in
     let enums = enum ext_num m ext.enums in
-    let cmp (_,x) (_,y)= compare x y in
-    let sort = List.sort cmp in
-    let rebuild_enum key (_,l) =
-      N.add key (Entity.Type(T.Ty.Enum (sort l))) in
+    let list emap = List.map snd (IntMap.bindings emap) in
+    let rebuild_enum key (_,emap) =
+      N.add key (Entity.Type(T.Ty.Enum (list emap))) in
     let rebuild_set key (fields,values) =
       N.add key (Entity.Type(T.Ty.Bitfields { fields; values })) in
     m
