@@ -1,10 +1,11 @@
 
 module Dict = struct
+  type word_end = string list
   type t =
-    | End of bool
-    | Node of { word_end:bool; forest: t array }
+    | End of word_end
+    | Node of { word_end:word_end; forest: t array }
 
-  let empty = End false
+  let empty = End []
 
   let pos = function
     | '0'..'9' as c -> Some( Char.code c - Char.code '0' )
@@ -14,11 +15,11 @@ module Dict = struct
 
   let make_node () = Array.make 62 empty
 
-  let rec add_sub word start stop tree =
+  let rec add_sub word read_as start stop tree =
     if start >= stop then
       match tree with
-      | End _  -> End true
-      | Node r -> Node { r with word_end = true }
+      | End _  -> End read_as
+      | Node r -> Node { r with word_end = read_as }
     else
       match pos word.[start] with
       | None -> tree
@@ -26,13 +27,14 @@ module Dict = struct
         match tree with
         | End word_end ->
           let forest = make_node () in
-          forest.(c) <- add_sub word (start+1) stop empty;
+          forest.(c) <- add_sub word read_as (start+1) stop empty;
           Node { word_end; forest }
         | Node a ->
-          let t' = add_sub word (start+1) stop a.forest.(c) in
+          let t' = add_sub word read_as (start+1) stop a.forest.(c) in
           a.forest.(c) <- t'; Node a
 
-  let add word tree = add_sub word 0 (String.length word) tree
+  let add word ?(custom=[word]) tree = add_sub word custom 0 (String.length word) tree
+
 
   let read_char char = function
     | End _ -> None
@@ -41,25 +43,24 @@ module Dict = struct
       | None -> None
       | Some p ->
         match a.forest.(p) with
-        | End false -> None
+        | End [] -> None
         | x -> Some x
 
-  let is_word_end (End t | Node {word_end = t; _ }) = t
-  let is_terminal = function
-    | End t -> t
-    | Node _ -> false
+  let word_end = function
+    | End l | Node {word_end = l; _ } -> l
+  let terminal = function
+    | End l -> l
+    | Node _ -> []
 
   let rec read_subword w current stop t =
     if current = stop then
-      if is_word_end t then
-        Some current
-      else None
-    else if is_terminal t then
-      Some current
-    else
-      match read_char w.[current] t with
-      | None -> None
-      | Some t -> read_subword w (current+1) stop t
+      word_end t, stop
+    else match terminal t with
+      | _ :: _ as l -> l, current
+      | [] ->
+        match read_char w.[current] t with
+        | None -> [], stop
+        | Some t -> read_subword w (current+1) stop t
 
   let read_word_all w start t =
     read_subword w start (String.length w) t
@@ -130,12 +131,13 @@ let split_sticky_camel_case dict s =
   and capital k acc start =
     let word_stop, n =
     match Dict.read_word_all s start dict with
-    | Some stop -> true, stop
-    | None -> false, start+1 in
+    |  _ :: _ as l, stop -> l, stop
+    | [], _ -> [], start + 1 in
     let stop = n = mx in
     if stop then sub start n :: acc
-    else if word_stop then capital lower ( sub start n :: acc ) n
-    else k acc start n
+    else match word_stop with
+      | _ :: _ as l -> capital lower ( List.rev_append l  acc ) n
+      | [] ->  k acc start n
   and numeric acc start n =
     let c = s.[n] in
     if not (is_num c) then

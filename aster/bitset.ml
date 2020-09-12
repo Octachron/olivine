@@ -9,14 +9,16 @@ open Utils
 
 
 let bit_name name =
+  try
   let rec bitname = function
     | "flags" :: q ->
       "bits" :: "flag" :: q
     | [] ->
-      raise @@ Invalid_argument "bitname []"
+      raise Exit
     | a :: q -> a :: bitname q in
   L.{ name with postfix = bitname name.postfix }
-
+  with Exit ->
+    raise @@ Invalid_argument (Format.asprintf "invalid bit name : [%a]" Fmt.(list string ~sep:comma) name.postfix)
 let set_name = bitset_core_name
 
 let value_name set_name name =

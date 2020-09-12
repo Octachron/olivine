@@ -10,15 +10,15 @@ let read filename =
   Info.Structured_spec.typecheck @@ Info.Xml.normalize @@ snd @@ Info.Xml.tree source
 
 
-let add_word name dict =
+let add_word ?custom name dict =
   let open L in
-  { dict with words = Dict.add name dict.words }
+  { dict with words = Dict.add name ?custom dict.words }
 
 
-let add role name dict =
+let add role ?custom name dict =
   let open L in
   { dict with
-    words = Dict.add name dict.words;
+    words = Dict.add name ?custom dict.words;
     roles = R.add (String.lowercase_ascii name) role dict.roles;
   }
 
@@ -43,6 +43,7 @@ let add_pre x dict =
 
 let make_dict spec =
   let dict, exts =
+
     List.fold_left vendor_tag (empty,S.empty) spec.Info.Structured_spec.tags in
   dict
   |> add Main "RandR"
@@ -68,6 +69,8 @@ let make_dict spec =
   |> add_word "AABB"
   |> add_word "CAMetalLayer"
   |> add_word "SM"
+  |> add_word ~custom:["vulkan";"1";"1"] "Vulkan11"
+  |> add_word ~custom:["vulkan";"1";"2"] "Vulkan12"
   |> add Main "ASTC"
   |> add Main "HDR"
   |> add_word "PCI"
