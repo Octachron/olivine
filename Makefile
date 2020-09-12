@@ -42,12 +42,11 @@ test-triangle: bin/triangle
 
 test-tesseract: bin/tesseract
 	VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_standard_validation ./bin/tesseract
-
+.PHONY: vkspec
 vkspec:
 	mkdir -p spec \
 	&& cd spec \
-        && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml" \
-        && patch -i remove-debug-marker.diff vk.xml
+        && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml"
 
 clean:
 	dune clean; rm lib/*.ml{,i}; rm bin/*
