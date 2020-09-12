@@ -8,8 +8,12 @@ type metadata =
     type':string option;
     version : int }
 
+type info =
+ | Third_party of { offset:int; upward:bool; extension_number: int option }
+ | Core of int
+
 type enum =
-  { extend:string; name:string; offset:int; upward:bool; extension_number: int option }
+  { extend:string; name:string; info: info }
 
 type bit = { extend:string; name:string; pos:int}
 
@@ -44,10 +48,17 @@ let pp_metadata ppf (m:metadata) =
     "@[<hov>{name=%s;@ number=%d;@ %a;@ version=%d}@]"
     m.name m.number pp_exttype m.type' m.version
 
+
 let pp_enum ppf (e:enum)=
+  let pp_info ppf = function
+  | Third_party ext ->
+    Fmt.pf ppf "Third_party {offset=%d;@ upward=%b}"
+      ext.offset ext.upward
+  | Core n ->
+    Fmt.pf ppf "Core %d" n in
   Fmt.pf ppf
-    "@[<hov>{name=%s;@ extend=%s;@ offset=%d;@ upward=%b}@]"
-    e.name e.extend e.offset e.upward
+    "@[<hov>{name=%s;@ extend=%s;@ info=%aa}@]"
+      e.name e.extend pp_info e.info
 
 let pp_bit ppf (b:bit)=
   Fmt.pf ppf
@@ -99,13 +110,17 @@ module Extend = struct
   let enum extension_number m0 =
     let find = find decorate_enum m0 in
     let add m (x:enum) =
-      let extension_number =
-        C.Option.merge_exn  x.extension_number extension_number in
       let key = x.extend in
       let b, l = find key m  in
-      let pos = (1000000 + extension_number - 1) * 1000 + x.offset in
-      let pos = if x.upward then +pos else -pos in
-      let elt = add b pos, (x.name, T.Abs pos) ::l in
+      let abs =
+        match x.info with
+        | Core n -> n
+        | Third_party ext ->
+          let extension_number =
+            C.Option.merge_exn  ext.extension_number extension_number in
+          let pos = (1000000 + extension_number - 1) * 1000 + ext.offset in
+          if ext.upward then +pos else -pos in
+      let elt = add b abs, (x.name, T.Abs abs) ::l in
       N.add key elt m in
     List.fold_left add N.empty
 

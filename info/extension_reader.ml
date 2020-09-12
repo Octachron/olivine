@@ -13,11 +13,17 @@ let int_of_string s =
 let etype n = n%("name")
 let command n = n%("name")
 let enum n: Structured_extensions.enum =
+  let info = match n%?("value") with
+    | Some n -> Core (int_of_string n)
+    | None ->
+      Third_party {
+        offset = int_of_string @@ n%("offset");
+        upward = not ( n%?("dir") = Some "-");
+        extension_number = Option.map int_of_string (n%?("extnumber"))
+      } in
   { extend = n%("extends");
     name = n%("name");
-    offset = int_of_string @@ n%("offset");
-    upward = not ( n%?("dir") = Some "-");
-    extension_number = Option.map int_of_string (n%?("extnumber"))
+    info;
   }
 let bit n = { extend = n%("extends");
               pos = int_of_string @@ n%("bitpos");
@@ -39,9 +45,9 @@ let data (type a) x (ext: a data) = match x with
     | "command" -> { ext with commands = command n :: ext.commands }
     | "enum" when n%??"bitpos" ->
       { ext with bits = bit n :: ext.bits }
-    | "enum" when n%??"offset" ->
+    | "enum" when n%??"extends"  && (n%??"offset" || n%??"value") ->
       { ext with enums = enum n :: ext.enums }
-    | "enum" when n%??"value" || n%??"name" -> (*FIXME*) ext
+    | "enum" when n%??"name" -> (* constants *) ext
     | "comment" -> ext
     | _ ->
       errorf "Extension.data: unexpected node %a"
