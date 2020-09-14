@@ -26,7 +26,7 @@ bin/libgen:  aster/*.ml generator/*.ml info/*.ml
 lib/vk.ml: bin/libgen spec/vk.xml
 	./bin/libgen spec/vk.xml lib
 
-vk: _tags spec/vk.xml lib/vk.ml
+vk:  spec/vk.xml lib/vk.ml
 	cp lib_aux/*.ml lib
 	$(DUNE) @install
 
