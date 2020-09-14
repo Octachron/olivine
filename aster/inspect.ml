@@ -24,6 +24,9 @@ let is_option = function
   | Ty.Option _ | Const Option _ -> true
   | _ -> false
 
+
+
+
 let is_char = function
   | Ty.Name t -> L.to_path t = ["char"]
   | _ -> false
@@ -47,6 +50,23 @@ let typeclass name (ctx:B.context) =
     | Some _, false -> B.Typedef
     | None, false -> B.Prim
 
+
+let rec nullable ctx = function
+  | Ty.Option _ | Const Option _ -> true
+  | Ty.Ptr _ | Ty.FunPtr _ -> true
+  | Ty.Name n ->
+    begin
+      match typeclass n ctx with
+      | B.Builtin -> true (* inexact *)
+      | _ -> begin
+          match B.find_type n ctx with
+          | Some Alias n -> nullable ctx n
+          | Some _ | None -> false
+        end
+      | exception Not_found -> false
+    end
+  | Const x | Width {ty=x; _ } -> nullable ctx x
+  | Array _  | String | Result _ -> false (* to be refined *)
 
 let vk_prefix ctx name =
   if in_extension ctx then

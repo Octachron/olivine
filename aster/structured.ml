@@ -486,9 +486,34 @@ let construct types tyname fields =
 
 let raw = L.(~:"Raw")
 
+let nullable (type a) (kind: a kind) types (fields:a list) = match kind with
+  | Record -> None
+  | Union ->
+    match fields with
+    | [] -> None
+    | (n,_) :: _ as fields ->
+      if List.for_all
+          (fun (_name,ty) -> Inspect.nullable types ty)
+          fields
+      then
+        Some n
+      else None
+        
+
+let ctype_opt (type a) (kind: a kind) types (fields: a list) =
+  match nullable kind types fields with
+  | None -> nil
+  | Some first ->
+    let write = [%expr (function None -> null | Some x -> x) ] in
+    let read = [%expr (fun x -> if is_null ([%e (var first).e] x) then None else Some x)] in
+      item
+        [%stri let ctype_opt = Ctypes.view ~write:[%e write] ~read:[%e read] ctype]
+        [%sigi: val ctype_opt: t option Ctypes.typ]
+    ^:: nil
+
 let make (type a) types (kind: a kind) (name, fields: _ * a list) =
   let records = match kind with
     | Union -> imap (union types) fields
     | Record -> construct types name fields ^:: nil in
   def types (name,kind) name fields
-  @* array ^:: records
+  @* array ^:: records @* ctype_opt kind types fields
