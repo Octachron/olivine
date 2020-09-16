@@ -75,6 +75,9 @@ let cat_path path =
     (Fmt.list ~sep:(fun ppf () -> Fmt.pf ppf "__") L.pp_module)
     path
 
+
+let raw_tymod n = L.simple [Fmt.strf "Vk__Types__%a" L.pp_module n]
+
 let tymod n = cat_path [vk;tym;n]
 
 let var n =

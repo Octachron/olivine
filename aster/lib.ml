@@ -103,9 +103,7 @@ let find_type name {types; _ } =
 
 let (#?) ctx name = find_type name ctx
 
-let context
-    ?(builtins=Name_set.empty)
-    ?(results=Result.Map.empty) current items =
+let context ~builtins ~results current items =
   let rec types m l = List.fold_left
         (fun map -> function
            | Type (n,ty) -> Name_map.add n ty map
@@ -256,12 +254,12 @@ let typ_path name = [types; name]
 
 let raw_builtins =
   [ "uint_32_t";  "cametallayer"; "uint_16_t"; "void"; "int_32_t"; "uint_64_t";
-   "int_64_t"; "size_t"; "uint_8_t"; "float"; "double"; "int"]
+   "int_64_t"; "size_t"; "uint_8_t"; "float"; "double"; "int" ]
 
 
 let builtins dict =
   Name_set.of_list @@
-  L.simple ["bool";"32"] :: L.simple ["Bool"; "32"]
+  L.simple ["bool";"32"]
   :: List.map (rename dict) raw_builtins
 
 let rec generate_ideal core dict registry current

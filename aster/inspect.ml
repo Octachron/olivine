@@ -43,9 +43,7 @@ let typeclass name (ctx:B.context) =
     | _ -> name in
   let name = root name in
   if B.Result.Map.mem name ctx.results then B.Result else
-    match B.find_type name ctx,
-          B.Name_set.mem name ctx.builtins
-    with
+    match B.find_type name ctx, B.Name_set.mem name ctx.builtins with
     | _ , true -> B.Builtin
     | Some _, false -> B.Typedef
     | None, false -> B.Prim
@@ -128,7 +126,7 @@ let rec find_field_type name = function
   | Array_f { index= n, ty ; _ } :: _ when n = name -> Some ty
   | _ :: q -> find_field_type name q
 
-let typeclass name ctx =
+let classify name ctx =
   match B.find_type name ctx, B.Name_set.mem name ctx.builtins
   with
   | Some t, _ -> if is_result_def t then B.Result else B.Typedef

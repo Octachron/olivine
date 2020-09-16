@@ -57,7 +57,6 @@ end
 type uint_8_t = U8.t
 let uint_8_t = Ctypes.uint8_t
 
-
 let bool_32 =
   let true' = U32.of_int Vk__Const.true'
   and false' = U32.of_int Vk__Const.false' in
@@ -73,7 +72,6 @@ let bool_32_opt =
     ~read:( fun x -> if U32.zero = x then None else if x = true' then Some true else Some false )
     ~write:(function None -> U32.zero | Some x -> if x then true' else false' )
     Ctypes.uint32_t
-
 
 
 let bool = bool_32
@@ -133,6 +131,7 @@ module Bool_32 = struct
   let t = bool
   let ctype = bool_32
   let ctype_opt = bool_32_opt
+  let zero = true
   let pp = Format.pp_print_bool
 end
 

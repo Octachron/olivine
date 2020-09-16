@@ -322,8 +322,9 @@ let flatten name =
 let full_pp ppf n =
   let pp_w ppf s =
     Fmt.string ppf s in
-  let list = Fmt.list ~sep:snake pp_w in
-  Fmt.pf ppf "{%a::%a::%a}"
+  let sep ppf ()  = Fmt.pf ppf "—" in
+  let list = Fmt.list ~sep pp_w in
+  Fmt.pf ppf "{%a|%a|%a}"
     list n.prefix list n.main list n.postfix
 
 

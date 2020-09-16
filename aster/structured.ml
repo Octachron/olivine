@@ -104,7 +104,6 @@ let unsafe_make_i = item
     (val' ~:"unsafe_make" [%type: unit -> t ])
 
 
-let tymod n = L.simple [Fmt.strf "Vk__Types__%a" L.pp_module n]
 
 let pretyp _ctx n x =
   let q = tymod n in
@@ -288,11 +287,6 @@ let getter typename types fields field =
 
 let array_len x = [%expr Ctypes.CArray.length [%e x] ]
 
-let nullptr types = function
-  | Ty.Option _ -> [%expr None]
-  | t ->
-    C.coerce ~from:C.(ptr void) ~to':(Type.converter types ~degraded:true t)
-      [%expr Ctypes.null]
 
 let convert_string n s =
   [%expr Vk__helpers.convert_string [%e n] [%e s] ]
@@ -326,7 +320,7 @@ let set types typ r field value =
     [%expr match [%e value.e] with
       | None ->
         [%e setf (name index) (optzero index)];
-        [%e setf  (name array) (nullptr types @@ ty array)]
+        [%e setf  (name array) (Nullable.ptr types @@ ty array)]
       | Some [%p value.p] ->
         [%e setf (name index) (array_len index) ];
         [%e setf (name array) (C.wrap_opt (ty array) @@ start value.e)]
@@ -491,21 +485,24 @@ let nullable (type a) (kind: a kind) types (fields:a list) = match kind with
   | Union ->
     match fields with
     | [] -> None
-    | (n,_) :: _ as fields ->
+    | (n,ty) :: _ as fields ->
       if List.for_all
           (fun (_name,ty) -> Inspect.nullable types ty)
           fields
       then
-        Some n
+        Some (n,ty)
       else None
-        
 
 let ctype_opt (type a) (kind: a kind) types (fields: a list) =
   match nullable kind types fields with
   | None -> nil
-  | Some first ->
-    let write = [%expr (function None -> null | Some x -> x) ] in
-    let read = [%expr (fun x -> if is_null ([%e (var first).e] x) then None else Some x)] in
+  | Some (first, ty) ->
+    let null = Nullable.from_type types ty in
+    let write = [%expr (function None -> [%e (var first).e] [%e null.value ] | Some x -> x) ] in
+    let read = [%expr (fun x -> if [%e null.test]
+                          (Ctypes.getf x [%e ident @@ qualify [~:"Fields"] @@ varname first])
+                        then None
+                        else Some x)] in
       item
         [%stri let ctype_opt = Ctypes.view ~write:[%e write] ~read:[%e read] ctype]
         [%sigi: val ctype_opt: t option Ctypes.typ]

@@ -251,7 +251,7 @@ let extract_array ctx input (ty,index) array body =
 let (<*>) x y =
   { p = [%pat? [%p x.p], [%p y.p] ]; e = [%expr [%e x.e], [%e y.e] ] }
 
-let nullptr = Structured.nullptr
+let nullptr = Nullable.ptr
 
 let input_expand types vars f body = match f with
   | Ty.Array_f { array= (a, tya ) ; index = (i, ty )  } as f ->
