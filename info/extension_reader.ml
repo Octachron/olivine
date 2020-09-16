@@ -73,6 +73,7 @@ let status = function
       Disabled
     else if
       n%?("promotedto") <> None
+      && n%"name" <> "VK_EXT_debug_marker" (* FIXME: this extension was not promoted properly! *)
     then
       Promoted
     else Active
