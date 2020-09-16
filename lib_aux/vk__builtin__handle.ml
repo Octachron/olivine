@@ -7,6 +7,7 @@ module type core = sig
   val ctype_opt: t option Ctypes.typ
   val pp: Format.formatter -> t -> unit
   val array: t list -> t Ctypes.CArray.t
+  val array_opt: t list -> t option Ctypes.CArray.t
 end
 
 module type S = sig
@@ -43,6 +44,12 @@ struct
     Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
     a
 
+  let array_opt l =
+    let a = Ctypes.CArray.of_list ctype_opt (List.map (fun x -> Some x) l) in
+    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    a
+
+
   let to_ptr x = Ctypes.raw_address_of_ptr @@ Ctypes.coerce t Ctypes.(ptr void) x
   let unsafe_from_ptr x =
     Ctypes.coerce Ctypes.(ptr void) t @@ Ctypes.ptr_of_raw_address x
@@ -67,6 +74,11 @@ struct
 
   let array l =
     let a = Ctypes.CArray.of_list t l in
+    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    a
+
+  let array_opt l =
+    let a = Ctypes.CArray.of_list ctype_opt (List.map (fun x -> Some x) l) in
     Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
     a
 

@@ -427,7 +427,8 @@ module Depth = struct
     let barrier = Vkt.Image_memory_barrier.make
         ~old_layout:Vkt.Image_layout.Undefined
         ~new_layout:Vkt.Image_layout.Depth_stencil_attachment_optimal
-        (*~dst_access_mask*)
+        ~dst_access_mask
+        ~src_access_mask:dst_access_mask
         ~src_queue_family_index:0 ~dst_queue_family_index:0
         ~image ~subresource_range ()
     in
@@ -700,8 +701,8 @@ module Texture = struct
     let barrier =
       Vkt.Image_memory_barrier.array [
         Vkt.Image_memory_barrier.make
-          (*         ~src_access_mask:src_mask*)
-          (* ~dst_access_mask:dst_mask *)
+          ~src_access_mask:src_mask
+          ~dst_access_mask:dst_mask
           ~old_layout
           ~new_layout
           ~src_queue_family_index:qf_ignored
@@ -836,7 +837,7 @@ module Uniform = struct
 
   let buffer_info =
     Vkt.Descriptor_buffer_info.array
-      [Vkt.Descriptor_buffer_info.make buffer zero_offset size]
+      [Vkt.Descriptor_buffer_info.make ~buffer ~offset:zero_offset ~range:size ()]
 
   let empty_array ty = A.make ty 0
 
@@ -1219,7 +1220,7 @@ module Cmd = struct
 
   let render_pass_infos = A.map Vkt.Render_pass_begin_info.ctype
       render_pass_info framebuffers
-  let vertex_buffers = Vkt.Buffer.array [Geom.buffer]
+  let vertex_buffers = Vkt.Buffer.array_opt [Geom.buffer]
   let offsets = A.of_list Vkt.Device_size.ctype Vkt.Device_size.[of_int 0]
   let cmd b ifmb =
     Vkc.begin_command_buffer b cmd_begin_info <!> "Begin command buffer";
