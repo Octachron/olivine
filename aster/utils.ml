@@ -16,14 +16,14 @@ type ('a,'b) dual = {p:'a ; e:'b}
 
 let nloc txt = Location.{ txt; loc = none }
 
-let typestr n = Fmt.strf "%a" L.pp_type n
+let typestr n = Fmt.str "%a" L.pp_type n
 let val' name ty  = H.Sig.value @@ H.Val.mk (nloc @@ typestr name) ty
 
 let lid s =  Longident.Lident s
 let nlid x = nloc(lid x)
 
 
-let modname = Fmt.strf "%a" L.pp_module
+let modname = Fmt.str "%a" L.pp_module
 
 let qualify l n =
   let open Longident in
@@ -32,7 +32,7 @@ let qualify l n =
     (List.map modname l)
     n
 
-let varname n = Fmt.strf "%a" L.pp_var n
+let varname n = Fmt.str "%a" L.pp_var n
 let typename n = lid(typestr n)
 
 let varpath ?(par=[]) n = qualify par @@ varname n
@@ -44,7 +44,7 @@ let ident x = Exp.ident (nloc x)
 let pvar s = Pat.var (nloc s)
 let ident' x = { p= pvar x; e = ident (lid x) }
 
-let mkconstr x = (Fmt.strf "%a" L.pp_constr x)
+let mkconstr x = (Fmt.str "%a" L.pp_constr x)
 
 
 
@@ -60,7 +60,7 @@ let typ ?par name =
     | None -> typename name in
   H.Typ.constr (nloc @@ lid ) []
 
-let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.strf "%a" L.pp_type n
+let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.str "%a" L.pp_type n
 let loc = Location.none
 let any = { p = [%pat? _ ]; e = [%expr ()] }
 let typexp n = [%expr [%e typename n]]
@@ -71,12 +71,12 @@ let tym = L.(~: "types")
 
 let cat_path path =
   L.(~:) @@
-  Fmt.strf "%a"
+  Fmt.str "%a"
     (Fmt.list ~sep:(fun ppf () -> Fmt.pf ppf "__") L.pp_module)
     path
 
 
-let raw_tymod n = L.simple [Fmt.strf "Vk__Types__%a" L.pp_module n]
+let raw_tymod n = L.simple [Fmt.str "Vk__Types__%a" L.pp_module n]
 
 let tymod n = cat_path [vk;tym;n]
 
