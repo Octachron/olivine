@@ -12,27 +12,30 @@ module Pp = struct
   let string ppf = fp ppf "%s"
   let estring ppf = fp ppf "\"%s\""
 
+type Format.stag +=
+  | Keyword
+  | Punctuation
+  | Macro
+  | Lit
+  | Op
 
-
-let mark_open_tag tag =
+let mark_open_stag tag =
   let b = "\x1b[1m" in
   match tag with
-  | "keyword" -> b ^ "\x1b[91m"
-  | "punctuation" | "macro" -> b ^ "\x1b[31m"
-  | "lit" -> b ^ "\x1b[35m"
-  | "op" -> b ^ "\x1b[36m"
+  | Keyword -> b ^ "\x1b[91m"
+  | Punctuation | Macro -> b ^ "\x1b[31m"
+  | Lit -> b ^ "\x1b[35m"
+  | Op -> b ^ "\x1b[36m"
   | _ -> b
 
-let mark_close_tag _tag =
+let mark_close_stag _tag =
   "\x1b[0m"
-[@@@alert "-deprecated"]
 let enable_colors ppf =
   Format.pp_set_tags ppf true;
   Format.pp_set_mark_tags ppf true;
-  Format.pp_set_formatter_tag_functions ppf
-    { (Format.pp_get_formatter_tag_functions ppf ()) with
-      mark_open_tag; mark_close_tag }
-[@@@alert "+deprecated"]
+  Format.pp_set_formatter_stag_functions ppf
+    { (Format.pp_get_formatter_stag_functions ppf ()) with
+      mark_open_stag; mark_close_stag }
 
 end
 
