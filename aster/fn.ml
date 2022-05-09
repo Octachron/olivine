@@ -59,7 +59,7 @@ let regularize_fields types fields =
   List.map reg fields
 
 let annotate fmt =
-  Fmt.kstrf (fun s e -> Exp.attr e @@
+  Fmt.kstr (fun s e -> Exp.attr e @@
               (H.Attr.mk (nloc "debug") (P.PStr [H.Str.eval @@ string s ])))
     fmt
 

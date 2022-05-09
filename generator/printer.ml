@@ -135,7 +135,7 @@ let atlas (close,ppfs) modules =
 let lib (lib:B.lib) =
   let open_file target n =
     let f = open_out
-      @@ Fmt.strf "%s/%s%a" lib.root n pp_file_extension target in
+      @@ Fmt.str "%s/%s%a" lib.root n pp_file_extension target in
     (fun () -> close_out f), Format.formatter_of_out_channel f in
   let open_files n =
     let cstr, structure = open_file Str n in
@@ -149,7 +149,7 @@ let lib (lib:B.lib) =
         if Atlas_set.mem path delim then
           List.iter (pp_sub path) (submodules m.sig')
         else begin
-          let filename = Fmt.strf "%a" pp_concrete_name path in
+          let filename = Fmt.str "%a" pp_concrete_name path in
           let close, ppfs = open_files filename in
           let ast =
             I.( lib.preambule @*

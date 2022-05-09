@@ -175,7 +175,7 @@ let open' name e =
 let info msg =
   H.Attr.mk
   (nloc "olivine.info")
-  (Parsetree.PStr [H.Str.eval @@ H.Exp.constant @@ Parsetree.Pconst_string(msg,None)])
+  (Parsetree.PStr [H.Str.eval @@ H.Exp.constant @@ Parsetree.Pconst_string(msg,Location.none,None)])
 
 let  (<?>) (exp:Parsetree.expression) msg =
   Format.kasprintf

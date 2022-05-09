@@ -20,7 +20,7 @@ type implementation = Std | Poly
 let constr (_,name_0) (c, _) =
   let name = L.remove_context name_0 c in
   let name = if name = L.mu then name_0 else name in
-  Fmt.strf "%a" L.pp_constr name
+  Fmt.str "%a" L.pp_constr name
 
 let def_std tn name constrs =
   let constr c = let n = constr (Std,name) c in
