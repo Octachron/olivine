@@ -363,7 +363,7 @@ let return_type types outputs return =
       | [] -> [%type: unit]
       | [a] -> mkty a
       | l -> H.Typ.tuple (List.map mkty l) in
-    [%type: ([%t ok] * [%t ty], [%t bad]) Pervasives.result ]
+    [%type: ([%t ok] * [%t ty], [%t bad]) Stdlib.result ]
   | a when Inspect.is_void a->
     begin match outputs with
       | [] -> [%type: unit]

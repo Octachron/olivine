@@ -114,7 +114,7 @@ let rec mk
       polyvariant_type ~order:Eq @@ List.map nloc @@  List.map mkconstr ok in
     let bad =
       polyvariant_type ~order:Eq @@  List.map nloc @@ List.map mkconstr bad in
-    [%type: ([%t ok], [%t  bad]) Pervasives.result ]
+    [%type: ([%t ok], [%t  bad]) Stdlib.result ]
   | FunPtr _ -> C.not_implemented "funptr type"
   | Width t -> mk t.ty
 

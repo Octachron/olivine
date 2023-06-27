@@ -36,7 +36,7 @@ let side_type ~order x =
 let typ ok error =
   [%type:
     ([%t side_type ~order:Eq ok], [%t side_type ~order:Eq error])
-      Pervasives.result
+      Stdlib.result
       Ctypes.typ
   ]
 

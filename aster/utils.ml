@@ -63,7 +63,7 @@ let typ ?par name =
 let pty n = Ast_helper.Pat.var @@ nloc @@ Fmt.str "%a" L.pp_type n
 let loc = Location.none
 let any = { p = [%pat? _ ]; e = [%expr ()] }
-let typexp n = [%expr [%e typename n]]
+let typexp n = typename n
 let tyvar ?(par=[]) n = ident @@ qualify par (typestr n)
 
 let vk = L.(~: "vk")
