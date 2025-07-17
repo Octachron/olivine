@@ -1,6 +1,5 @@
 _build/*
 *~
-spec/vk.xml
 spec/vulkan.h
 lib/*.ml
 lib/*.mli
