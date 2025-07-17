@@ -64,7 +64,6 @@ end
 type lib = {
   content: module';
   result: int Result.Map.t;
-  root: string;
   preambule: ast_item ;
   builtins: Name_set.t
 }
@@ -432,7 +431,7 @@ let find_submodule name lib =
   List.find (fun m -> m.name = name) lib.content.submodules
 *)
 
-let generate root preambule dict (spec:Info.Structured_spec.spec) =
+let generate preambule dict (spec:Info.Structured_spec.spec) =
   let registry = spec.entities in
   let submodules =
     let sig' = let open I in
@@ -463,5 +462,5 @@ let generate root preambule dict (spec:Info.Structured_spec.spec) =
     @@ generate_core
       ( fun path -> path @ [core] )
       dict registry [] (items, make ~sig':submodules [] vk) in
-  { root; preambule; result = result_info dict registry; content;
+  { preambule; result = result_info dict registry; content;
     builtins = builtins dict}

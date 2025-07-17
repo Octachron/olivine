@@ -7,14 +7,15 @@ dev-repo: "git+https://github.com/Octachron/olivine"
 homepage: "https://github.com/Octachron/olivine"
 bug-reports: "https://github.com/Octachron/olivine/issues"
 
-build:[
- ["./configure.sh"]
- [make "vk"]
+build: [
+  ["dune" "build" "-p" name "-j" jobs "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
 ]
 
-
 depends: [
-  "dune" {build}
+  "dune" {>= "3.14.0"}
   "ppxlib" {>= "0.20.0" & != "0.36.0"}
   "xmlm"
   "fmt"

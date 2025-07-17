@@ -1,5 +1,5 @@
 open Info
-let fp = Format.fprintf
+let fp = Format.fprintf [@@warning "-32"]
 let stdout = Format.std_formatter
 
 module N = Common.StringMap

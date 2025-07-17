@@ -541,14 +541,9 @@ module Heat_equation = struct
   let data = Array.init texsize (fun _ -> Random.float 1.)
   let data' = Array.make texsize 0.
 
-  type coord2D = int * int
-  type coord = int * int * int
-
   type dir = X | Y
   type connection = Direct | Reverse
   type edge = { dir: dir; normal: int; lim: int; face:int; len: int }
-  type link = edge * connection * edge
-  type atlas = link list array
 
   let reorient connection edge x =
     let t = if connection = Direct then x else edge.len - x - 1 in
