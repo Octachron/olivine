@@ -15,8 +15,7 @@ build:[
 
 depends: [
   "dune" {build}
-  "ppx_tools_versioned"
-  "ocaml-migrate-parsetree"
+  "ppxlib" {>= "0.20.0"}
   "xmlm"
   "fmt"
   "menhir" {build}

@@ -110,7 +110,7 @@ try to reconstruct higher level types from the types of record fields:
    * The `sType`,`pNext` idiom used to extend records is mapped to a proper
    open sum types.
 
-A array function (`t list -> t Ctypes.CArray) is also provided to ensure that
+An array function (`t list -> t Ctypes.CArray`) is also provided to ensure that
 the GC does not collect the values living on the C side too soon.
 
 ## Function pointer
