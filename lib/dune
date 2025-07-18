@@ -1,7 +1,10 @@
+; Include the generated rule for creating the source files from the XML
+(dynamic_include ../spec/dune.gen)
+
 (library
  (public_name olivine)
  (name vk)
  (libraries ctypes.foreign)
  (wrapped false)
- (flags (:standard -w "-6-27-34-3-32"))
+ (flags (:standard -w "-6-27-34-3-32-67-73"))
 )
