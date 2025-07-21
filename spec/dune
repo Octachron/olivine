@@ -1,0 +1,4 @@
+(rule
+  (target dune.gen)
+  (action (with-stdout-to %{target} (run ../generator/libgen.exe %{deps})))
+  (deps (file vk.xml)))

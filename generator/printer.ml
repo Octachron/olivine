@@ -132,10 +132,10 @@ let atlas (close,ppfs) modules =
   close ()
 
 
-let lib (lib:B.lib) =
+let lib root (lib:B.lib) =
   let open_file target n =
     let f = open_out
-      @@ Fmt.str "%s/%s%a" lib.root n pp_file_extension target in
+      @@ Fmt.str "%s/%s%a" root n pp_file_extension target in
     (fun () -> close_out f), Format.formatter_of_out_channel f in
   let open_files n =
     let cstr, structure = open_file Str n in
@@ -165,3 +165,30 @@ let lib (lib:B.lib) =
     else Fmt.epr "Printing %a submodule@.%!" L.pp_var m.name
   in
   List.iter (pp_sub L.[~:"vk"]) @@ submodules lib.content.sig'
+
+
+(* Print a dune rule for building all the modules *)
+let dune_rule (lib:B.lib) =
+  let pp_module f n =
+    Fmt.pf f "%s.ml\n%s.mli\n" n n
+  in
+  let rec pp_sub current f (m:B.module') =
+    if not (B.is_empty m) then
+      begin
+        let path = current @ [m.name] in
+        if Atlas_set.mem path delim then
+          List.iter (pp_sub path f) (submodules m.sig')
+        else begin
+          pp_module f @@ Fmt.str "%a" pp_concrete_name path
+        end
+      end
+    else Fmt.epr "Printing %a submodule@.%!" L.pp_var m.name
+  in
+  Fmt.pr {|
+    (rule
+      (targets %a %a)
+      (action (run ../generator/libgen.exe %%{deps} .))
+      (deps (file ../spec/vk.xml)))@.
+    |}
+    pp_module "vk"
+    (Fmt.list (pp_sub L.[~:"vk"])) (submodules lib.content.sig')
