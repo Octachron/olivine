@@ -139,8 +139,9 @@ let len_info s =
   let lens = String.split_on_char ',' s in
   let latex = "latexmath" in
   let len = function
+    | "1" -> Ty.Lit 1
     | "null-terminated" -> Ty.Null_terminated
-    | s when is_prefix latex s ->
+    | s when is_prefix latex s ->       (* Might be simpler to use altlen here instead *)
       let n = String.length s in
       let st = String.length latex  in
       let s = String.sub s (st+2) (n-st-3) in
@@ -150,7 +151,6 @@ let len_info s =
       let p = Latex_parser.start Latex_lexer.start (lex ()) in
       debug "parsed, %a" Latex.pp p;
       Ty.Math_expr (Refined_types.math p)
-    | "2*VK_UUID_SIZE" -> (* FIXME *) Const { factor = 2; name = "VK_UUID_SIZE" }
     | s -> len_path s
   in
   List.map len lens
@@ -159,7 +159,10 @@ let array_refine node =
   match node%?("len") with
   | None -> fun x -> x
   | Some s ->
-    let lens = len_info s in
+    let lens : _ Ty.constexpr list =
+      match node%?("altlen") with
+      | Some "2*VK_UUID_SIZE" -> (* FIXME *) [Ty.Const { factor = 2; name = "VK_UUID_SIZE" }]
+      | _ -> len_info s in
     let rec refine l q = match l, q with
       | [Ty.Null_terminated] , Ty.(Const Ptr Name "char") ->
         Ty.String
