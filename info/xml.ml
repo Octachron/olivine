@@ -16,6 +16,8 @@ let pp_name ppf {namespace; name} =
 let pp_attribute ppf (name, value) =
   fp ppf "%a=\"%s\"" pp_name name value
 
+let pp_attributes = Fmt.(iter_bindings M.iter (any " " ++ pp_attribute))
+
 let pp_tag ppf { name; attributes } =
   let attributes = M.bindings attributes in
   fp ppf "<@[<h>%a%s%a@]>" pp_name name (if attributes=[] then "" else " ")
@@ -31,7 +33,8 @@ and node = {
   name: string;
   namespace:string;
   attributes: string M.t;
-  children: xml list
+  children: xml list;
+  pos: Xmlm.pos;
 }
 
 let to_tag ({name; namespace; attributes; _ }: node): tag
@@ -51,14 +54,23 @@ module Infix = struct
   let (%??) n x = M.mem (name x) n.attributes
 end
 
-let tree =
+let tree input =
   let name (namespace,name) = { name;namespace} in
   let attribute m (n,value) = M.add (name n) value m in
   let node ( (namespace, name) ,attributes) children  =
-    { name; namespace; children;
+    { name; namespace; children; pos = Xmlm.pos input;
       attributes = List.fold_left attribute M.empty attributes } in
-  Xmlm.input_doc_tree ~el:(fun t children -> Node (node t children))
+  Xmlm.input_doc_tree input
+    ~el:(fun t children -> Node (node t children))
     ~data:(fun s -> Data s)
+
+let pp_node_loc ppf node =
+  let (lnum, col) = node.pos in
+  Fmt.pf ppf "<%s@[<v>%a>@] near %d:%d" node.name pp_attributes node.attributes lnum col
+
+let pp_xml_loc ppf = function
+  | Data s -> fp ppf "%S" s
+  | Node n  -> pp_node_loc ppf n
 
 let rec pp_xml ppf = function
   | Data s -> fp ppf "\"@,%s@,\"" s

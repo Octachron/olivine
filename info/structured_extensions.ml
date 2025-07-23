@@ -102,7 +102,7 @@ module Extend = struct
           IntMap.add n constr emap
         | _ -> b, emap in
       List.fold_left add' (Bound.all,IntMap.empty) constrs
-    | _ -> raise Not_found
+    | x -> Fmt.failwith "Expected parent enum, but found: %a" Refined_types.Ty.pp_def x
 
 
   let find decorate m0 x m =

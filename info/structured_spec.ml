@@ -132,7 +132,7 @@ let len_path s =
         segm ((sub start curr)::prevs) (curr+2) (curr+3)
       | ':' ->
         segm ((sub start curr)::prevs) (curr+1) (curr+2)
-      | _ -> assert false in
+      | x -> Fmt.failwith "Bad char %C in %S" x s in
   Ty.Path (segm [] 0 1)
 
 let len_info s =
@@ -365,17 +365,22 @@ let require spec node =
   { spec with requires = r :: spec.requires }
 
 
-let types spec =
-  case [ [ "category" $= "include"], c_include spec;
-         [ "category" $= "bitmask"], bitmask spec;
-         [ "category" $=$ ["basetype";"funcpointer"]], typedef spec;
-         [ "category" $= "struct"], structure spec;
-         [ "category" $= "union"], union spec;
-         [ "category" $= "handle"], handle spec;
-         [ "category" $= "enum"], enum spec;
-         [ "requires", any ], require spec;
-       ]
-    spec
+let types spec node =
+  try
+    case [ [ "category" $= "include"], c_include spec;
+           [ "category" $= "bitmask"], bitmask spec;
+           [ "category" $=$ ["basetype";"funcpointer"]], typedef spec;
+           [ "category" $= "struct"], structure spec;
+           [ "category" $= "union"], union spec;
+           [ "category" $= "handle"], handle spec;
+           [ "category" $= "enum"], enum spec;
+           [ "requires", any ], require spec;
+         ]
+      spec node
+  with Failure m ->
+    let bt = Printexc.get_raw_backtrace () in
+    let m = Fmt.str "@[<hv>%s@; at %a@]" m Xml.pp_xml_loc node in
+    Printexc.raise_with_backtrace (Failure m) bt
 
 let vendorid = function
   | Xml.Data s -> type_errorf "VendorId: unexpected data %s" s
