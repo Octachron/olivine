@@ -30,12 +30,18 @@ let preambule =
 ]*)
 
 let () =
-  let info = read Sys.argv.(1) in
-  let dict, _exts = Info.Vulkan_dialect.make info in
-  let lib = Aster.Lib.generate (I.item [] []) dict info in
-  if Array.length Sys.argv > 2 then (
-    let root = Sys.argv.(2) in
-    Printer.lib root lib
-  ) else (
-    Printer.dune_rule lib
-  )
+  try
+    let info = read Sys.argv.(1) in
+    let dict, _exts = Info.Vulkan_dialect.make info in
+    let lib = Aster.Lib.generate (I.item [] []) dict info in
+    if Array.length Sys.argv > 2 then (
+      let root = Sys.argv.(2) in
+      Printer.lib root lib
+    ) else (
+      Printer.dune_rule lib
+    )
+  with Failure msg ->
+    let bt = Printexc.get_raw_backtrace () in
+    Printf.eprintf "%s\n" msg;
+    Printexc.print_raw_backtrace stderr bt;
+    exit 1
