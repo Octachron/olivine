@@ -2,11 +2,11 @@
 Olivine is a binding generator for Vulkan and OCaml.
 It generates OCaml code from the xml specification of the Vulkan API and a modest
 amount of a priori knowledge.
-The bindings themselves use the Ocaml Ctype library.
+The bindings themselves use the OCaml Ctype library.
 
 Olivine aims to generate thin but well-typed bindings.
 
-Currently, the generated bindings covers all vulkan api except for the WSL
+Currently, the generated bindings covers all Vulkan APIs except for the WSL
 extensions (i.e. the interface with the various windows systems) due to a lack
 of OCaml libraries covering the corresponding window systems.
 
@@ -17,8 +17,7 @@ comes with Vulkan suport.
 
 # Installation
 
-If you want to experiment with the current generated bindings, you can try
-(this currently requires to disable opam sandboxing due to the donwloading of the vulkan spec)
+If you want to experiment with the current generated bindings, you can try:
 
 ```bash
   opam pin add olivine https://github.com/Octachron/olivine.git
@@ -36,11 +35,11 @@ and
 make test-tesseract
 ```
 
-or by calling the executable by hand. Using `make test-*` enable the Lunarg standard
+or by calling the executable by hand. Using `make test-*` enable the LunarG standard
 validation layer for a more verbose log.
 
 
-# Generated binding naming conventions :
+# Generated binding naming conventions
 
 First, all names use a snake case convention from type names, enum names, function
 names etc. Second the `vk` prefix is not used in the generated binding. Instead,
@@ -81,45 +80,45 @@ C Enums are mapped either to
 
 Vulkan enum names are prefixed with the type name, olivine removes these prefixes.
 
-## Handle
+## Handles
 
-Handle are mapped to an abstract type
+Handle are mapped to an abstract type.
 
-## Bitset
+## Bitsets
 
 Bitset are mapped to a olivine built-in through the `Bitset.make` functor.
-This type distinguish supports standard set operations and distinguish
+These types support standard set operations and distinguish
 between singleton and non-singleton values through a phantom type parameter
 
 ## Unions
 
 Unions are mapped to a Ctype union type.
-A constructor is generated for each field of the union type
+A constructor is generated for each field of the union type.
 
 ## Records
 
 Records are mapped to a Ctype record type.
-Moreover getter functions and a labelled `make` functions are generated
-for the convenience sake. Like for functions (see next section), olivine
+Moreover getter functions and a labelled `make` function are generated
+for convenience. Like for functions (see next section), olivine
 try to reconstruct higher level types from the types of record fields:
 
-   * Array types are reconstructed in many cases
+   * Array types are reconstructed in many cases.
    * Option types are identified and the corresponding fields are
-     mapped to optional argument
-   * Substructure argument are passed directly and not by reference.
-   * The `sType`,`pNext` idiom used to extend records is mapped to a proper
+     mapped to optional arguments.
+   * Substructure arguments are passed directly and not by reference.
+   * The `sType`, `pNext` idiom used to extend records is mapped to a proper
    open sum types.
 
 An array function (`t list -> t Ctypes.CArray`) is also provided to ensure that
 the GC does not collect the values living on the C side too soon.
 
-## Function pointer
+## Function pointers
 
-Ctypes view are generated for each function pointer typedef
+Ctypes views are generated for each function pointer typedef.
 
-# Function binding
+# Function bindings
 
-Function binding are generated in three different modes: `raw`, `regular` or
+Function bindings are generated in three different modes: `raw`, `regular` or
 `native`.
 
 The raw mode maps directly to the C function.
@@ -127,20 +126,20 @@ The regular mode regularizes the format of structure elements.
 The native mode maps low-level C types to higher level types:
 
 
-* Array types are reconstructed in many cases
-* Constant size  array of characters are transformed to strings
+* Array types are reconstructed in many cases.
+* Constant size arrays of characters are transformed to strings.
 * Option types are identified and the corresponding fields are
-  mapped to optional argument
+  mapped to optional arguments.
 * Output parameters that are the last argument of the function and of a pointer
   kind are identified and are added to the OCaml function output.
-* `VkResult` output type are transformed to a Ocaml's result monad
+* `VkResult` output types are transformed an OCaml `result` monad
    and combined with output parameters when relevant. Note the result type
-   uses polymorphic variant to narrow its type to the effective return type.
-* The Vulkan idiom `void f( size_t* n, ty array[])` where the first integer
+   uses a polymorphic variant to narrow its type to the effective return type.
+* The Vulkan idiom `void f(size_t* n, ty array[])` where the first integer
   argument can be used to retrieve the length of the output array is identified
   and mapped to an array output.
 
-In presence of optional argument, a last unit argument is added
+In the presence of optional arguments, a last unit argument is added.
 
 As an illustration the `vkCreateInstance` function
 ```C
@@ -155,15 +154,33 @@ is mapped to
 
 ```OCaml
 val create_info:
-Vk.Types.Instance_create_info.t ->
-?allocator:Vk.Types.Allocation_callbacks.t Ctypes_static.ptr ->
-unit ->
-([ `Success ] * Vk.Types.Instance.t,
- [ `Error_extension_not_present
- | `Error_incompatible_driver
- | `Error_initialization_failed
- | `Error_layer_not_present
- | `Error_out_of_device_memory
- | `Error_out_of_host_memory ])
-result
+  Vk.Types.Instance_create_info.t ->
+  ?allocator:Vk.Types.Allocation_callbacks.t Ctypes_static.ptr ->
+  unit ->
+    ([ `Success ] * Vk.Types.Instance.t,
+     [ `Error_extension_not_present
+     | `Error_incompatible_driver
+     | `Error_initialization_failed
+     | `Error_layer_not_present
+     | `Error_out_of_device_memory
+     | `Error_out_of_host_memory ])
+    result
 ```
+
+# Internals
+
+The code generator executable is in `generator/libgen.ml`.
+It operates in several stages:
+
+1. The Vulkan XML specification is loaded as an `Info.Xml.xml` tree.
+2. `Info.Structured_spec.typecheck` converts this to an `Info.Structured_spec.spec`.
+   This roughly matches the structure of the XML, but with richer types,
+   and it merges entities from all enabled extensions into the main registry.
+3. `Aster.Lib.generate` creates the tree of modules to be generated (`Aster.Lib.lib`).
+   Each `Aster.Lib.module'` contains a list of items (functions, types, submodules, etc).
+   Aliases in the spec get applied here.
+   Aster uses `Info.Linguistic.name` for names, rather than `string`.
+4. If `libgen` is called without an output directory, it just lists the modules to be generated
+   (this is used by the dune build rules).
+   Otherwise, it calls `Printer.lib` to write out the files.
+5. For each module, the printer calls `item_to_ast` to output each item.
