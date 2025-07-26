@@ -1,6 +1,6 @@
 DUNE=dune build
 SPIR=glslangValidator -V
-
+SPECREF=v1.2.162
 
 .PHONY: lib clean vkspec
 
@@ -8,9 +8,7 @@ lib:
 	$(DUNE) @install @check
 
 vkspec:
-	mkdir -p spec \
-	&& cd spec \
-        && wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/master/xml/vk.xml"
+	wget "https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/${SPECREF}/xml/vk.xml" -O spec/vk.xml
 
 clean:
 	dune clean

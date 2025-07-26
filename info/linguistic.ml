@@ -212,6 +212,7 @@ let prepath =
     | [] -> [] in
   function
   | [] -> []
+  | ["p"; "geometries"] as q -> q               (* Hack: we have both `pGeometries` and `ppGeometries` *)
   | ("p"|"pp") :: q | q -> fixnum q
 
 (*
