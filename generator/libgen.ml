@@ -33,7 +33,7 @@ let () =
   try
     let info = read Sys.argv.(1) in
     let dict, _exts = Info.Vulkan_dialect.make info in
-    let lib = Aster.Lib.generate (I.item [] []) dict info in
+    let lib = Aster.Lib.generate dict info in
     if Array.length Sys.argv > 2 then (
       let root = Sys.argv.(2) in
       Printer.lib root lib
