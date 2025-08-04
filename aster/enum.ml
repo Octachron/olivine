@@ -101,8 +101,8 @@ let pp_result =
 
 let somenone =
   item [%str
-    let none = None
-    let some x = Some x
+    let none: 'a. 'a Option.t = None
+    let some: 'a. 'a -> 'a Option.t = fun x -> Some x
    ]
   []
 
@@ -112,8 +112,9 @@ let view_opt =
              let read x = if x = max_int then
                  none
                else some(of_int x) in
-             let write: _ option -> _ = function None -> max_int
-                                | Some x -> to_int x in
+             let write = function
+               | (None: _ Option.t) -> max_int
+               | (Some x: _ Option.t) -> to_int x in
              Ctypes.view ~read ~write Ctypes.int
     ]
     (val' (L.simple [vn; "opt"]) [%type: t option Ctypes.typ])
@@ -126,8 +127,8 @@ let view_result_opt =
                else some(Ok(of_int x))
              in
              let write: _ option -> _ = function
-               | None -> max_int
-               | Some (Error x| Ok x) -> to_int x in
+               | (None: _ Option.t) -> max_int
+               | (Some (Error x| Ok x): (_,_) Result.t Option.t)  -> to_int x in
              Ctypes.view ~read ~write Ctypes.int
     ]
     (val' (L.simple [vn; "opt"]) [%type: t option Ctypes.typ])

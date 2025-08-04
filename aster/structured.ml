@@ -296,7 +296,7 @@ let set types typ r field value =
   let name = varname % fst and ty = snd in
   let array_len (_, ty as _index) =
     ty_of_int types ty (array_len value.e) in
-  let optzero f = if Inspect.is_option (ty f) then [%expr None] else [%expr 0] in
+  let optzero f = if Inspect.is_option (ty f) then [%expr (None: _ Option.t)] else [%expr 0] in
   let setf f x = setf r f x in
   match field with
   | Ty.Simple(f, (Ptr Name t | Const Ptr Name t)) when Inspect.is_record types t ->
@@ -498,7 +498,9 @@ let ctype_opt (type a) (kind: a kind) types (fields: a list) =
   | None -> nil
   | Some (first, ty) ->
     let null = Nullable.from_type types ty in
-    let write = [%expr (function None -> [%e (var first).e] [%e null.value ] | Some x -> x) ] in
+    let write = [%expr (function
+        | (None: _ Option.t) -> [%e (var first).e] [%e null.value ]
+        | (Some x: _ Option.t) -> x) ] in
     let read = [%expr (fun x -> if [%e null.test]
                           (Ctypes.getf x [%e ident @@ qualify [~:"Fields"] @@ varname first])
                         then None
