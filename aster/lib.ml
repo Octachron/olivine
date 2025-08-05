@@ -64,7 +64,6 @@ end
 type lib = {
   content: module';
   result: int Result.Map.t;
-  preambule: ast_item ;
   builtins: Name_set.t
 }
 
@@ -249,8 +248,6 @@ let core = L.simple["core"]
 let raw = L.simple["raw"]
 let types = L.simple["types"]
 
-let typ_path name = [types; name]
-
 let raw_builtins =
   [ "uint_32_t";  "cametallayer"; "uint_16_t"; "void"; "int_32_t"; "uint_64_t";
    "int_64_t"; "size_t"; "uint_8_t"; "float"; "double"; "int" ]
@@ -261,6 +258,7 @@ let builtins dict =
   L.simple ["bool";"32"]
   :: List.map (rename dict) raw_builtins
 
+(** Remove [p] from [items] and extend the module tree [lib] with it. *)
 let rec generate_ideal core dict registry current
     (items, lib as build) p =
   if not @@ S.mem p items then build else
@@ -370,7 +368,8 @@ let core_submodules prefix =
   List.map (fun m -> Module m)
     [mkforeign prefix core;
      mkforeign prefix raw;
-     make prefix subresult]
+     make prefix subresult;
+     make prefix types]
 
 
 let generate_subextension dict registry branch lib
@@ -431,25 +430,10 @@ let find_submodule name lib =
   List.find (fun m -> m.name = name) lib.content.submodules
 *)
 
-let generate preambule dict (spec:Info.Structured_spec.spec) =
+(* Create the tree of modules to be generated. *)
+let generate dict (spec:Info.Structured_spec.spec) =
   let registry = spec.entities in
-  let submodules =
-    let sig' = let open I in
-      [ ast @@
-        item
-          [%str
-            module Std = struct
-              module Format = Format
-              type 'a t = 'a option = None | Some of 'a
-            end
-          ]
-          [%sig: module Std: sig module Format=Format end]
-        @*
-        item [%str include Vk__builtin__types]
-          [%sig: include (module type of Vk__builtin__types) open Unsigned ]
-      ] in
-    core_submodules [vk]
-    @ [ Module (make ~sig' [vk] types) ] in
+  let submodules = core_submodules [vk] in  (* Skeleton Vk.{Core,Raw,Subresult,Types} *)
   let items =
        S.of_list
     @@ List.filter (filter_extension dict registry)
@@ -462,5 +446,5 @@ let generate preambule dict (spec:Info.Structured_spec.spec) =
     @@ generate_core
       ( fun path -> path @ [core] )
       dict registry [] (items, make ~sig':submodules [] vk) in
-  { preambule; result = result_info dict registry; content;
+  { result = result_info dict registry; content;
     builtins = builtins dict}
