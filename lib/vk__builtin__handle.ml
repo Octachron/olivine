@@ -41,12 +41,12 @@ struct
 
   let array l =
     let a = Ctypes.CArray.of_list t l in
-    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    Vk__helpers.keep_alive (ref l) a;
     a
 
   let array_opt l =
     let a = Ctypes.CArray.of_list ctype_opt (List.map (fun x -> Some x) l) in
-    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    Vk__helpers.keep_alive (ref l) a;
     a
 
 
@@ -74,12 +74,12 @@ struct
 
   let array l =
     let a = Ctypes.CArray.of_list t l in
-    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    Vk__helpers.keep_alive (ref l) a;
     a
 
   let array_opt l =
     let a = Ctypes.CArray.of_list ctype_opt (List.map (fun x -> Some x) l) in
-    Gc.finalise ( fun _ -> let _kept_alive = ref l in () ) a;
+    Vk__helpers.keep_alive (ref l) a;
     a
 
   let to_int64 x = x
