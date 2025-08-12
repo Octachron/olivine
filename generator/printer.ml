@@ -102,6 +102,7 @@ let rec submodules = function
   | _ :: q -> submodules q
   | [] -> []
 
+(* Generate the top-level Vk module with links to all the other generated submodules. *)
 let atlas (close,ppfs) modules =
   let rec pp_alias delim current ppfs (m:B.module') =
     let path = current @ [m.name] in
@@ -152,8 +153,7 @@ let lib root (lib:B.lib) =
           let filename = Fmt.str "%a" pp_concrete_name path in
           let close, ppfs = open_files filename in
           let ast =
-            I.( lib.preambule @*
-                I.fold_map (item_to_ast [m.name] lib) m.sig')
+            I.(fold_map (item_to_ast [m.name] lib) m.sig')
           in
           print Str pps (str ppfs) ast;
           print Sig pps (sg ppfs) ast;
@@ -162,7 +162,7 @@ let lib root (lib:B.lib) =
           close ();
         end
       end
-    else Fmt.epr "Printing %a submodule@.%!" L.pp_var m.name
+    else Fmt.epr "Not printing empty %a submodule@.%!" L.pp_var m.name
   in
   List.iter (pp_sub L.[~:"vk"]) @@ submodules lib.content.sig'
 
