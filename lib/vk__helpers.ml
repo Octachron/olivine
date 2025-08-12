@@ -25,6 +25,13 @@ let convert_string n s =
   done;
   a
 
+(* Keep [block] alive as long as [owner] is.
+   [block] can be a ref, array or tuple. *)
+let keep_alive block owner =
+  try
+    Gc.finalise_last (fun () -> ignore (Sys.opaque_identity block)) owner
+  with Invalid_argument _ -> () (* [owner] may be an empty list - FIXME *)
+
 module Pp = struct
 
   let opt pp ppf = function
