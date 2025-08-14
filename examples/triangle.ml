@@ -11,7 +11,7 @@ module Utils = struct
     | None -> ()
     | Some x -> pp ppf x
 
-  let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
+  let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.%!")
 
   let (<?>) x s = match x with
     | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
@@ -27,7 +27,6 @@ module Utils = struct
       Format.eprintf "Error %a: %s @."
         Vkt.Result.raw_pp k s; exit 1
 
-  let (!) = Ctypes.(!@)
   let (+@) = Ctypes.(+@)
   let ( <-@ ) = Ctypes.( <-@ )
 
@@ -160,11 +159,9 @@ module Device = struct
     | None -> exit 2
     | Some s -> s
 
-  let capabilities =
+  let capabilities () =
     Surface.get_physical_device_surface_capabilities_khr phy surface_khr
     <?> "Surface capabilities"
-
-  ;; debug "Surface capabilities: %a" Vkt.Surface_capabilities_khr.pp capabilities
 
   let supported_formats =
     Surface.get_physical_device_surface_formats_khr phy surface_khr
@@ -203,7 +200,7 @@ let surface_khr = Device.surface_khr
 
 module Swapchain = Vk.Khr.Swapchain(Device)
 
-module Image = struct
+module Images = struct
 
   let surface_format = A.get Device.supported_formats 0
 
@@ -211,11 +208,7 @@ module Image = struct
     let open Vkt.Surface_format_khr in
     surface_format#.format, surface_format#.color_space
 
-  let image_count, extent = let open Vkt.Surface_capabilities_khr in
-    Device.capabilities |> min_image_count,
-    Device.capabilities |> current_extent
-
-  let swap_chain_info =
+  let swap_chain_info ~image_count ~extent =
     let qfi = A.of_list Bt.uint_32_t [0] in
     Vkt.Swapchain_create_info_khr.make
       ~surface: surface_khr
@@ -236,15 +229,13 @@ module Image = struct
       ~old_swapchain:Vkt.Swapchain_khr.null
       ()
 
-  let swap_chain =
-    Swapchain.create_swapchain_khr device swap_chain_info ()
+  let swap_chain info =
+    Swapchain.create_swapchain_khr device info ()
     <?> "swap chain creation"
 
-  let images =
+  let images swap_chain =
     Swapchain.get_swapchain_images_khr device swap_chain
     <?> "Swapchain images"
-
-  ;; debug "Swapchain: %d images" (A.length images)
 
   let component_mapping =
     let id = Vkt.Component_swizzle.Identity in
@@ -267,11 +258,31 @@ module Image = struct
       ~components:component_mapping
       ()
 
-  let views =
+  let views images =
     let create im =
       Vkc.create_image_view device (image_view_info im) ()
       <?> "Creating image view" in
     A.map Vkt.Image_view.ctype create images
+
+  type t = {
+    swap_chain : Vkt.Swapchain_khr.t;
+    views : Vkt.Image_view.t A.t;
+    extent : Vkt.Extent_2d.t;
+  }
+
+  let create () =
+    let capabilities = Device.capabilities () in
+    debug "Surface capabilities: %a" Vkt.Surface_capabilities_khr.pp capabilities;
+    let image_count, extent =
+      let open Vkt.Surface_capabilities_khr in
+      capabilities |> min_image_count,
+      capabilities |> current_extent
+    in
+    let swap_chain = swap_chain (swap_chain_info ~image_count ~extent) in
+    let images = images swap_chain in
+    debug "Swapchain: %d images" (A.length images);
+    let views  = views images in
+    { swap_chain; views; extent }
 
 end
 
@@ -323,9 +334,12 @@ module Pipeline = struct
       ~primitive_restart_enable: false
     ()
 
+  (* Ideally, this would match the current window size. *)
+  let extent = Vkt.Extent_2d.make ~width:512 ~height:512
+
   let viewport =
-    let width = float  Image.extent#.Vkt.Extent_2d.width
-    and height = float Image.extent#.Vkt.Extent_2d.height in
+    let width = float  extent#.Vkt.Extent_2d.width
+    and height = float extent#.Vkt.Extent_2d.height in
   Vkt.Viewport.make ~x: 0. ~y: 0. ~width ~height
       ~min_depth: 0.
       ~max_depth: 1.
@@ -333,7 +347,7 @@ module Pipeline = struct
   let scissor =
     Vkt.Rect_2d.make
       ~offset: (Vkt.Offset_2d.make ~x:0 ~y:0)
-      ~extent:Image.extent
+      ~extent
 
   let viewports = A.of_list Vkt.Viewport.ctype  [viewport]
   let scissors = A.of_list Vkt.Rect_2d.ctype [scissor]
@@ -400,7 +414,7 @@ module Pipeline = struct
 
   let color_attachment =
     Vkt.Attachment_description.make
-      ~format: Image.format
+      ~format: Images.format
       ~samples: Vkt.Sample_count_flags.n1
       ~load_op: Vkt.Attachment_load_op.Clear
       ~store_op: Vkt.Attachment_store_op.Store
@@ -459,24 +473,19 @@ module Pipeline = struct
 end
 
 module Cmd = struct
-
-  let framebuffer_info image =
+  let framebuffer_info ~extent image =
     let images = A.of_list Vkt.Image_view.ctype [image] in
     Vkt.Framebuffer_create_info.make
       ~render_pass: Pipeline.simple_render_pass
       ~attachments: images
-      ~width: Image.extent#.Vkt.Extent_2d.width
-      ~height: Image.extent#.Vkt.Extent_2d.height
+      ~width: extent#.Vkt.Extent_2d.width
+      ~height: extent#.Vkt.Extent_2d.height
       ~layers:  1
       ()
 
-  let framebuffer index =
-    Vkc.create_framebuffer device (framebuffer_info index) ()
+  let framebuffer ~extent index =
+    Vkc.create_framebuffer device (framebuffer_info ~extent index) ()
     <?> "Framebuffer creation"
-
-  let framebuffers = A.map Vkt.Framebuffer.ctype framebuffer Image.views
-
-  let my_fmb = framebuffer
 
   let queue =
     Vkc.get_device_queue device Device.queue_family 0
@@ -491,19 +500,18 @@ module Cmd = struct
     <?> "Command pool creation"
 
   let my_cmd_pool = command_pool
-  let n_cmd_buffers =  (A.length framebuffers)
-  let buffer_allocate_info =
+
+  let buffer_allocate_info views =
+    let n_cmd_buffers = A.length views in
     Vkt.Command_buffer_allocate_info.make
       ~command_pool: my_cmd_pool
       ~level: Vkt.Command_buffer_level.Primary
       ~command_buffer_count: n_cmd_buffers
       ()
 
-  let cmd_buffers =
-    Vkc.allocate_command_buffers device buffer_allocate_info
+  let cmd_buffers views =
+    Vkc.allocate_command_buffers device (buffer_allocate_info views)
     <?> "Command buffers allocation"
-
-  ;;debug "Created %d cmd buffers" n_cmd_buffers
 
   let cmd_begin_info =
     Vkt.Command_buffer_begin_info.make
@@ -538,7 +546,13 @@ module Cmd = struct
       f (A.get a i) (A.get b i)
     done
 
-  let () = iter2 cmd cmd_buffers framebuffers
+  let create images =
+    let cmd_buffers = cmd_buffers images.Images.views in
+    debug "Created %d cmd buffers" (A.length cmd_buffers);
+    let extent = images.Images.extent in
+    let framebuffers = A.map Vkt.Framebuffer.ctype (framebuffer ~extent) images.views in
+    iter2 cmd cmd_buffers framebuffers;
+    cmd_buffers
 end
 
 module Render = struct
@@ -559,55 +573,77 @@ module Render = struct
   let wait_stage = let open Vkt.Pipeline_stage_flags in
     A.of_list ctype [top_of_pipe]
 
-  let submit_info _index (* CHECK-ME *) =
+  let submit_info command_buffers _index (* CHECK-ME *) =
     Vkt.Submit_info.array [
     Vkt.Submit_info.make
       ~wait_semaphores: wait_sems
       ~wait_dst_stage_mask: wait_stage
-      ~command_buffers: Cmd.cmd_buffers
+      ~command_buffers
       ~signal_semaphores: sign_sems ()
   ]
-
-  let swapchains = Vkt.Swapchain_khr.array [Image.swap_chain]
 
   let present_indices = A.of_list Bt.uint_32_t [0]
   (* Warning need to be alive as long as present_info can be used! *)
 
-  let present_info =
+  let present_info swap_chain =
+    let swapchains = Vkt.Swapchain_khr.array [swap_chain] in
     Vkt.Present_info_khr.make
       ~wait_semaphores: sign_sems
       ~swapchains
       ~image_indices: present_indices
       ()
 
-  let debug_draw () =
-    let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
-      ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
-            <?> "Acquire image" in
-    A.set present_indices 0 n;
-    debug "Image %d acquired" n;
-    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
-    <?> "Submitting command to queue";
-    Swapchain.queue_present_khr Cmd.queue present_info
-    <?> "Image presented"
+  type ctx = {
+    images : Images.t;
+    command_buffers : Vkt.Command_buffer.t A.t;
+  }
 
-  let rec acquire_next () =
-      match  Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
+  let create_context () =
+    let images = Images.create () in
+    let command_buffers = Cmd.create images in
+    { images; command_buffers }
+
+  (* todo: do we need to free the old swap chain here? *)
+  let recreate_swap_chain (ctx : ctx ref) =
+    debug "Recreate swap chain";
+    Vkc.device_wait_idle device <?> "Device wait idle";
+    ctx := create_context ()
+
+  let rec acquire_next ctx =
+      let swapchain = !ctx.images.swap_chain in
+      match  Swapchain.acquire_next_image_khr ~device ~swapchain
                ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore () with
       | Ok ((`Success|`Suboptimal_khr), n) -> n
-      | Ok ((`Timeout|`Not_ready), _ ) -> acquire_next ()
+      | Ok ((`Timeout|`Not_ready), _ ) -> acquire_next ctx
+      | Error `Error_out_of_date_khr ->
+        Format.eprintf "Error_out_of_date_khr: Swapchain.acquire_next@.";
+        recreate_swap_chain ctx;
+        acquire_next ctx
       | Error x ->
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.raw_pp x; exit 2)
 
-  let draw () =
-    A.set present_indices 0 @@ acquire_next ();
-    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info present_indices) ()
+  let draw ?(extra_debug=false) ctx () =
+    let cmd_buffers = !ctx.command_buffers in
+    let swap_chain = !ctx.images.swap_chain in
+    let n = acquire_next ctx in
+    A.set present_indices 0 n;
+    if extra_debug then debug "Image %d acquired" n;
+    let ( <!> ) = if extra_debug then ( <?> ) else ( <!> ) in
+    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info cmd_buffers present_indices) ()
     <!> "Submit to queue";
-    Swapchain.queue_present_khr Cmd.queue present_info
-    <!> "Present to queue"
-
+    match Swapchain.queue_present_khr Cmd.queue (present_info swap_chain) with
+    | Ok ((`Success|`Suboptimal_khr) as r, ()) ->
+      if extra_debug then Format.printf "%a: Present to queue@." Vkt.Result.raw_pp r
+    | Error `Error_out_of_date_khr ->
+      Format.printf "Error_out_of_date_khr: Present to queue@.";
+      recreate_swap_chain ctx
+    | Error k ->
+      Format.eprintf "Error %a: Present to queue@."
+        Vkt.Result.raw_pp k; exit 1
 end
 
-;; Render.(debug_draw(); debug_draw ())
-;; Sdl.(event_loop Render.draw e)
+let ctx : Render.ctx ref = ref (Render.create_context ())
+
+;; Render.(draw ~extra_debug:true ctx (); draw ~extra_debug:true ctx ())
+;; Sdl.(event_loop (Render.draw ctx) e)
 ;; debug "End"
