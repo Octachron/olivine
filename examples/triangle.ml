@@ -11,7 +11,7 @@ module Utils = struct
     | None -> ()
     | Some x -> pp ppf x
 
-  let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.")
+  let debug fmt = Format.printf ("Debug: " ^^ fmt ^^ "@.%!")
 
   let (<?>) x s = match x with
     | Ok (r, x) -> Format.printf "%a: %s@." Vkt.Result.raw_pp r s; x
@@ -27,7 +27,6 @@ module Utils = struct
       Format.eprintf "Error %a: %s @."
         Vkt.Result.raw_pp k s; exit 1
 
-  let (!) = Ctypes.(!@)
   let (+@) = Ctypes.(+@)
   let ( <-@ ) = Ctypes.( <-@ )
 
@@ -580,17 +579,6 @@ module Render = struct
       ~image_indices: present_indices
       ()
 
-  let debug_draw () =
-    let n = Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
-      ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore ()
-            <?> "Acquire image" in
-    A.set present_indices 0 n;
-    debug "Image %d acquired" n;
-    Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info n) ()
-    <?> "Submitting command to queue";
-    Swapchain.queue_present_khr Cmd.queue present_info
-    <?> "Image presented"
-
   let rec acquire_next () =
       match  Swapchain.acquire_next_image_khr ~device ~swapchain:Image.swap_chain
                ~timeout:Unsigned.UInt64.max_int ~semaphore:im_semaphore () with
@@ -599,8 +587,11 @@ module Render = struct
       | Error x ->
         (Format.eprintf "Error %a in acquire_next" Vkt.Result.raw_pp x; exit 2)
 
-  let draw () =
-    A.set present_indices 0 @@ acquire_next ();
+  let draw ?(extra_debug=false) () =
+    let n = acquire_next () in
+    A.set present_indices 0 n;
+    if extra_debug then debug "Image %d acquired" n;
+    let ( <!> ) = if extra_debug then ( <?> ) else ( <!> ) in
     Vkc.queue_submit ~queue:Cmd.queue ~submits:(submit_info present_indices) ()
     <!> "Submit to queue";
     Swapchain.queue_present_khr Cmd.queue present_info
@@ -608,6 +599,6 @@ module Render = struct
 
 end
 
-;; Render.(debug_draw(); debug_draw ())
+;; Render.(draw ~extra_debug:true (); draw ~extra_debug:true ())
 ;; Sdl.(event_loop Render.draw e)
 ;; debug "End"
