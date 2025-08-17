@@ -401,14 +401,10 @@ let pp types fields =
   def @@ [%expr [%e sseq sep pp_field fields]; pf ppf "@ }@]"]
 
 let keep_alive exprs owner body =
-  let values = Exp.array @@ List.map (fun e -> [%expr Obj.repr [%e e]]) exprs in
-  [%expr
-    let () = try
-        Gc.finalise_last
-          ( fun () -> let _kept_alive = [%e values] in () ) [%e owner]
-      with Invalid_argument _ -> () (* FIXME *)
-    in [%e body]
-  ]
+  match exprs with
+  | [] -> body
+  | [x] -> [%expr Vk__helpers.keep_alive [%e x] [%e owner]; [%e body]]
+  | exprs -> [%expr Vk__helpers.keep_alive [%e Exp.tuple exprs] [%e owner]; [%e body]]
 
 
 let def_fields (type a) (typename, kind: _ * a kind) types (fields: a list) =
