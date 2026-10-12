@@ -25,6 +25,12 @@ let convert_string n s =
   done;
   a
 
+(* Keep [x] alive as long as [owner] is. *)
+let keep_alive x owner =
+  try
+    Gc.finalise_last (fun () -> ignore (Sys.opaque_identity x)) owner
+  with Invalid_argument _ -> () (* [owner] may be an empty list - FIXME *)
+
 module Pp = struct
 
   let opt pp ppf = function
